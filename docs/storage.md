@@ -110,11 +110,30 @@ dependency.
 - **The folder name is the source of truth** for priority and id. `m.yml` does
   not repeat them, and changing either is a `git mv` so history follows.
 - Entries in `.yman/` that are not directories, or whose names do not match, are
-  ignored entirely (`config.toml`, `.git`, dotfiles).
+  ignored entirely (`config.toml`, `.git`, dotfiles) — except that a directory
+  whose name is a legal status name is descended into, because closed tasks live
+  one level down (below).
 - A directory that matches but fails to load is a **broken task**: `ls` prints it
   with a `!` marker and the parse error; commands that target it fail.
 - Two folders with the same id is an error — `duplicate task id …` — and can
-  only result from a badly resolved merge.
+  only result from a badly resolved merge. The message names paths relative to
+  `.yman`, not folder names, because the two copies can differ only in which
+  status directory they sit in.
+
+### Closed tasks live one level down
+
+A task in a terminal status (§7) is stored at
+`.yman/{status}/{priority}.{id}.{slug}/` instead of at the top level. Only
+`version = 2` does this; a version 1 repository keeps every task flat.
+
+- **`m.yml` is the source of truth, not the path.** A task physically under
+  `done/` whose `m.yml` says `todo` is listed as `todo`, and the next `set`
+  moves it where it belongs. This is what keeps a config change from bricking
+  a repository, the same promise §6 makes about unknown status values.
+- The second level is found by *grammar* — any directory whose name is a legal
+  status name is descended into — not by consulting `statuses.terminal`. A task
+  archived under a status later removed from the list must still be found.
+- Nothing is nested deeper than one level.
 
 ### `slugify(title, max_bytes)`
 
@@ -199,8 +218,12 @@ an em dash. The parser splits on lines starting with `## ` and keeps
 unparsable chunks as raw text, so a hand-edited or union-merged file never makes
 `show` fail.
 
-`.gitattributes` marks `*/d.md` as `merge=union`, so concurrent comments merge
-without a conflict.
+`.gitattributes` marks `**/d.md` as `merge=union`, so concurrent comments merge
+without a conflict. The pattern is `**`, not `*`, because a `*` does not cross a
+`/` and a closed task's discussion is one level deeper. **A repository
+initialized before this shipped still holds the old single-`*` line**; fix it by
+hand in the same commit that raises the version, or comments on closed tasks
+start conflicting.
 
 ## 7. `config.toml`
 
@@ -216,6 +239,11 @@ random_len = 4        # hex chars, random scheme only
 [statuses]
 list = ["todo", "doing", "done"]
 default = "todo"
+# version 2 only, all optional:
+# start = "doing"           # yman start;  default list[1]
+# done = "done"             # yman done;   default list.last()
+# cancel = "cancelled"      # yman cancel; no default
+# terminal = ["done"]       # closed statuses, hidden by ls
 
 [priorities]
 default = 5           # 0..=9
@@ -229,16 +257,77 @@ Validated on every load; each failure is reported as
 
 | Rule |
 |---|
-| `version == 1` |
+| `version` is `1` or `2` |
 | `statuses.list.len() >= 2` |
 | `statuses.list` contains `statuses.default` |
+| `statuses.start`, `.done`, `.cancel`, `.terminal` need `version = 2` |
+| `statuses.start`, `.done`, `.cancel` are in `statuses.list` |
+| every `statuses.terminal` entry is in `statuses.list` |
+| every `statuses.terminal` entry is a usable directory name |
+| `statuses.terminal` has no repeat, and none differing only in ASCII case |
+| `statuses.terminal` contains the done status, and the cancel status when set |
+| `statuses.done` is named whenever `statuses.terminal` lists more than one status |
+| `statuses.terminal` excludes `statuses.default` and the start status (`version = 2` only) |
+| at least one status stays open (`version = 2` only) |
 | `priorities.default <= 9` |
 | `slug.max_bytes` in `1..=240` |
 | `ids.random_len` in `2..=16` |
 
-Derived meanings: the **start** status is `list[1]` (`yman start`), the **done**
-status is `list.last()` (`yman done`, and what `ls` hides by default). `[priorities]`
-and `[slug]` may be omitted entirely.
+`[priorities]` and `[slug]` may be omitted entirely.
+
+### Status roles
+
+Three roles name the statuses the verbs move to, and one list says which
+statuses count as closed:
+
+| Key | Meaning | When unset |
+|---|---|---|
+| `statuses.start` | `yman start` | `list[1]` |
+| `statuses.done` | `yman done` | `list.last()` |
+| `statuses.cancel` | `yman cancel` | the command refuses |
+| `statuses.terminal` | closed: hidden by `ls` | `[done status]` |
+
+Naming them is what stops a reordered `list` from silently changing what
+`yman start` means. For the same reason `statuses.done` is required as soon as
+`statuses.terminal` names more than one status: with one closed status the
+`done ∈ terminal` rule pins it down, but with two, `list.last()` decides what
+`yman done` means and can get it wrong without failing. Leaving them unset reproduces the positional behaviour
+exactly, so an untouched file keeps working.
+
+A terminal status doubles as a directory name (see §5), so it is restricted to
+letters, digits, `_` and `-`, at most 64 bytes, and must not start with `-`.
+That grammar also keeps a status from colliding with `config.toml`, `.git` or a
+task folder, since all of those contain a `.`. Two terminal statuses differing
+only in ASCII case are rejected because they are one directory on macOS and
+Windows.
+
+Three rules — `terminal` excluding `default` and the start status, and keeping
+one status open — apply only at `version = 2`. A version 1 list of
+`["todo", "done"]` derives `start == done == the terminal status` and works
+fine; enforcing the rules against it would reject a config that ships today.
+
+### Opting in to version 2
+
+`yman init` writes `version = 1`, so a new repository stays readable by older
+binaries. Raising the version is a hand edit, and it is what turns archiving on:
+
+```toml
+version = 2
+
+[statuses]
+list = ["todo", "doing", "blocked", "done", "cancelled"]
+default = "todo"
+start = "doing"
+done = "done"
+cancel = "cancelled"
+terminal = ["done", "cancelled"]
+```
+
+Change `*/d.md` to `**/d.md` in `.yman/.gitattributes` in the same commit (§6),
+then commit both.
+From that point an older `yman` refuses the repository outright with
+`unsupported version 2 (this yman understands 1)` — which is the intended
+failure, because it also would not find the archived tasks.
 
 ## 8. Id schemes
 

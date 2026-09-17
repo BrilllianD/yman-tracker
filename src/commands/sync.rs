@@ -89,13 +89,16 @@ fn resume(ctx: &mut Context, no_push: bool) -> Result<()> {
 /// conflict markers.
 fn check_resolved_tasks(ctx: &Context) -> Result<()> {
     let changed = ctx.wt.out(&["diff", "--name-only", "HEAD", "MERGE_HEAD"])?;
+    // A rename/rename conflict lists paths that exist in neither side's final
+    // tree, so the unmerged list names folders the HEAD..MERGE_HEAD diff does
+    // not.
+    let unmerged = ctx.wt.out(&["diff", "--name-only", "--diff-filter=U"])?;
     let mut dirs: Vec<String> = Vec::new();
-    for line in changed.lines() {
-        let Some(first) = line.split('/').next() else {
-            continue;
-        };
-        if FolderName::parse(first).is_some() && !dirs.iter().any(|d| d == first) {
-            dirs.push(first.to_string());
+    for line in changed.lines().chain(unmerged.lines()) {
+        if let Some((rel, _)) = task::task_path_of(line)
+            && !dirs.contains(&rel)
+        {
+            dirs.push(rel);
         }
     }
     for dir in dirs {
@@ -110,9 +113,33 @@ fn check_resolved_tasks(ctx: &Context) -> Result<()> {
             ))
             .into());
         }
-        if let Err(e) = task::load(&path) {
+        if let Err(e) = task::load(&ctx.ydir, &path) {
             return Err(MergePending::new(format!(
                 "conflict markers or invalid task in {dir}: {e:#}"
+            ))
+            .into());
+        }
+    }
+    duplicate_ids_gate(ctx)
+}
+
+/// Closing one task to two different statuses on two clones is a rename/rename
+/// conflict, and git resolves it by keeping *both* folders. Both load, neither
+/// carries a conflict marker, so every other check here passes and the merge
+/// would be committed and pushed with two folders for one id — after which no
+/// command can touch that task again. This is the only thing that catches it.
+fn duplicate_ids_gate(ctx: &Context) -> Result<()> {
+    let mut seen: HashMap<String, String> = HashMap::new();
+    for entry in task::list(&ctx.ydir)? {
+        let rel = entry.rel();
+        let Some(f) = FolderName::parse(&entry.dir_name()) else {
+            continue;
+        };
+        if let Some(first) = seen.insert(f.id.clone(), rel.clone()) {
+            return Err(MergePending::new(format!(
+                "duplicate task id {}: {first}, {rel}; delete one folder, then: \
+                 yman sync --continue",
+                f.id
             ))
             .into());
         }
@@ -270,6 +297,7 @@ fn merge_remote(ctx: &Context) -> Result<()> {
         for f in &files {
             eprintln!("  {f}");
         }
+        report_split_closes(ctx)?;
         return Err(MergePending::new(format!(
             "conflicts in {} file(s); edit them, remove markers, then: yman sync --continue  (or: yman sync --abort)",
             files.len()
@@ -280,30 +308,62 @@ fn merge_remote(ctx: &Context) -> Result<()> {
     bail!("merge failed")
 }
 
+/// Name the two folders when a task was closed to a different status on each
+/// side. The unmerged list alone is baffling here: it includes the task's old
+/// path, which no longer exists on disk, and says nothing about the two folders
+/// that now do.
+fn report_split_closes(ctx: &Context) -> Result<()> {
+    let mut seen: HashMap<String, String> = HashMap::new();
+    for entry in task::list(&ctx.ydir)? {
+        let rel = entry.rel();
+        let Some(f) = FolderName::parse(&entry.dir_name()) else {
+            continue;
+        };
+        if let Some(first) = seen.insert(f.id.clone(), rel.clone()) {
+            eprintln!(
+                "note: task {} was closed to two different statuses; keep one of {first}, {rel}",
+                f.id
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Two people offline with the same id scheme will mint the same id. Ours
 /// moves, because theirs is already published.
 fn renumber_collisions(ctx: &mut Context, base: &str) -> Result<usize> {
+    // A candidate is a task *created* here since the base, and a created task
+    // is one whose `t.md` appeared. Any added file used to qualify, so two
+    // people commenting on the same existing task diverged, and the one who
+    // pushed second had their task renumbered out from under them. `-M` keeps
+    // a folder that merely moved from reading as a fresh addition.
     let local_added = ctx
         .wt
-        .out(&["diff", "--name-only", "--diff-filter=A", base, LOCAL])?;
+        .out(&["diff", "--name-only", "--diff-filter=A", "-M", base, LOCAL])?;
     let mut local_ids: Vec<String> = Vec::new();
     for line in local_added.lines() {
-        let mut segs = line.split('/');
-        let (Some(first), Some(_)) = (segs.next(), segs.next()) else {
-            continue;
-        };
-        if let Some(f) = FolderName::parse(first)
+        if let Some((rel, f)) = task::task_path_of(line)
+            && line == format!("{rel}/{}", task::MD_FILE)
             && !local_ids.contains(&f.id)
         {
             local_ids.push(f.id);
         }
     }
 
-    let remote_tree = ctx.wt.out(&["ls-tree", "-d", "--name-only", REMOTE])?;
+    // `-r` as well as `-d`: on the remote a closed task is a tree one level
+    // down, and without it only the status directory itself would be listed.
+    let remote_tree = ctx
+        .wt
+        .out(&["ls-tree", "-d", "-r", "--name-only", REMOTE])?;
     let mut remote_ids: HashMap<String, String> = HashMap::new();
     for name in remote_tree.lines() {
-        if let Some(f) = FolderName::parse(name.trim()) {
-            remote_ids.insert(f.id, name.trim().to_string());
+        let name = name.trim();
+        // `ls-tree` yields the folder itself, with no file under it, so ask
+        // about a path one segment longer than what `task_path_of` needs.
+        if let Some((rel, f)) = task::task_path_of(&format!("{name}/{}", task::META_FILE))
+            && rel == name
+        {
+            remote_ids.insert(f.id, name.to_string());
         }
     }
 
@@ -335,7 +395,7 @@ fn renumber_collisions(ctx: &mut Context, base: &str) -> Result<usize> {
         let old_rel = t.rel();
         t.folder.id = new.clone();
         let new_rel = t.folder.to_string();
-        ctx.wt.ok(&["mv", &old_rel, &new_rel])?;
+        ctx.wt.ok(&["mv", "--", &old_rel, &new_rel])?;
         t.dir = ctx.ydir.join(&new_rel);
         t.touch();
         t.write_meta()?;

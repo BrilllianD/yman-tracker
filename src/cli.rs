@@ -29,10 +29,16 @@ pub enum Cmd {
     Edit(IdArgs),
     /// Change fields of a task
     Set(SetArgs),
-    /// Move a task to the second status in the list
+    /// Move a task to the start status
     Start(IdArgs),
-    /// Move a task to the last status in the list
+    /// Move a task to the done status
     Done(IdArgs),
+    /// Move a task to any status
+    Move(MoveArgs),
+    /// Move a task to the cancel status
+    Cancel(IdArgs),
+    /// Move a closed task back to the default status
+    Reopen(IdArgs),
     /// Change a task's priority
     Prio(PrioArgs),
     /// Delete a task
@@ -156,6 +162,14 @@ pub struct LsArgs {
 pub struct IdArgs {
     /// Task id
     pub id: String,
+}
+
+#[derive(Args, Debug)]
+pub struct MoveArgs {
+    /// Task id
+    pub id: String,
+    /// Status to move it to
+    pub status: String,
 }
 
 #[derive(Args, Debug)]
@@ -307,6 +321,9 @@ impl Cmd {
                 | Cmd::Set(_)
                 | Cmd::Start(_)
                 | Cmd::Done(_)
+                | Cmd::Move(_)
+                | Cmd::Cancel(_)
+                | Cmd::Reopen(_)
                 | Cmd::Prio(_)
                 | Cmd::Rm(_)
                 | Cmd::Attach(_)

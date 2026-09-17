@@ -115,13 +115,15 @@ One task is one folder:
 .yman/
   config.toml              # committed; shared by everyone on the project
   .gitignore
-  .gitattributes           # */d.md merge=union
+  .gitattributes           # **/d.md merge=union
   2.14.fix-login/
     t.md                   # "# Title" plus a free-form Markdown body
     m.yml                  # status, tags, assignee, timestamps, attachments…
     d.md                   # discussion, append-only  (only once commented)
     f/                     # attachments               (only once attached)
       screenshot.png
+  done/                    # version 2 only: closed tasks, out of the way
+    5.9.old-thing/
 ```
 
 ### The folder name is the data
@@ -201,7 +203,7 @@ it.
 ```sh
 yman ls [-s <status>]... [-t <tag>]... [-a] [--json]
 ```
-Lists tasks sorted by priority, then status order, then id. Tasks in the final
+Lists tasks sorted by priority, then status order, then id. Tasks in a closed
 status are hidden unless you pass `-a` or name that status with `-s`. `-t`
 requires *all* the tags given. Column headers appear only when stdout is a
 terminal, so `yman ls | grep` stays predictable. `--json` prints one object per
@@ -230,8 +232,11 @@ yman set <id> [--status S] [--priority 0-9] [--title T]
               [--tag X]... [--untag X]...
               [--link URL]... [--unlink URL]...
               [--relate ID]... [--unrelate ID]...
-yman start <id>          # = set --status <second status in the list>
-yman done  <id>          # = set --status <last status in the list>
+yman start <id>          # = set --status <start status>
+yman done  <id>          # = set --status <done status>
+yman move <id> <status>  # = set --status <status>
+yman cancel <id>         # = set --status <cancel status>   (version 2)
+yman reopen <id>         # a closed task back to the default status
 yman prio  <id> <0-9>    # = set --priority
 yman edit  <id>          # $VISUAL, else $EDITOR, else vi
 yman rm    <id> [-f]
@@ -316,6 +321,42 @@ max_bytes = 200       # hard cap 240
 a task to the second entry, `yman done` to the last, and `yman ls` hides the
 last one by default. A status that is no longer in the list never breaks a
 task; it is reported, not rejected.
+
+Those last three are *derived from position*, which means inserting a status
+quietly changes what `yman start` does. At `version = 2` you can name them
+instead, and say which statuses count as closed:
+
+```toml
+version = 2
+
+[statuses]
+list = ["todo", "doing", "blocked", "done", "cancelled"]
+default = "todo"
+start = "doing"
+done = "done"
+cancel = "cancelled"
+terminal = ["done", "cancelled"]
+```
+
+`ls` then hides every terminal status, not just the last one. All four keys are
+optional; leaving them out reproduces the positional behaviour exactly.
+
+Version 2 also **files closed tasks one directory down**, at
+`.yman/done/5.1.fix-login/`, so the top level only ever holds open work.
+`yman done` moves the folder there in the same commit as the status change, and
+setting the task back to an open status moves it out again and takes the
+emptied directory with it. `m.yml` stays the source of truth: a task in the
+wrong directory is still listed correctly, and the next `set` puts it where it
+belongs.
+
+Raising the version is a hand edit, and it needs one more: change `*/d.md` to
+`**/d.md` in `.yman/.gitattributes`, or comments on closed tasks stop merging
+cleanly. Existing closed tasks are not moved for you — `yman done <id>` on each
+one does it, and reports `folder <old> -> <new>`.
+
+Two people closing the *same* task to *different* statuses is the one case that
+gets harder: git keeps both folders, and `yman sync` names the pair and asks you
+to delete one. `yman sync --continue` refuses until you do.
 
 ### Choosing an id scheme
 
@@ -417,6 +458,22 @@ a half-merged state. `yman status` shows the same information at any time.
 
 Comments never conflict: `merge=union` keeps both sides.
 
+The exception is closing one task to two *different* statuses at version 2.
+Each side moves the folder somewhere else, git keeps both, and `yman sync` says
+so:
+
+```console
+$ yman sync
+note: task 1 was closed to two different statuses; keep one of done/5.1.fix-login, cancelled/5.1.fix-login
+error: conflicts in 3 file(s); edit them, remove markers, then: yman sync --continue
+
+$ rm -rf .yman/cancelled/5.1.fix-login
+$ yman sync --continue
+```
+
+`--continue` refuses while both folders are there, so the tracker cannot end up
+with two folders for one id.
+
 ---
 
 ## Troubleshooting
@@ -433,6 +490,10 @@ per clone is supported. Remove the other worktree, or use a separate clone.
 
 **`git identity missing`.** yman commits like any other tool; set `user.name`
 and `user.email`.
+
+**`yman path` prints a different path than it used to.** At version 2 a closed
+task lives in `.yman/<status>/`. Shell bookmarks to the old location break;
+`yman path <id>` always knows where it is now.
 
 **A task shows as broken.** Its `t.md` lost its `# Title`, or its `m.yml` will
 not parse — usually a hand-edit or a merge resolved carelessly. `yman ls` shows

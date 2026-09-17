@@ -55,6 +55,19 @@ impl std::fmt::Display for Scheme {
 pub struct StatusesCfg {
     pub list: Vec<String>,
     pub default: String,
+    /// Status `yman start` moves to. `None` falls back to `list[1]`.
+    #[serde(default)]
+    pub start: Option<String>,
+    /// Status `yman done` moves to. `None` falls back to `list.last()`.
+    #[serde(default)]
+    pub done: Option<String>,
+    /// Status `yman cancel` moves to. No fallback; the command needs it set.
+    #[serde(default)]
+    pub cancel: Option<String>,
+    /// Closed statuses: hidden by `ls`, and archived one directory down.
+    /// `None` means "just the done status", which is what version 1 did.
+    #[serde(default)]
+    pub terminal: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -95,23 +108,54 @@ impl Config {
             statuses: StatusesCfg {
                 list: vec!["todo".into(), "doing".into(), "done".into()],
                 default: "todo".into(),
+                start: None,
+                done: None,
+                cancel: None,
+                terminal: None,
             },
             priorities: PrioCfg::default(),
             slug: SlugCfg::default(),
         }
     }
 
-    /// Status that `yman start` moves a task to: the second one in the list.
+    /// Status that `yman start` moves a task to: `statuses.start`, or the
+    /// second entry in the list.
     pub fn start_status(&self) -> &str {
-        &self.statuses.list[1]
+        match &self.statuses.start {
+            Some(s) => s,
+            None => self
+                .statuses
+                .list
+                .get(1)
+                .expect("validated: list has >= 2 entries"),
+        }
     }
 
-    /// Status that `yman done` moves a task to, and that `ls` hides: the last.
+    /// Status that `yman done` moves a task to: `statuses.done`, or the last
+    /// entry in the list.
     pub fn done_status(&self) -> &str {
-        self.statuses
-            .list
-            .last()
-            .expect("validated: list has >= 2 entries")
+        match &self.statuses.done {
+            Some(s) => s,
+            None => self
+                .statuses
+                .list
+                .last()
+                .expect("validated: list has >= 2 entries"),
+        }
+    }
+
+    /// Status that `yman cancel` moves a task to. There is no fallback: a
+    /// project that wants the verb says which status it means.
+    pub fn cancel_status(&self) -> Option<&str> {
+        self.statuses.cancel.as_deref()
+    }
+
+    /// Is this a closed status? `ls` hides these, and version 2 archives them.
+    pub fn is_terminal(&self, s: &str) -> bool {
+        match &self.statuses.terminal {
+            Some(t) => t.iter().any(|x| x == s),
+            None => s == self.done_status(),
+        }
     }
 
     pub fn has_status(&self, s: &str) -> bool {
@@ -127,14 +171,39 @@ impl Config {
             .unwrap_or(self.statuses.list.len())
     }
 
+    /// Directory under `.yman` that a task with this status belongs in, or
+    /// `None` for the top level.
+    ///
+    /// This is the *only* place the archive layout is decided. Putting every
+    /// closed task in one shared directory instead of one per status is a
+    /// change to this function and to the validation rules behind it.
+    pub fn archive_dir<'a>(&self, status: &'a str) -> Option<&'a str> {
+        if self.version >= 2 && self.is_terminal(status) {
+            Some(status)
+        } else {
+            None
+        }
+    }
+
+    /// The effective terminal set, in `statuses.list` order.
+    pub fn terminal_joined(&self) -> String {
+        self.statuses
+            .list
+            .iter()
+            .map(String::as_str)
+            .filter(|s| self.is_terminal(s))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
     pub fn statuses_joined(&self) -> String {
         self.statuses.list.join(", ")
     }
 
     pub fn validate(&self) -> Result<()> {
-        if self.version != 1 {
+        if self.version != 1 && self.version != 2 {
             bail!(
-                "invalid .yman/config.toml: unsupported version {} (this yman understands 1)",
+                "invalid .yman/config.toml: unsupported version {} (this yman understands 1 and 2)",
                 self.version
             );
         }
@@ -147,6 +216,7 @@ impl Config {
                 self.statuses.default
             );
         }
+        self.validate_statuses()?;
         if self.priorities.default > 9 {
             bail!(
                 "invalid .yman/config.toml: priorities.default {} is not in 0..=9",
@@ -164,6 +234,118 @@ impl Config {
                 "invalid .yman/config.toml: ids.random_len {} is not in 2..=16",
                 self.ids.random_len
             );
+        }
+        Ok(())
+    }
+
+    /// The `[statuses]` rules that arrived with version 2. Split out because
+    /// `validate` was already long enough.
+    fn validate_statuses(&self) -> Result<()> {
+        // The roles and the terminal set are a version 2 feature. A version 1
+        // config must keep meaning exactly what it meant before they existed.
+        for (key, set) in [
+            ("start", self.statuses.start.is_some()),
+            ("done", self.statuses.done.is_some()),
+            ("cancel", self.statuses.cancel.is_some()),
+            ("terminal", self.statuses.terminal.is_some()),
+        ] {
+            if set && self.version < 2 {
+                bail!(
+                    "invalid .yman/config.toml: statuses.{key} needs version = 2; \
+                     bump version in .yman/config.toml"
+                );
+            }
+        }
+
+        for (key, value) in [
+            ("start", &self.statuses.start),
+            ("done", &self.statuses.done),
+            ("cancel", &self.statuses.cancel),
+        ] {
+            if let Some(v) = value
+                && !self.has_status(v)
+            {
+                bail!("invalid .yman/config.toml: statuses.{key} \"{v}\" is not in statuses.list");
+            }
+        }
+
+        if let Some(terminal) = &self.statuses.terminal {
+            for (i, e) in terminal.iter().enumerate() {
+                if !self.has_status(e) {
+                    bail!(
+                        "invalid .yman/config.toml: statuses.terminal entry \"{e}\" \
+                         is not in statuses.list"
+                    );
+                }
+                if !is_status_dir_name(e) {
+                    bail!(
+                        "invalid .yman/config.toml: statuses.terminal entry \"{e}\" is not a \
+                         usable directory name; use letters, digits, \"_\" and \"-\""
+                    );
+                }
+                for prev in &terminal[..i] {
+                    if prev == e {
+                        bail!("invalid .yman/config.toml: statuses.terminal lists \"{e}\" twice");
+                    }
+                    // Two names differing only in case are one directory on
+                    // macOS and Windows, so the tasks would silently merge.
+                    if prev.eq_ignore_ascii_case(e) {
+                        bail!(
+                            "invalid .yman/config.toml: statuses.terminal entries \"{prev}\" and \
+                             \"{e}\" differ only in case; they would collide on a \
+                             case-insensitive filesystem"
+                        );
+                    }
+                }
+            }
+            // With one closed status, `done` in `terminal` pins it down. With
+            // two, deriving it from `list.last()` is a coin flip that passes
+            // validation and then quietly makes `yman done` mean "cancelled" —
+            // the positional surprise the roles exist to remove.
+            if terminal.len() > 1 && self.statuses.done.is_none() {
+                bail!(
+                    "invalid .yman/config.toml: statuses.terminal lists more than one closed \
+                     status, so statuses.done must say which one `yman done` means"
+                );
+            }
+            if !self.is_terminal(self.done_status()) {
+                bail!(
+                    "invalid .yman/config.toml: statuses.done \"{}\" is not in statuses.terminal",
+                    self.done_status()
+                );
+            }
+        }
+        if let Some(c) = self.cancel_status()
+            && !self.is_terminal(c)
+        {
+            bail!("invalid .yman/config.toml: statuses.cancel \"{c}\" is not in statuses.terminal");
+        }
+
+        // Only version 2 archives, and only version 2 can name these roles, so
+        // gating here keeps every legal version 1 config legal. A list of
+        // ["todo", "done"] derives start == done == the terminal status, which
+        // would trip all three rules below while working perfectly well.
+        if self.version >= 2 {
+            if self.is_terminal(&self.statuses.default) {
+                bail!(
+                    "invalid .yman/config.toml: statuses.terminal must not contain \
+                     statuses.default \"{}\"",
+                    self.statuses.default
+                );
+            }
+            if self.is_terminal(self.start_status()) {
+                bail!(
+                    "invalid .yman/config.toml: statuses.terminal must not contain the start \
+                     status \"{}\"",
+                    self.start_status()
+                );
+            }
+            if self.statuses.list.iter().all(|s| self.is_terminal(s)) {
+                bail!(
+                    "invalid .yman/config.toml: statuses.terminal marks every status terminal; \
+                     at least one must stay open"
+                );
+            }
         }
         Ok(())
     }
@@ -199,7 +381,7 @@ impl Config {
              random_len = {}        # hex chars, random scheme only\n\n\
              [statuses]\n\
              list = [{}]\n\
-             default = \"{}\"\n\n\
+             default = \"{}\"\n{}\n\
              [priorities]\n\
              default = {}           # 0..=9\n\n\
              [slug]\n\
@@ -214,16 +396,68 @@ impl Config {
                 .collect::<Vec<_>>()
                 .join(", "),
             self.statuses.default,
+            self.render_status_roles(),
             self.priorities.default,
             self.slug.max_bytes,
             SLUG_MAX_BYTES_CAP,
         )
     }
 
+    /// The optional `[statuses]` keys, as lines to append after `default`.
+    /// Empty for version 1, so a version 1 file renders byte for byte as it
+    /// did before these keys existed.
+    fn render_status_roles(&self) -> String {
+        if self.version < 2 {
+            return String::new();
+        }
+        let mut out = String::new();
+        if let Some(v) = &self.statuses.start {
+            out.push_str(&format!(
+                "start = \"{v}\"        # default: second entry in list\n"
+            ));
+        }
+        if let Some(v) = &self.statuses.done {
+            out.push_str(&format!(
+                "done = \"{v}\"         # default: last entry in list\n"
+            ));
+        }
+        if let Some(v) = &self.statuses.cancel {
+            out.push_str(&format!(
+                "cancel = \"{v}\"       # no default; `yman cancel` needs it\n"
+            ));
+        }
+        if let Some(v) = &self.statuses.terminal {
+            let joined = v
+                .iter()
+                .map(|s| format!("\"{s}\""))
+                .collect::<Vec<_>>()
+                .join(", ");
+            out.push_str(&format!(
+                "terminal = [{joined}]  # closed; archived under .yman/<status>/\n"
+            ));
+        }
+        out
+    }
+
     pub fn save(&self, ydir: &Path) -> Result<()> {
         std::fs::write(ydir.join(CONFIG_FILE), self.render())?;
         Ok(())
     }
+}
+
+/// A terminal status doubles as a directory name under `.yman`, so it has to
+/// survive being one. Checked by hand; there is no `regex` dependency.
+///
+/// The grammar also does the work of a reserved-name list: `config.toml`,
+/// `.git`, `.gitignore`, `t.md` and any `{priority}.{id}.{slug}` folder all
+/// contain `.`, which this rejects. A leading `-` is out because `git mv -x`
+/// would read it as a flag.
+pub fn is_status_dir_name(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 64
+        && !s.starts_with('-')
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
 fn first_line(s: &str) -> String {
@@ -274,7 +508,7 @@ mod tests {
 
     #[test]
     fn rejects_bad_version() {
-        reject(&base().replace("version = 1", "version = 2"), "version 2");
+        reject(&base().replace("version = 1", "version = 3"), "version 3");
     }
 
     #[test]
@@ -333,5 +567,236 @@ mod tests {
     #[test]
     fn rejects_garbage() {
         reject("this is not toml at all {", "");
+    }
+
+    /// A version 2 config with the roles and the terminal set spelled out.
+    fn v2() -> String {
+        "version = 2\n[ids]\nscheme = \"seq\"\n\
+         [statuses]\n\
+         list = [\"todo\", \"doing\", \"blocked\", \"done\", \"cancelled\"]\n\
+         default = \"todo\"\n\
+         start = \"doing\"\n\
+         done = \"done\"\n\
+         cancel = \"cancelled\"\n\
+         terminal = [\"done\", \"cancelled\"]\n"
+            .to_string()
+    }
+
+    #[test]
+    fn version_two_names_its_roles() {
+        let cfg = Config::parse(&v2()).unwrap();
+        assert_eq!(cfg.start_status(), "doing");
+        assert_eq!(cfg.done_status(), "done");
+        assert_eq!(cfg.cancel_status(), Some("cancelled"));
+        assert!(cfg.is_terminal("done"));
+        assert!(cfg.is_terminal("cancelled"));
+        assert!(!cfg.is_terminal("blocked"));
+        assert!(!cfg.is_terminal("todo"));
+    }
+
+    /// Positional fallbacks, so an untouched file keeps its meaning.
+    #[test]
+    fn version_one_derives_the_roles_positionally() {
+        let cfg = Config::parse(&base()).unwrap();
+        assert_eq!(cfg.start_status(), "doing");
+        assert_eq!(cfg.done_status(), "done");
+        assert_eq!(cfg.cancel_status(), None);
+        assert!(cfg.is_terminal("done"));
+        assert!(!cfg.is_terminal("doing"));
+    }
+
+    #[test]
+    fn version_two_round_trips() {
+        let cfg = Config::parse(&v2()).unwrap();
+        let again = Config::parse(&cfg.render()).unwrap();
+        assert_eq!(again.statuses.start.as_deref(), Some("doing"));
+        assert_eq!(again.statuses.done.as_deref(), Some("done"));
+        assert_eq!(again.statuses.cancel.as_deref(), Some("cancelled"));
+        assert_eq!(
+            again.statuses.terminal.as_deref(),
+            Some(["done".to_string(), "cancelled".to_string()].as_slice())
+        );
+    }
+
+    #[test]
+    fn rejects_new_keys_on_a_version_one_config() {
+        for key in ["start = \"doing\"", "done = \"done\"", "cancel = \"done\""] {
+            reject(
+                &base().replace("default = \"todo\"", &format!("default = \"todo\"\n{key}")),
+                "needs version = 2",
+            );
+        }
+        reject(
+            &base().replace(
+                "default = \"todo\"",
+                "default = \"todo\"\nterminal = [\"done\"]",
+            ),
+            "needs version = 2",
+        );
+    }
+
+    /// `["todo", "done"]` derives start == done == terminal. It is legal today
+    /// and must stay legal, which is why three of the rules are version-gated.
+    #[test]
+    fn a_two_status_version_one_list_stays_legal() {
+        let text = base().replace(
+            "list = [\"todo\", \"doing\", \"done\"]",
+            "list = [\"todo\", \"done\"]",
+        );
+        let cfg = Config::parse(&text).unwrap();
+        assert_eq!(cfg.start_status(), "done");
+        assert_eq!(cfg.done_status(), "done");
+    }
+
+    #[test]
+    fn rejects_roles_outside_the_list() {
+        for (key, needle) in [
+            ("start", "statuses.start"),
+            ("done", "statuses.done"),
+            ("cancel", "statuses.cancel"),
+        ] {
+            let text = v2().replace(&format!("{key} = "), &format!("{key} = \"nope\" # "));
+            reject(&text, needle);
+            reject(&text, "is not in statuses.list");
+        }
+    }
+
+    #[test]
+    fn rejects_a_terminal_entry_outside_the_list() {
+        reject(
+            &v2().replace(
+                "terminal = [\"done\", \"cancelled\"]",
+                "terminal = [\"nope\"]",
+            ),
+            "statuses.terminal entry \"nope\" is not in statuses.list",
+        );
+    }
+
+    #[test]
+    fn rejects_a_terminal_entry_that_is_not_a_directory_name() {
+        let text = v2()
+            .replace(
+                "list = [\"todo\", \"doing\", \"blocked\", \"done\", \"cancelled\"]",
+                "list = [\"todo\", \"doing\", \"done\", \"won't fix\"]",
+            )
+            .replace("cancel = \"cancelled\"\n", "")
+            .replace(
+                "terminal = [\"done\", \"cancelled\"]",
+                "terminal = [\"done\", \"won't fix\"]",
+            );
+        reject(&text, "is not a usable directory name");
+    }
+
+    #[test]
+    fn rejects_a_repeated_terminal_entry() {
+        reject(
+            &v2().replace("cancel = \"cancelled\"\n", "").replace(
+                "terminal = [\"done\", \"cancelled\"]",
+                "terminal = [\"done\", \"done\"]",
+            ),
+            "lists \"done\" twice",
+        );
+    }
+
+    #[test]
+    fn rejects_terminal_entries_differing_only_in_case() {
+        reject(
+            &v2()
+                .replace(
+                    "list = [\"todo\", \"doing\", \"blocked\", \"done\", \"cancelled\"]",
+                    "list = [\"todo\", \"doing\", \"done\", \"DONE\"]",
+                )
+                .replace("cancel = \"cancelled\"\n", "")
+                .replace(
+                    "terminal = [\"done\", \"cancelled\"]",
+                    "terminal = [\"done\", \"DONE\"]",
+                ),
+            "differ only in case",
+        );
+    }
+
+    #[test]
+    fn rejects_a_done_status_outside_the_terminal_set() {
+        reject(
+            &v2().replace("cancel = \"cancelled\"\n", "").replace(
+                "terminal = [\"done\", \"cancelled\"]",
+                "terminal = [\"cancelled\"]",
+            ),
+            "statuses.done \"done\" is not in statuses.terminal",
+        );
+    }
+
+    /// Two closed statuses and no `statuses.done`: `list.last()` would decide
+    /// what `yman done` means, and get it wrong without saying so.
+    #[test]
+    fn rejects_several_terminal_statuses_without_a_named_done() {
+        reject(
+            &v2().replace("done = \"done\"\n", ""),
+            "statuses.done must say which one",
+        );
+    }
+
+    #[test]
+    fn rejects_a_cancel_status_outside_the_terminal_set() {
+        reject(
+            &v2().replace(
+                "terminal = [\"done\", \"cancelled\"]",
+                "terminal = [\"done\"]",
+            ),
+            "statuses.cancel \"cancelled\" is not in statuses.terminal",
+        );
+    }
+
+    #[test]
+    fn rejects_a_terminal_default_or_start() {
+        reject(
+            &v2().replace(
+                "terminal = [\"done\", \"cancelled\"]",
+                "terminal = [\"todo\", \"done\", \"cancelled\"]",
+            ),
+            "must not contain statuses.default \"todo\"",
+        );
+        reject(
+            &v2().replace(
+                "terminal = [\"done\", \"cancelled\"]",
+                "terminal = [\"doing\", \"done\", \"cancelled\"]",
+            ),
+            "must not contain the start status \"doing\"",
+        );
+    }
+
+    #[test]
+    fn rejects_a_config_with_no_open_status() {
+        reject(
+            "version = 2\n[ids]\nscheme = \"seq\"\n\
+             [statuses]\nlist = [\"todo\", \"done\"]\ndefault = \"todo\"\n\
+             done = \"done\"\nterminal = [\"todo\", \"done\"]\n",
+            "must not contain statuses.default",
+        );
+    }
+
+    /// The grammar is also the reserved-name list: everything yman keeps in
+    /// `.yman` contains a `.`, and so does every task folder.
+    #[test]
+    fn status_dir_grammar_excludes_reserved_and_task_names() {
+        for n in [
+            "config.toml",
+            ".git",
+            ".gitignore",
+            ".gitattributes",
+            "t.md",
+            "m.yml",
+            "d.md",
+            "5.1.slug",
+            "in progress",
+            "-done",
+            "done/x",
+            "",
+        ] {
+            assert!(!is_status_dir_name(n), "accepted {n}");
+        }
+        for n in ["done", "cancelled", "wont_fix", "on-hold", "Done2", "f"] {
+            assert!(is_status_dir_name(n), "rejected {n}");
+        }
     }
 }

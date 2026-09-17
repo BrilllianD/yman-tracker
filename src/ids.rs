@@ -6,7 +6,7 @@
 
 use crate::config::{Config, Scheme};
 use crate::repo::{Context, LOCAL, REMOTE};
-use crate::task::{FolderName, list};
+use crate::task::{FolderName, list, task_path_of};
 use anyhow::{Result, bail};
 use rand::Rng;
 use std::collections::HashSet;
@@ -60,13 +60,10 @@ pub fn ever_assigned(ctx: &Context, refs: &[&str]) -> Result<HashSet<String>> {
         if line.is_empty() {
             continue;
         }
-        let mut segs = line.split('/');
-        let Some(first) = segs.next() else { continue };
-        // Root files (config.toml, .gitignore) have no second segment.
-        if segs.next().is_none() {
-            continue;
-        }
-        if let Some(f) = FolderName::parse(first) {
+        // Both `5.1.x/m.yml` and `done/5.1.x/m.yml` count: an id archived
+        // under a status directory was still assigned, and must never be
+        // handed out again.
+        if let Some((_, f)) = task_path_of(line) {
             ids.insert(f.id);
         }
     }

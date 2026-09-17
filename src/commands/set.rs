@@ -87,18 +87,47 @@ pub fn run(ctx: &mut Context, a: SetArgs) -> Result<()> {
         &mut changes,
     );
 
-    if changes.is_empty() {
-        println!("no changes");
-        return Ok(());
-    }
-
     if title_changed {
         t.folder.slug = task::slugify(&t.title, ctx.config().slug.max_bytes);
     }
-    let new_rel = t.folder.to_string();
-    if new_rel != old_rel {
-        ctx.wt.ok(&["mv", &old_rel, &new_rel])?;
+    // Where the task belongs now. Computed before the "nothing changed" exit,
+    // so a task sitting in the wrong place — a hand edit, a resolved merge, a
+    // config that grew a terminal status — is put right by `yman move <id>
+    // <its own status>` rather than needing a separate repair command.
+    let old_parent = t.parent.clone();
+    t.parent = ctx.config().archive_dir(&t.meta.status).map(str::to_string);
+    let new_rel = t.rel();
+    let relocating = new_rel != old_rel;
+
+    if changes.is_empty() && !relocating {
+        println!("no changes");
+        return Ok(());
+    }
+    if changes.is_empty() {
+        changes.push(Change {
+            token: "folder".to_string(),
+            line: format!("folder {old_rel} -> {new_rel}"),
+        });
+    }
+
+    if relocating {
+        // `git mv a b/a` fails outright when `b` does not exist.
+        if let Some(p) = &t.parent {
+            std::fs::create_dir_all(ctx.ydir.join(p))?;
+        }
+        ctx.wt.ok(&["mv", "--", &old_rel, &new_rel])?;
         t.dir = ctx.ydir.join(&new_rel);
+        if old_parent != t.parent {
+            // Git does not track directories, so the one we left behind is an
+            // untracked leftover. Non-recursive: it fails harmlessly while
+            // other tasks are still in there.
+            if let Some(p) = &old_parent {
+                let _ = std::fs::remove_dir(ctx.ydir.join(p));
+            }
+            // stdout is data. Someone who had cd'd into the folder needs to
+            // hear that it moved, but `yman path` must stay pipeable.
+            eprintln!("note: task folder is now {new_rel}");
+        }
     }
 
     t.touch();
@@ -182,6 +211,34 @@ pub fn run_start(ctx: &mut Context, id: &str) -> Result<()> {
 
 pub fn run_done(ctx: &mut Context, id: &str) -> Result<()> {
     let status = ctx.config().done_status().to_string();
+    one(ctx, id, Some(status), None)
+}
+
+/// `move` is a positional spelling of `set --status`; an unknown status is
+/// rejected by `run` with the wording every other command uses.
+pub fn run_move(ctx: &mut Context, id: &str, status: String) -> Result<()> {
+    one(ctx, id, Some(status), None)
+}
+
+pub fn run_cancel(ctx: &mut Context, id: &str) -> Result<()> {
+    // No fallback: guessing which of several closed statuses means "gave up"
+    // is exactly the positional cleverness the roles exist to remove.
+    let Some(status) = ctx.config().cancel_status().map(str::to_string) else {
+        bail!("no cancel status configured; set statuses.cancel in .yman/config.toml");
+    };
+    one(ctx, id, Some(status), None)
+}
+
+pub fn run_reopen(ctx: &mut Context, id: &str) -> Result<()> {
+    let t = task::find(&ctx.ydir, id)?;
+    if !ctx.config().is_terminal(&t.meta.status) {
+        bail!(
+            "task {id} is not closed (status \"{}\"); closed statuses: {}",
+            t.meta.status,
+            ctx.config().terminal_joined()
+        );
+    }
+    let status = ctx.config().statuses.default.clone();
     one(ctx, id, Some(status), None)
 }
 

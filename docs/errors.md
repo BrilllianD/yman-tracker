@@ -23,6 +23,10 @@ there is no colour anywhere.
 | `2` | usage error | the argument parser, before anything runs |
 | `3` | a sync merge is unresolved | the `MergePending` marker error |
 
+Messages that carry code 3, beyond the preflight and merge ones: a
+`sync --continue` that would leave two folders for one id reports
+`duplicate task id <id>: <relA>, <relB>; delete one folder, then: yman sync --continue`.
+
 Code 3 travels as a distinct error type (`src/errors.rs`) and is recognised in
 `main` by downcasting. Returning the same text as a plain `anyhow` error would
 silently degrade it to code 1, which scripts cannot distinguish from a genuine
@@ -48,8 +52,20 @@ commit.
 | ref already checked out | `refs/yman/local is already checked out in another worktree of this repo; only one .yman per clone is supported` |
 | unknown task | `task <id> not found` |
 | task present but unloadable | `task <id> is broken: <dir>: <why>` |
-| duplicate folders for one id | `duplicate task id <id>: <dirA>, <dirB>` |
+| duplicate folders for one id | `duplicate task id <id>: <relA>, <relB>` — paths relative to `.yman`, so the two may differ only in their status directory |
 | bad status | `unknown status "<s>"; allowed: <list joined by ", ">` |
+| unsupported config version | `invalid .yman/config.toml: unsupported version <n> (this yman understands 1 and 2)` |
+| a status role on a version 1 config | `invalid .yman/config.toml: statuses.<key> needs version = 2; bump version in .yman/config.toml` |
+| a status role outside the list | `invalid .yman/config.toml: statuses.<start\|done\|cancel> "<s>" is not in statuses.list` |
+| a terminal entry outside the list | `invalid .yman/config.toml: statuses.terminal entry "<s>" is not in statuses.list` |
+| a terminal entry unusable as a directory | `invalid .yman/config.toml: statuses.terminal entry "<s>" is not a usable directory name; use letters, digits, "_" and "-"` |
+| a repeated terminal entry | `invalid .yman/config.toml: statuses.terminal lists "<s>" twice` |
+| terminal entries differing only in case | `invalid .yman/config.toml: statuses.terminal entries "<a>" and "<b>" differ only in case; they would collide on a case-insensitive filesystem` |
+| several terminal statuses and no named done | `invalid .yman/config.toml: statuses.terminal lists more than one closed status, so statuses.done must say which one \`yman done\` means` |
+| the done status is not terminal | `invalid .yman/config.toml: statuses.done "<s>" is not in statuses.terminal` |
+| the cancel status is not terminal | `invalid .yman/config.toml: statuses.cancel "<s>" is not in statuses.terminal` |
+| `default` or the start status is terminal | `invalid .yman/config.toml: statuses.terminal must not contain statuses.default "<s>"` / `… must not contain the start status "<s>"` |
+| every status is terminal | `invalid .yman/config.toml: statuses.terminal marks every status terminal; at least one must stay open` |
 | empty title | `title must not be empty` |
 | unknown attachment | `no attachment "<name>" on task <id>` |
 | attachment name already used | `attachment "<name>" already exists on task <id>; use --force` |
@@ -58,6 +74,8 @@ commit.
 | attachment name with a separator | `attachment name "<name>" must not contain a path separator` |
 | `add` onto an existing folder | `folder already exists: <dir>` |
 | empty comment | `empty comment` |
+| `cancel` with no cancel status | `no cancel status configured; set statuses.cancel in .yman/config.toml` |
+| `reopen` on an open task | `task <id> is not closed (status "<s>"); closed statuses: <terminal joined by ", ">` |
 | `rm` with no terminal and no `-f` | `refusing to remove without -f` |
 | editor failed | `editor exited with status N; file left as is` (or `editor was killed by a signal; …`) |
 | no editor resolvable | `no editor configured; set $EDITOR` |
@@ -102,6 +120,8 @@ Never fatal, always stderr:
 | `note: added remote "origin" -> <url>` | `init --remote` created the remote |
 | `note: .yman has uncommitted changes, refresh skipped` | refresh backed off |
 | `note: rewrote N reference(s) to renumbered ids` | a collision renumber moved ids other tasks related to |
+| `note: task <id> was closed to two different statuses; keep one of <relA>, <relB>` | a merge renamed one task into two status directories |
+| `note: task folder is now <rel>` | a status change moved the folder into or out of a status directory |
 
 ## Deliberate non-errors
 
@@ -109,6 +129,8 @@ Never fatal, always stderr:
 - Removing a tag, link or relation that was never there.
 - A `status` value that is no longer in `config.statuses.list`: reported, so a
   config change cannot brick existing tasks.
+- A task folder sitting somewhere other than where its status says it belongs:
+  it is listed correctly, and the next `set` moves it.
 - A fetch that fails only because origin has no `refs/tasks/main` yet.
 - A task folder that fails to load: it becomes a *broken* entry that `ls` shows
   and other commands refuse individually, rather than an error that hides every

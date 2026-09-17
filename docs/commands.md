@@ -18,7 +18,7 @@ Normative, as-built. Companion documents: [storage.md](storage.md),
    down.
 
 Mutating commands, for the purposes of step 2: `add`, `edit`, `set`, `start`,
-`done`, `prio`, `rm`, `attach`, `detach`, `comment`. `sync` is excluded because
+`done`, `move`, `cancel`, `reopen`, `prio`, `rm`, `attach`, `detach`, `comment`. `sync` is excluded because
 it handles `MERGE_HEAD` itself.
 
 ## 2. Commit messages
@@ -32,7 +32,7 @@ interfere. GPG signing is deliberately left to the user's configuration.
 | `init` | `yman: init (<scheme>)` |
 | `add` | `task({id}): add "{title}"` |
 | `edit` | `task({id}): edit` |
-| `set`, `start`, `done`, `prio` | `task({id}): set {pairs}` |
+| `set`, `start`, `done`, `move`, `cancel`, `reopen`, `prio` | `task({id}): set {pairs}` |
 | `rm` | `task({id}): remove "{title}"` |
 | `attach` | `task({id}): attach {name}[, {name}…]` |
 | `detach` | `task({id}): detach {name}` |
@@ -43,7 +43,8 @@ interfere. GPG signing is deliberately left to the user's configuration.
 
 `{title}` has `"` replaced by `'`. `{pairs}` is space-joined, e.g.
 `status=todo->doing priority=5->2 title tags=+ui,-auth` — a changed title
-contributes the bare word `title`, and list fields contribute `+added,-removed`.
+contributes the bare word `title`, a move with no field change contributes
+`folder`, and list fields contribute `+added,-removed`.
 
 `Git::commit` treats "nothing to commit" as success: re-applying an identical
 change inside the same second stages nothing, and the tree already says what the
@@ -58,14 +59,16 @@ status index is the position in `config.statuses.list` and ids compare
 numerically when they are numbers, by numeric tail when they share a `prefix-`,
 lexically otherwise.
 
-Default filtering hides tasks in the final status; `-a` includes them, and
-naming that status with `-s` includes it too. `-t` requires **all** the tags
+Default filtering hides tasks in any **terminal** status — `statuses.terminal`,
+or the done status when that key is unset; `-a` includes them, and naming one
+with `-s` includes it too. `-t` requires **all** the tags
 given. Column headers are printed only when stdout is a terminal. Trailing empty
 columns are omitted, and zero counts render blank rather than `0`.
 
 `--json` emits one object per task —
 `{id, priority, status, title, tags, assignee, created, updated, attachments, comments, dir}` —
-and `{dir, error}` for broken folders. The escaping is hand-rolled; there is no
+and `{dir, error}` for broken folders. `dir` is relative to `.yman` and names the
+status directory for a closed task (`done/5.1.fix-login`). The escaping is hand-rolled; there is no
 `serde_json` dependency.
 
 ### `show`
@@ -80,10 +83,11 @@ The lazy refresh still runs, silently.
 
 ### `log`
 
-`-n` defaults to 20. With an id, it collects every folder name the task has ever
-had by parsing `--diff-filter=R -M` rename records into a graph and walking
-backwards from the current name, then limits the log to those paths — so a task
-that changed priority or title keeps its full history.
+`-n` defaults to 20. With an id, it collects every path the task has ever had by
+parsing `--diff-filter=R -M` rename records into a graph and walking backwards
+from the current one, then limits the log to those paths — so a task that
+changed priority or title, or moved into a status directory, keeps its full
+history.
 
 ## 4. Writing
 
@@ -104,12 +108,15 @@ user's text**; the next `sync` snapshots it. When nothing changed, it prints
 `no changes` and commits nothing. A changed title re-slugs the folder with
 `git mv`.
 
-### `set` (and `start`, `done`, `prio`)
+### `set` (and `start`, `done`, `move`, `cancel`, `reopen`, `prio`)
 
 At least one flag is required, enforced by the argument parser. Changes are
 applied in memory first, then:
 
-1. A changed priority or slug renames the folder with `git mv`.
+1. A changed priority, slug, **or terminal boundary** renames or moves the
+   folder with `git mv`. Crossing the boundary also prints
+   `note: task folder is now <rel>` on stderr — stdout stays data, but someone
+   who had `cd`'d into the folder needs to hear that it moved.
 2. `updated` is touched; `m.yml` is rewritten; `t.md` too when the title moved.
 3. One commit, one printed line per change (`14: status todo -> doing`).
 
@@ -118,7 +125,26 @@ semantics with insertion order preserved: adding a value already present is not
 a change, and removing one that was never there is quietly accepted. When
 nothing at all changed, `set` prints `no changes` and commits nothing.
 
-`start` and `done` resolve to `list[1]` and `list.last()` respectively.
+`start` and `done` resolve to `statuses.start` and `statuses.done`, falling back
+to `list[1]` and `list.last()` when those are unset.
+
+The folder's location is recomputed on every `set`, before the "nothing
+changed" exit. Setting a task's status to the one it already has therefore
+relocates a task that is in the wrong place — a hand edit, a resolved merge, or
+a repository that raised its version with closed tasks already on disk — and
+reports it as `folder <old> -> <new>`, with `folder` as the commit-subject
+token. There is no separate repair command.
+
+The remaining verbs are `set --status` with the status looked up for you:
+
+| Command | Status | When it refuses |
+|---|---|---|
+| `move <id> <status>` | the one you name | unknown status, as for `set` |
+| `cancel <id>` | `statuses.cancel` | the key is unset |
+| `reopen <id>` | `statuses.default` | the task is not in a terminal status |
+
+`cancel` has no fallback on purpose: picking one of several closed statuses by
+position is the guesswork the named roles exist to remove.
 
 ### `rm`
 
@@ -211,8 +237,11 @@ agree with what origin now holds.
 `seq` and `author` mint the same id on two machines working offline. The side
 that is behind moves, because the other side's id is already published.
 
-- Candidates are ids **added locally since the merge base**
-  (`diff --diff-filter=A base LOCAL`) that also exist in `ls-tree REMOTE`.
+- Candidates are ids of tasks **created locally since the merge base** that also
+  exist in `ls-tree -d -r REMOTE`. Created means the task's `t.md` appeared
+  (`diff --diff-filter=A -M base LOCAL`): adding a comment or an attachment to
+  an existing task adds a file under its folder but does not mint an id, and
+  `-M` keeps a folder that merely moved from reading as a new one.
 - The replacement comes from the same scheme, avoiding everything on disk, on
   the remote, and everything ever assigned on either ref. For `author`, the
   original prefix is kept.
@@ -230,8 +259,31 @@ Both require a merge in progress.
 `--continue` treats a file as unresolved while it still carries conflict
 markers — staging is yman's job, since the message tells the user to edit and
 rerun, not to run `git add`. It then checks that every task folder the merge
-touched still loads and is marker-free, stages everything, commits with
-`--no-edit`, and pushes.
+touched still loads and is marker-free, that no id has two folders, stages
+everything, commits with `--no-edit`, and pushes.
+
+The folder list comes from both `HEAD..MERGE_HEAD` and the unmerged paths,
+because a rename conflict names paths that survive in neither tree.
+
+### A task closed to two different statuses
+
+Closing one task to `done` on one clone and `cancelled` on another renames it
+two ways, and git resolves that by keeping **both** folders. Both load, and
+neither holds a conflict marker, so every other check here passes — the
+duplicate-id check is the only thing between that state and a pushed task no
+command can touch afterwards. It reports
+
+```
+duplicate task id 1: cancelled/5.1.fix-login, done/5.1.fix-login; delete one folder, then: yman sync --continue
+```
+
+with exit 3, and `sync` names the same pair on stderr when the merge fails:
+
+```
+note: task 1 was closed to two different statuses; keep one of done/5.1.fix-login, cancelled/5.1.fix-login
+```
+
+Delete the folder you do not want, then rerun `yman sync --continue`.
 
 `--abort` runs `git merge --abort` and reports `merge aborted`.
 
