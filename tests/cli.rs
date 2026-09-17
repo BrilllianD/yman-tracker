@@ -1750,3 +1750,58 @@ fn assignee_flags_conflict() {
         .unwrap();
     assert_eq!(out.status.code(), Some(2));
 }
+
+#[test]
+fn awkward_field_values_survive_a_rewrite() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+
+    // Values that a naive YAML writer would lose: a colon, a leading `#`, a
+    // quote, something that reads as a number, and a trailing space.
+    fx.yman(&fx.a)
+        .args([
+            "set",
+            "1",
+            "--assignee",
+            "O'Brien: lead ",
+            "--tag",
+            "5",
+            "--tag",
+            "#urgent",
+            "--link",
+            "https://example.com/a#b",
+            "--relate",
+            "0x1f",
+        ])
+        .assert()
+        .success();
+
+    let json = stdout(&fx.yman(&fx.a).args(["ls", "--json"]).output().unwrap());
+    assert!(json.contains("O'Brien: lead "), "{json}");
+
+    // Reading the folder back is what proves the file round-tripped: every
+    // command loads `m.yml` before it does anything else.
+    let out = fx.yman(&fx.a).args(["show", "1"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    for expected in [
+        "O'Brien: lead",
+        "5",
+        "#urgent",
+        "https://example.com/a#b",
+        "0x1f",
+    ] {
+        assert!(text.contains(expected), "{expected} missing from\n{text}");
+    }
+
+    // A second write must not drift: the file is identical apart from
+    // `updated`, which `set` touches on purpose.
+    let before = fx.read(&fx.a.join(".yman/5.1.fix-login/m.yml"));
+    fx.yman(&fx.a)
+        .args(["set", "1", "--title", "Fix login"])
+        .assert()
+        .success();
+    let after = fx.read(&fx.a.join(".yman/5.1.fix-login/m.yml"));
+    assert_eq!(before, after, "an unchanged task was rewritten");
+}

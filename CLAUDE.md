@@ -47,9 +47,11 @@ cargo test --test cli <name>                # one integration scenario
 ## Dependencies
 
 The dependency list is deliberately short and should stay that way. There is no
-`regex` (folder names, `t.md` titles and `d.md` headers are parsed by hand) and
-no `serde_json` (`ls --json` escapes its own output). Adding a crate needs a
-reason beyond convenience.
+`regex` (folder names, `t.md` titles and `d.md` headers are parsed by hand), no
+`serde_json` (`ls --json` escapes its own output) and no YAML crate (`m.yml`
+goes through `src/yml.rs`, whose writer is byte-compatible with the
+`serde_yaml` output it replaced). Adding a crate needs a reason beyond
+convenience.
 
 ## Git conventions
 

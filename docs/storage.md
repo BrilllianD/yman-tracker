@@ -169,7 +169,17 @@ related:
 - Timestamps are RFC 3339, UTC, **second precision** (`task::now()` zeroes the
   nanoseconds), serialized with a `Z` suffix.
 - `attachments[].path` is always `f/<name>`.
-- Unknown keys are dropped on rewrite — plain serde, documented and accepted.
+- Unknown keys are dropped on rewrite — documented and accepted.
+- `m.yml` is read and written by hand in `src/yml.rs`; there is no YAML
+  crate. The writer emits exactly the shape above: block sequences at column
+  zero, `[]` for an empty list, `null` for an absent `assignee`, and a scalar
+  quoted only when the plain form would read back as a number, a boolean or
+  null. A value containing newlines becomes a literal block (`|-`, `|`,
+  `|+`).
+- The reader is deliberately wider than the writer, because people edit this
+  file and resolve merge conflicts in it: comments, flow sequences
+  (`tags: [a, b]`), single- and double-quoted scalars, folded blocks (`>-`)
+  and sequences indented under their key are all accepted.
 - A `status` outside `config.statuses.list` is reported, never a hard error, so
   editing the config cannot brick existing tasks.
 

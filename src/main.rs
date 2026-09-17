@@ -9,6 +9,7 @@ mod ids;
 mod refresh;
 mod repo;
 mod task;
+mod yml;
 
 use clap::Parser;
 use cli::Cli;

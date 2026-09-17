@@ -475,6 +475,7 @@ Layout:
 | `src/git.rs` | the `git` runner; every invocation goes through it |
 | `src/repo.rs` | repository discovery, `.yman` state, preflight checks |
 | `src/task.rs` | folder names, slugs, `t.md`/`m.yml`, load and save |
+| `src/yml.rs` | the `m.yml` reader and writer, hand-written |
 | `src/ids.rs` | id generation and what counts as taken |
 | `src/refresh.rs` | the fast-forward policy |
 | `src/commands/` | one module per subcommand |
