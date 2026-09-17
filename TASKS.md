@@ -95,17 +95,6 @@ prints a line, and `ls` otherwise touches no git at all.
 
 ## Dependencies and tooling
 
-### Replace `serde_yaml` — done 2026-09-17
-
-Gone, along with chrono's `serde` feature. `m.yml` is now read and written by
-hand in `src/yml.rs`, in the spirit of the existing `t.md` and `ls --json`
-code. The writer was developed against a differential test — 400,000 randomly
-generated `Meta` values rendered identically to `serde_yaml`, and parsed back to
-the same value — so the on-disk format is unchanged and no existing repository
-is rewritten. The reader accepts more than the writer emits (comments, flow
-sequences, quoted scalars, folded blocks, indented sequences), because people
-hand-edit this file.
-
 ### Add a CI workflow
 
 `CLAUDE.md` calls `cargo clippy --all-targets -- -D warnings` the
@@ -116,11 +105,6 @@ when someone remembers to run it.
 - Done when: pushes and pull requests run `cargo fmt --check`, the clippy gate,
   `cargo test` and `sh scripts/spike-symref.sh` — the same four steps as the
   `verify` skill in `.claude/skills/verify/SKILL.md`.
-
-### Add a LICENSE — done 2026-09-17
-
-MIT, copyright Bronnikov Aleksandr. `LICENSE`, `license = "MIT"` in
-`Cargo.toml`, and a License section in `README.md` all agree.
 
 ---
 
