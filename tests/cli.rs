@@ -1993,3 +1993,44 @@ fn a_split_close_cannot_be_continued_into_a_duplicate_id() {
     assert_eq!(fx.task_rel(&fx.b, "1"), "done/5.1.fix-login");
     assert_eq!(fx.git(&fx.b, &["-C", ".yman", "status", "--porcelain"]), "");
 }
+
+/// Commenting on an existing task is not creating one. Both sides adding a
+/// `d.md` to the same folder used to look like two people minting the same id,
+/// so syncing second renumbered a task that had been published for weeks.
+#[test]
+fn commenting_on_both_sides_does_not_renumber() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+
+    fx.yman(&fx.a)
+        .args(["comment", "1", "-m", "from A"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b)
+        .args(["comment", "1", "-m", "from B"])
+        .assert()
+        .success();
+
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    // The summary always reports a count; it must be zero.
+    assert!(stdout(&out).contains("renumbered 0"), "{}", stdout(&out));
+    assert!(
+        !stdout(&out).contains("(id taken on origin)"),
+        "{}",
+        stdout(&out)
+    );
+    assert!(fx.has_task(&fx.b, "1"), "task 1 was renumbered away");
+    assert!(!fx.has_task(&fx.b, "2"));
+
+    // And with no renumber in the way, the union merge does its job.
+    let shown = stdout(&fx.yman(&fx.b).args(["show", "1"]).output().unwrap());
+    assert!(
+        shown.contains("from A") && shown.contains("from B"),
+        "{shown}"
+    );
+}

@@ -332,12 +332,18 @@ fn report_split_closes(ctx: &Context) -> Result<()> {
 /// Two people offline with the same id scheme will mint the same id. Ours
 /// moves, because theirs is already published.
 fn renumber_collisions(ctx: &mut Context, base: &str) -> Result<usize> {
+    // A candidate is a task *created* here since the base, and a created task
+    // is one whose `t.md` appeared. Any added file used to qualify, so two
+    // people commenting on the same existing task diverged, and the one who
+    // pushed second had their task renumbered out from under them. `-M` keeps
+    // a folder that merely moved from reading as a fresh addition.
     let local_added = ctx
         .wt
-        .out(&["diff", "--name-only", "--diff-filter=A", base, LOCAL])?;
+        .out(&["diff", "--name-only", "--diff-filter=A", "-M", base, LOCAL])?;
     let mut local_ids: Vec<String> = Vec::new();
     for line in local_added.lines() {
-        if let Some((_, f)) = task::task_path_of(line)
+        if let Some((rel, f)) = task::task_path_of(line)
+            && line == format!("{rel}/{}", task::MD_FILE)
             && !local_ids.contains(&f.id)
         {
             local_ids.push(f.id);
@@ -389,7 +395,7 @@ fn renumber_collisions(ctx: &mut Context, base: &str) -> Result<usize> {
         let old_rel = t.rel();
         t.folder.id = new.clone();
         let new_rel = t.folder.to_string();
-        ctx.wt.ok(&["mv", &old_rel, &new_rel])?;
+        ctx.wt.ok(&["mv", "--", &old_rel, &new_rel])?;
         t.dir = ctx.ydir.join(&new_rel);
         t.touch();
         t.write_meta()?;

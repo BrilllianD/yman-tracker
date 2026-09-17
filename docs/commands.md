@@ -213,8 +213,11 @@ agree with what origin now holds.
 `seq` and `author` mint the same id on two machines working offline. The side
 that is behind moves, because the other side's id is already published.
 
-- Candidates are ids **added locally since the merge base**
-  (`diff --diff-filter=A base LOCAL`) that also exist in `ls-tree REMOTE`.
+- Candidates are ids of tasks **created locally since the merge base** that also
+  exist in `ls-tree -d -r REMOTE`. Created means the task's `t.md` appeared
+  (`diff --diff-filter=A -M base LOCAL`): adding a comment or an attachment to
+  an existing task adds a file under its folder but does not mint an id, and
+  `-M` keeps a folder that merely moved from reading as a new one.
 - The replacement comes from the same scheme, avoiding everything on disk, on
   the remote, and everything ever assigned on either ref. For `author`, the
   original prefix is kept.
