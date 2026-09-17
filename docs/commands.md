@@ -43,7 +43,8 @@ interfere. GPG signing is deliberately left to the user's configuration.
 
 `{title}` has `"` replaced by `'`. `{pairs}` is space-joined, e.g.
 `status=todo->doing priority=5->2 title tags=+ui,-auth` — a changed title
-contributes the bare word `title`, and list fields contribute `+added,-removed`.
+contributes the bare word `title`, a move with no field change contributes
+`folder`, and list fields contribute `+added,-removed`.
 
 `Git::commit` treats "nothing to commit" as success: re-applying an identical
 change inside the same second stages nothing, and the tree already says what the
@@ -111,7 +112,10 @@ user's text**; the next `sync` snapshots it. When nothing changed, it prints
 At least one flag is required, enforced by the argument parser. Changes are
 applied in memory first, then:
 
-1. A changed priority or slug renames the folder with `git mv`.
+1. A changed priority, slug, **or terminal boundary** renames or moves the
+   folder with `git mv`. Crossing the boundary also prints
+   `note: task folder is now <rel>` on stderr — stdout stays data, but someone
+   who had `cd`'d into the folder needs to hear that it moved.
 2. `updated` is touched; `m.yml` is rewritten; `t.md` too when the title moved.
 3. One commit, one printed line per change (`14: status todo -> doing`).
 
@@ -120,7 +124,15 @@ semantics with insertion order preserved: adding a value already present is not
 a change, and removing one that was never there is quietly accepted. When
 nothing at all changed, `set` prints `no changes` and commits nothing.
 
-`start` and `done` resolve to `list[1]` and `list.last()` respectively.
+`start` and `done` resolve to `statuses.start` and `statuses.done`, falling back
+to `list[1]` and `list.last()` when those are unset.
+
+The folder's location is recomputed on every `set`, before the "nothing
+changed" exit. Setting a task's status to the one it already has therefore
+relocates a task that is in the wrong place — a hand edit, a resolved merge, or
+a repository that raised its version with closed tasks already on disk — and
+reports it as `folder <old> -> <new>`, with `folder` as the commit-subject
+token. There is no separate repair command.
 
 ### `rm`
 

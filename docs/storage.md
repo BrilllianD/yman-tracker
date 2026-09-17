@@ -218,8 +218,12 @@ an em dash. The parser splits on lines starting with `## ` and keeps
 unparsable chunks as raw text, so a hand-edited or union-merged file never makes
 `show` fail.
 
-`.gitattributes` marks `*/d.md` as `merge=union`, so concurrent comments merge
-without a conflict.
+`.gitattributes` marks `**/d.md` as `merge=union`, so concurrent comments merge
+without a conflict. The pattern is `**`, not `*`, because a `*` does not cross a
+`/` and a closed task's discussion is one level deeper. **A repository
+initialized before this shipped still holds the old single-`*` line**; fix it by
+hand in the same commit that raises the version, or comments on closed tasks
+start conflicting.
 
 ## 7. `config.toml`
 
@@ -315,7 +319,8 @@ cancel = "cancelled"
 terminal = ["done", "cancelled"]
 ```
 
-Fix `.yman/.gitattributes` in the same commit (see §6), then commit both.
+Change `*/d.md` to `**/d.md` in `.yman/.gitattributes` in the same commit (§6),
+then commit both.
 From that point an older `yman` refuses the repository outright with
 `unsupported version 2 (this yman understands 1)` — which is the intended
 failure, because it also would not find the archived tasks.

@@ -8,7 +8,7 @@ use anyhow::{Result, bail};
 use super::sync::{PushResult, push};
 
 const GITIGNORE: &str = "*.swp\n*~\n.#*\n*.orig\n";
-const GITATTRIBUTES: &str = "*/d.md merge=union\n";
+const GITATTRIBUTES: &str = "**/d.md merge=union\n";
 
 pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
     let url = resolve_remote(ctx, a.remote.as_deref())?;

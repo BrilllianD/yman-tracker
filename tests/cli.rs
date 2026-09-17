@@ -2034,3 +2034,185 @@ fn commenting_on_both_sides_does_not_renumber() {
         "{shown}"
     );
 }
+/// Closing a task moves its folder into the status directory, in the same
+/// commit as the status change.
+#[test]
+fn closing_a_task_archives_its_folder() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v2_config(&fx.a);
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+
+    let before = fx.git(&fx.a, &["-C", ".yman", "rev-list", "--count", "HEAD"]);
+    let out = fx.yman(&fx.a).args(["done", "1"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stdout(&out).contains("1: status todo -> done"),
+        "{}",
+        stdout(&out)
+    );
+    assert!(
+        stderr(&out).contains("note: task folder is now done/5.1.fix-login"),
+        "{}",
+        stderr(&out)
+    );
+
+    assert_eq!(fx.task_rel(&fx.a, "1"), "done/5.1.fix-login");
+    assert_eq!(fx.status(&fx.a, "1"), "done");
+    assert!(!fx.a.join(".yman/5.1.fix-login").exists());
+    assert_eq!(fx.git(&fx.a, &["-C", ".yman", "status", "--porcelain"]), "");
+
+    // One commit for the move and the field change together, and the subject
+    // is the one the format already pins.
+    let after = fx.git(&fx.a, &["-C", ".yman", "rev-list", "--count", "HEAD"]);
+    assert_eq!(
+        before.parse::<u32>().unwrap() + 1,
+        after.parse::<u32>().unwrap()
+    );
+    let subject = fx.git(&fx.a, &["-C", ".yman", "log", "-1", "--format=%s"]);
+    assert_eq!(subject, "task(1): set status=todo->done");
+
+    // `yman path` follows the task.
+    let path = stdout(&fx.yman(&fx.a).args(["path", "1"]).output().unwrap());
+    assert!(path.trim().ends_with("/.yman/done/5.1.fix-login"), "{path}");
+
+    // And the history survives the rename.
+    let log = stdout(&fx.yman(&fx.a).args(["log", "1"]).output().unwrap());
+    assert!(log.contains("add \"Fix login\""), "{log}");
+}
+
+/// Reopening moves the folder back out and takes the emptied directory away.
+#[test]
+fn reopening_moves_the_folder_back_and_prunes_the_directory() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v2_config(&fx.a);
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).args(["add", "Other"]).assert().success();
+
+    fx.yman(&fx.a).args(["done", "1"]).assert().success();
+    fx.yman(&fx.a).args(["done", "2"]).assert().success();
+    assert!(fx.a.join(".yman/done").is_dir());
+
+    fx.yman(&fx.a)
+        .args(["set", "1", "--status", "todo"])
+        .assert()
+        .success();
+    assert_eq!(fx.task_rel(&fx.a, "1"), "5.1.fix-login");
+    // Task 2 is still in there, so the directory stays.
+    assert!(fx.a.join(".yman/done").is_dir());
+
+    fx.yman(&fx.a)
+        .args(["set", "2", "--status", "todo"])
+        .assert()
+        .success();
+    assert!(
+        !fx.a.join(".yman/done").exists(),
+        "empty status dir left behind"
+    );
+    assert_eq!(fx.git(&fx.a, &["-C", ".yman", "status", "--porcelain"]), "");
+}
+
+/// A task added straight into a closed status is born in the right place.
+#[test]
+fn adding_into_a_closed_status_lands_in_the_archive() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v2_config(&fx.a);
+    let out = fx
+        .yman(&fx.a)
+        .args(["add", "Already done", "-s", "cancelled"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stdout(&out).contains("cancelled/5.1.already-done"),
+        "{}",
+        stdout(&out)
+    );
+    assert_eq!(fx.task_rel(&fx.a, "1"), "cancelled/5.1.already-done");
+    assert_eq!(fx.git(&fx.a, &["-C", ".yman", "status", "--porcelain"]), "");
+}
+
+/// A version 1 repository never archives, whatever the new binary knows.
+#[test]
+fn version_one_keeps_every_task_flat() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let out = fx.yman(&fx.a).args(["done", "1"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(!stderr(&out).contains("note:"), "{}", stderr(&out));
+    assert_eq!(fx.task_rel(&fx.a, "1"), "5.1.fix-login");
+}
+
+/// Discussions on an archived task still union-merge. `*/d.md` does not match
+/// a path one level deeper, so the pattern had to become `**/d.md`.
+#[test]
+fn comments_on_an_archived_task_merge_without_conflict() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v2_config(&fx.a);
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).args(["done", "1"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+
+    fx.yman(&fx.a)
+        .args(["comment", "1", "-m", "from A"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b)
+        .args(["comment", "1", "-m", "from B"])
+        .assert()
+        .success();
+
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let shown = stdout(&fx.yman(&fx.b).args(["show", "1"]).output().unwrap());
+    assert!(
+        shown.contains("from A") && shown.contains("from B"),
+        "{shown}"
+    );
+}
+
+/// A task in the wrong place — a hand edit, a resolved merge, or a repository
+/// that opted into version 2 with closed tasks already on disk — is put right
+/// by setting its status to what it already is.
+#[test]
+fn setting_a_status_relocates_a_misplaced_task() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    // Closed under version 1, so it stayed flat.
+    fx.yman(&fx.a).args(["done", "1"]).assert().success();
+    assert_eq!(fx.task_rel(&fx.a, "1"), "5.1.fix-login");
+
+    fx.v2_config(&fx.a);
+    // Still listed correctly: m.yml is the source of truth, not the path.
+    let text = stdout(&fx.yman(&fx.a).args(["ls", "-a"]).output().unwrap());
+    assert!(text.contains("done"), "{text}");
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["set", "1", "--status", "done"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stdout(&out).contains("1: folder 5.1.fix-login -> done/5.1.fix-login"),
+        "{}",
+        stdout(&out)
+    );
+    assert_eq!(fx.task_rel(&fx.a, "1"), "done/5.1.fix-login");
+    assert_eq!(fx.git(&fx.a, &["-C", ".yman", "status", "--porcelain"]), "");
+
+    // Nothing left to do the second time.
+    let out = fx
+        .yman(&fx.a)
+        .args(["set", "1", "--status", "done"])
+        .output()
+        .unwrap();
+    assert_eq!(stdout(&out).trim(), "no changes");
+}

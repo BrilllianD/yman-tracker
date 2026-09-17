@@ -118,6 +118,7 @@ Never fatal, always stderr:
 | `note: .yman has uncommitted changes, refresh skipped` | refresh backed off |
 | `note: rewrote N reference(s) to renumbered ids` | a collision renumber moved ids other tasks related to |
 | `note: task <id> was closed to two different statuses; keep one of <relA>, <relB>` | a merge renamed one task into two status directories |
+| `note: task folder is now <rel>` | a status change moved the folder into or out of a status directory |
 
 ## Deliberate non-errors
 
@@ -125,6 +126,8 @@ Never fatal, always stderr:
 - Removing a tag, link or relation that was never there.
 - A `status` value that is no longer in `config.statuses.list`: reported, so a
   config change cannot brick existing tasks.
+- A task folder sitting somewhere other than where its status says it belongs:
+  it is listed correctly, and the next `set` moves it.
 - A fetch that fails only because origin has no `refs/tasks/main` yet.
 - A task folder that fails to load: it becomes a *broken* entry that `ls` shows
   and other commands refuse individually, rather than an error that hides every

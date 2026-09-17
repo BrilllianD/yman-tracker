@@ -40,7 +40,13 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
         id: id.clone(),
         slug: task::slugify(&title, ctx.config().slug.max_bytes),
     };
-    let dir = ctx.ydir.join(folder.to_string());
+    // A task added straight into a closed status is born in its archive
+    // directory rather than being created and immediately moved.
+    let parent = ctx.config().archive_dir(&status).map(str::to_string);
+    let dir = match &parent {
+        Some(p) => ctx.ydir.join(p).join(folder.to_string()),
+        None => ctx.ydir.join(folder.to_string()),
+    };
     if dir.exists() {
         bail!("folder already exists: {}", folder);
     }
@@ -48,7 +54,7 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
     std::fs::create_dir_all(&dir)?;
     let mut t = Task {
         folder,
-        parent: None,
+        parent,
         dir,
         title,
         body: a.message.unwrap_or_default(),
@@ -66,9 +72,11 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
         // is a plain rename rather than a `git mv`.
         let slug = task::slugify(&t.title, ctx.config().slug.max_bytes);
         if slug != t.folder.slug {
-            let new_dir = ctx
-                .ydir
-                .join(format!("{}.{}.{}", t.folder.priority, t.folder.id, slug));
+            let name = format!("{}.{}.{}", t.folder.priority, t.folder.id, slug);
+            let new_dir = match &t.parent {
+                Some(p) => ctx.ydir.join(p).join(&name),
+                None => ctx.ydir.join(&name),
+            };
             std::fs::rename(&t.dir, &new_dir)?;
             t.folder.slug = slug;
             t.dir = new_dir;

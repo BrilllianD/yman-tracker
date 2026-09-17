@@ -171,6 +171,20 @@ impl Config {
             .unwrap_or(self.statuses.list.len())
     }
 
+    /// Directory under `.yman` that a task with this status belongs in, or
+    /// `None` for the top level.
+    ///
+    /// This is the *only* place the archive layout is decided. Putting every
+    /// closed task in one shared directory instead of one per status is a
+    /// change to this function and to the validation rules behind it.
+    pub fn archive_dir<'a>(&self, status: &'a str) -> Option<&'a str> {
+        if self.version >= 2 && self.is_terminal(status) {
+            Some(status)
+        } else {
+            None
+        }
+    }
+
     pub fn statuses_joined(&self) -> String {
         self.statuses.list.join(", ")
     }

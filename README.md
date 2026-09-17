@@ -336,6 +336,23 @@ terminal = ["done", "cancelled"]
 `ls` then hides every terminal status, not just the last one. All four keys are
 optional; leaving them out reproduces the positional behaviour exactly.
 
+Version 2 also **files closed tasks one directory down**, at
+`.yman/done/5.1.fix-login/`, so the top level only ever holds open work.
+`yman done` moves the folder there in the same commit as the status change, and
+setting the task back to an open status moves it out again and takes the
+emptied directory with it. `m.yml` stays the source of truth: a task in the
+wrong directory is still listed correctly, and the next `set` puts it where it
+belongs.
+
+Raising the version is a hand edit, and it needs one more: change `*/d.md` to
+`**/d.md` in `.yman/.gitattributes`, or comments on closed tasks stop merging
+cleanly. Existing closed tasks are not moved for you — `yman done <id>` on each
+one does it, and reports `folder <old> -> <new>`.
+
+Two people closing the *same* task to *different* statuses is the one case that
+gets harder: git keeps both folders, and `yman sync` names the pair and asks you
+to delete one. `yman sync --continue` refuses until you do.
+
 ### Choosing an id scheme
 
 Pick this at `yman init`; it is stored in `config.toml` and cannot be changed
