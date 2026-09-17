@@ -4,7 +4,6 @@
 
 use anyhow::{Result, bail};
 use chrono::{DateTime, Timelike, Utc};
-use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::path::{Path, PathBuf};
 
@@ -24,24 +23,19 @@ pub fn format_ts(ts: &DateTime<Utc>) -> String {
     ts.format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Meta {
     pub status: String,
-    #[serde(default)]
     pub tags: Vec<String>,
-    #[serde(default)]
     pub assignee: Option<String>,
     pub created: DateTime<Utc>,
     pub updated: DateTime<Utc>,
-    #[serde(default)]
     pub attachments: Vec<Attachment>,
-    #[serde(default)]
     pub links: Vec<String>,
-    #[serde(default)]
     pub related: Vec<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Attachment {
     /// Relative to the task folder, always `f/<name>`.
     pub path: String,
@@ -229,7 +223,7 @@ pub fn load(dir: &Path) -> Result<Task> {
     let yml = std::fs::read_to_string(dir.join(META_FILE))
         .map_err(|e| anyhow::anyhow!("cannot read {META_FILE}: {e}"))?;
     let meta: Meta =
-        serde_yaml::from_str(&yml).map_err(|e| anyhow::anyhow!("invalid {META_FILE}: {e}"))?;
+        crate::yml::parse(&yml).map_err(|e| anyhow::anyhow!("invalid {META_FILE}: {e:#}"))?;
     Ok(Task {
         folder,
         dir: dir.to_path_buf(),
@@ -308,7 +302,7 @@ impl Task {
     }
 
     pub fn write_meta(&self) -> Result<()> {
-        let yml = serde_yaml::to_string(&self.meta)?;
+        let yml = crate::yml::render(&self.meta);
         std::fs::write(self.dir.join(META_FILE), yml)?;
         Ok(())
     }

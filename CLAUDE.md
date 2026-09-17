@@ -47,15 +47,22 @@ cargo test --test cli <name>                # one integration scenario
 ## Dependencies
 
 The dependency list is deliberately short and should stay that way. There is no
-`regex` (folder names, `t.md` titles and `d.md` headers are parsed by hand) and
-no `serde_json` (`ls --json` escapes its own output). Adding a crate needs a
-reason beyond convenience.
+`regex` (folder names, `t.md` titles and `d.md` headers are parsed by hand), no
+`serde_json` (`ls --json` escapes its own output) and no YAML crate (`m.yml`
+goes through `src/yml.rs`, whose writer is byte-compatible with the
+`serde_yaml` output it replaced). Adding a crate needs a reason beyond
+convenience.
 
 ## Git conventions
 
 - Conventional Commits: `feat:`, `fix:`, `test:`, `docs:`, `style:`. Subject in
   the imperative; body explains *why*, not what the diff already shows.
 - Work on a feature branch and merge it — do not commit straight to `master`.
+- Commit each task from `TASKS.md` as soon as it is finished, before starting
+  the next one: run the gate (`.claude/skills/verify`), commit the code, the
+  tests, the docs and the `TASKS.md` entry together, and say so. One task per
+  commit keeps the history reviewable and the working tree honest — do not let
+  finished tasks pile up uncommitted.
 - `.git/hooks/pre-commit` rejects a commit when `cargo fmt --check` fails.
 
 ## Specification
