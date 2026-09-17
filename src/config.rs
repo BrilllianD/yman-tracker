@@ -298,6 +298,16 @@ impl Config {
                     }
                 }
             }
+            // With one closed status, `done` in `terminal` pins it down. With
+            // two, deriving it from `list.last()` is a coin flip that passes
+            // validation and then quietly makes `yman done` mean "cancelled" —
+            // the positional surprise the roles exist to remove.
+            if terminal.len() > 1 && self.statuses.done.is_none() {
+                bail!(
+                    "invalid .yman/config.toml: statuses.terminal lists more than one closed \
+                     status, so statuses.done must say which one `yman done` means"
+                );
+            }
             if !self.is_terminal(self.done_status()) {
                 bail!(
                     "invalid .yman/config.toml: statuses.done \"{}\" is not in statuses.terminal",
@@ -716,6 +726,16 @@ mod tests {
         );
     }
 
+    /// Two closed statuses and no `statuses.done`: `list.last()` would decide
+    /// what `yman done` means, and get it wrong without saying so.
+    #[test]
+    fn rejects_several_terminal_statuses_without_a_named_done() {
+        reject(
+            &v2().replace("done = \"done\"\n", ""),
+            "statuses.done must say which one",
+        );
+    }
+
     #[test]
     fn rejects_a_cancel_status_outside_the_terminal_set() {
         reject(
@@ -750,7 +770,7 @@ mod tests {
         reject(
             "version = 2\n[ids]\nscheme = \"seq\"\n\
              [statuses]\nlist = [\"todo\", \"done\"]\ndefault = \"todo\"\n\
-             terminal = [\"todo\", \"done\"]\n",
+             done = \"done\"\nterminal = [\"todo\", \"done\"]\n",
             "must not contain statuses.default",
         );
     }

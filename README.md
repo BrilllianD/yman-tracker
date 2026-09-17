@@ -115,13 +115,15 @@ One task is one folder:
 .yman/
   config.toml              # committed; shared by everyone on the project
   .gitignore
-  .gitattributes           # */d.md merge=union
+  .gitattributes           # **/d.md merge=union
   2.14.fix-login/
     t.md                   # "# Title" plus a free-form Markdown body
     m.yml                  # status, tags, assignee, timestamps, attachments…
     d.md                   # discussion, append-only  (only once commented)
     f/                     # attachments               (only once attached)
       screenshot.png
+  done/                    # version 2 only: closed tasks, out of the way
+    5.9.old-thing/
 ```
 
 ### The folder name is the data
@@ -456,6 +458,22 @@ a half-merged state. `yman status` shows the same information at any time.
 
 Comments never conflict: `merge=union` keeps both sides.
 
+The exception is closing one task to two *different* statuses at version 2.
+Each side moves the folder somewhere else, git keeps both, and `yman sync` says
+so:
+
+```console
+$ yman sync
+note: task 1 was closed to two different statuses; keep one of done/5.1.fix-login, cancelled/5.1.fix-login
+error: conflicts in 3 file(s); edit them, remove markers, then: yman sync --continue
+
+$ rm -rf .yman/cancelled/5.1.fix-login
+$ yman sync --continue
+```
+
+`--continue` refuses while both folders are there, so the tracker cannot end up
+with two folders for one id.
+
 ---
 
 ## Troubleshooting
@@ -472,6 +490,10 @@ per clone is supported. Remove the other worktree, or use a separate clone.
 
 **`git identity missing`.** yman commits like any other tool; set `user.name`
 and `user.email`.
+
+**`yman path` prints a different path than it used to.** At version 2 a closed
+task lives in `.yman/<status>/`. Shell bookmarks to the old location break;
+`yman path <id>` always knows where it is now.
 
 **A task shows as broken.** Its `t.md` lost its `# Title`, or its `m.yml` will
 not parse — usually a hand-edit or a merge resolved carelessly. `yman ls` shows

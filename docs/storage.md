@@ -266,6 +266,7 @@ Validated on every load; each failure is reported as
 | every `statuses.terminal` entry is a usable directory name |
 | `statuses.terminal` has no repeat, and none differing only in ASCII case |
 | `statuses.terminal` contains the done status, and the cancel status when set |
+| `statuses.done` is named whenever `statuses.terminal` lists more than one status |
 | `statuses.terminal` excludes `statuses.default` and the start status (`version = 2` only) |
 | at least one status stays open (`version = 2` only) |
 | `priorities.default <= 9` |
@@ -287,7 +288,10 @@ statuses count as closed:
 | `statuses.terminal` | closed: hidden by `ls` | `[done status]` |
 
 Naming them is what stops a reordered `list` from silently changing what
-`yman start` means. Leaving them unset reproduces the positional behaviour
+`yman start` means. For the same reason `statuses.done` is required as soon as
+`statuses.terminal` names more than one status: with one closed status the
+`done ∈ terminal` rule pins it down, but with two, `list.last()` decides what
+`yman done` means and can get it wrong without failing. Leaving them unset reproduces the positional behaviour
 exactly, so an untouched file keeps working.
 
 A terminal status doubles as a directory name (see §5), so it is restricted to

@@ -67,7 +67,8 @@ columns are omitted, and zero counts render blank rather than `0`.
 
 `--json` emits one object per task —
 `{id, priority, status, title, tags, assignee, created, updated, attachments, comments, dir}` —
-and `{dir, error}` for broken folders. The escaping is hand-rolled; there is no
+and `{dir, error}` for broken folders. `dir` is relative to `.yman` and names the
+status directory for a closed task (`done/5.1.fix-login`). The escaping is hand-rolled; there is no
 `serde_json` dependency.
 
 ### `show`

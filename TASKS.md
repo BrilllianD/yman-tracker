@@ -176,13 +176,19 @@ prints a line, and `ls` otherwise touches no git at all.
 ### `find` by folder name only
 
 `task::find` calls `list`, which reads `t.md` and `m.yml` for every folder in
-`.yman/`, then keeps the one whose id matches. Every `show`, `set`, `comment`
-and `attach` therefore pays for every done task on disk.
+`.yman/` and in every status directory, then keeps the one whose id matches.
+Every `show`, `set`, `comment` and `attach` therefore pays for every closed task
+on disk.
+
+Archiving closed tasks took the edge off this — the common case is an open task,
+and `list` could stop descending into the status directories once it has a hit
+at the top level — but it did not fix it, and it added a second level to walk.
 
 - Where: `src/task.rs`
-- Done when: `find` parses directory names with `FolderName::parse`, loads
-  only the matching folder, still reports `duplicate task id …` from the
-  names alone, and the broken-folder error path is unchanged.
+- Done when: `find` parses directory names with `FolderName::parse` at both
+  levels, loads only the matching folder, still reports `duplicate task id …`
+  from the names alone (relative paths, since two copies can share a leaf
+  name), and the broken-folder error path is unchanged.
 
 ### Measure the cost of `ever_assigned` before deciding anything
 

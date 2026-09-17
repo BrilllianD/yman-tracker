@@ -61,6 +61,7 @@ commit.
 | a terminal entry unusable as a directory | `invalid .yman/config.toml: statuses.terminal entry "<s>" is not a usable directory name; use letters, digits, "_" and "-"` |
 | a repeated terminal entry | `invalid .yman/config.toml: statuses.terminal lists "<s>" twice` |
 | terminal entries differing only in case | `invalid .yman/config.toml: statuses.terminal entries "<a>" and "<b>" differ only in case; they would collide on a case-insensitive filesystem` |
+| several terminal statuses and no named done | `invalid .yman/config.toml: statuses.terminal lists more than one closed status, so statuses.done must say which one \`yman done\` means` |
 | the done status is not terminal | `invalid .yman/config.toml: statuses.done "<s>" is not in statuses.terminal` |
 | the cancel status is not terminal | `invalid .yman/config.toml: statuses.cancel "<s>" is not in statuses.terminal` |
 | `default` or the start status is terminal | `invalid .yman/config.toml: statuses.terminal must not contain statuses.default "<s>"` / `… must not contain the start status "<s>"` |
