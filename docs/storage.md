@@ -216,6 +216,11 @@ random_len = 4        # hex chars, random scheme only
 [statuses]
 list = ["todo", "doing", "done"]
 default = "todo"
+# version 2 only, all optional:
+# start = "doing"           # yman start;  default list[1]
+# done = "done"             # yman done;   default list.last()
+# cancel = "cancelled"      # yman cancel; no default
+# terminal = ["done"]       # closed statuses, hidden by ls
 
 [priorities]
 default = 5           # 0..=9
@@ -229,16 +234,72 @@ Validated on every load; each failure is reported as
 
 | Rule |
 |---|
-| `version == 1` |
+| `version` is `1` or `2` |
 | `statuses.list.len() >= 2` |
 | `statuses.list` contains `statuses.default` |
+| `statuses.start`, `.done`, `.cancel`, `.terminal` need `version = 2` |
+| `statuses.start`, `.done`, `.cancel` are in `statuses.list` |
+| every `statuses.terminal` entry is in `statuses.list` |
+| every `statuses.terminal` entry is a usable directory name |
+| `statuses.terminal` has no repeat, and none differing only in ASCII case |
+| `statuses.terminal` contains the done status, and the cancel status when set |
+| `statuses.terminal` excludes `statuses.default` and the start status (`version = 2` only) |
+| at least one status stays open (`version = 2` only) |
 | `priorities.default <= 9` |
 | `slug.max_bytes` in `1..=240` |
 | `ids.random_len` in `2..=16` |
 
-Derived meanings: the **start** status is `list[1]` (`yman start`), the **done**
-status is `list.last()` (`yman done`, and what `ls` hides by default). `[priorities]`
-and `[slug]` may be omitted entirely.
+`[priorities]` and `[slug]` may be omitted entirely.
+
+### Status roles
+
+Three roles name the statuses the verbs move to, and one list says which
+statuses count as closed:
+
+| Key | Meaning | When unset |
+|---|---|---|
+| `statuses.start` | `yman start` | `list[1]` |
+| `statuses.done` | `yman done` | `list.last()` |
+| `statuses.cancel` | `yman cancel` | the command refuses |
+| `statuses.terminal` | closed: hidden by `ls` | `[done status]` |
+
+Naming them is what stops a reordered `list` from silently changing what
+`yman start` means. Leaving them unset reproduces the positional behaviour
+exactly, so an untouched file keeps working.
+
+A terminal status doubles as a directory name (see §5), so it is restricted to
+letters, digits, `_` and `-`, at most 64 bytes, and must not start with `-`.
+That grammar also keeps a status from colliding with `config.toml`, `.git` or a
+task folder, since all of those contain a `.`. Two terminal statuses differing
+only in ASCII case are rejected because they are one directory on macOS and
+Windows.
+
+Three rules — `terminal` excluding `default` and the start status, and keeping
+one status open — apply only at `version = 2`. A version 1 list of
+`["todo", "done"]` derives `start == done == the terminal status` and works
+fine; enforcing the rules against it would reject a config that ships today.
+
+### Opting in to version 2
+
+`yman init` writes `version = 1`, so a new repository stays readable by older
+binaries. Raising the version is a hand edit, and it is what turns archiving on:
+
+```toml
+version = 2
+
+[statuses]
+list = ["todo", "doing", "blocked", "done", "cancelled"]
+default = "todo"
+start = "doing"
+done = "done"
+cancel = "cancelled"
+terminal = ["done", "cancelled"]
+```
+
+Fix `.yman/.gitattributes` in the same commit (see §6), then commit both.
+From that point an older `yman` refuses the repository outright with
+`unsupported version 2 (this yman understands 1)` — which is the intended
+failure, because it also would not find the archived tasks.
 
 ## 8. Id schemes
 

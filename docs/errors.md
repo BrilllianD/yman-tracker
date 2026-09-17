@@ -50,6 +50,17 @@ commit.
 | task present but unloadable | `task <id> is broken: <dir>: <why>` |
 | duplicate folders for one id | `duplicate task id <id>: <dirA>, <dirB>` |
 | bad status | `unknown status "<s>"; allowed: <list joined by ", ">` |
+| unsupported config version | `invalid .yman/config.toml: unsupported version <n> (this yman understands 1 and 2)` |
+| a status role on a version 1 config | `invalid .yman/config.toml: statuses.<key> needs version = 2; bump version in .yman/config.toml` |
+| a status role outside the list | `invalid .yman/config.toml: statuses.<start\|done\|cancel> "<s>" is not in statuses.list` |
+| a terminal entry outside the list | `invalid .yman/config.toml: statuses.terminal entry "<s>" is not in statuses.list` |
+| a terminal entry unusable as a directory | `invalid .yman/config.toml: statuses.terminal entry "<s>" is not a usable directory name; use letters, digits, "_" and "-"` |
+| a repeated terminal entry | `invalid .yman/config.toml: statuses.terminal lists "<s>" twice` |
+| terminal entries differing only in case | `invalid .yman/config.toml: statuses.terminal entries "<a>" and "<b>" differ only in case; they would collide on a case-insensitive filesystem` |
+| the done status is not terminal | `invalid .yman/config.toml: statuses.done "<s>" is not in statuses.terminal` |
+| the cancel status is not terminal | `invalid .yman/config.toml: statuses.cancel "<s>" is not in statuses.terminal` |
+| `default` or the start status is terminal | `invalid .yman/config.toml: statuses.terminal must not contain statuses.default "<s>"` / `… must not contain the start status "<s>"` |
+| every status is terminal | `invalid .yman/config.toml: statuses.terminal marks every status terminal; at least one must stay open` |
 | empty title | `title must not be empty` |
 | unknown attachment | `no attachment "<name>" on task <id>` |
 | attachment name already used | `attachment "<name>" already exists on task <id>; use --force` |
