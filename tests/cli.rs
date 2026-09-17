@@ -1849,3 +1849,47 @@ fn awkward_field_values_survive_a_rewrite() {
     let after = fx.read(&fx.a.join(".yman/5.1.fix-login/m.yml"));
     assert_eq!(before, after, "an unchanged task was rewritten");
 }
+
+/// Every closed status is hidden, not just the last one in the list.
+#[test]
+fn ls_hides_the_whole_terminal_set() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v2_config(&fx.a);
+    for title in ["open one", "closed one", "dropped one"] {
+        fx.yman(&fx.a).args(["add", title]).assert().success();
+    }
+    fx.yman(&fx.a)
+        .args(["set", "2", "--status", "done"])
+        .assert()
+        .success();
+    fx.yman(&fx.a)
+        .args(["set", "3", "--status", "cancelled"])
+        .assert()
+        .success();
+
+    let out = fx.yman(&fx.a).arg("ls").output().unwrap();
+    let text = stdout(&out);
+    assert!(text.contains("open one"), "{text}");
+    assert!(!text.contains("closed one"), "{text}");
+    assert!(!text.contains("dropped one"), "{text}");
+
+    let text = stdout(&fx.yman(&fx.a).args(["ls", "-a"]).output().unwrap());
+    assert!(
+        text.contains("closed one") && text.contains("dropped one"),
+        "{text}"
+    );
+
+    // Naming a terminal status still includes it, and only it.
+    let text = stdout(
+        &fx.yman(&fx.a)
+            .args(["ls", "-s", "cancelled"])
+            .output()
+            .unwrap(),
+    );
+    assert!(text.contains("dropped one"), "{text}");
+    assert!(
+        !text.contains("closed one") && !text.contains("open one"),
+        "{text}"
+    );
+}

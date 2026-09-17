@@ -201,7 +201,7 @@ it.
 ```sh
 yman ls [-s <status>]... [-t <tag>]... [-a] [--json]
 ```
-Lists tasks sorted by priority, then status order, then id. Tasks in the final
+Lists tasks sorted by priority, then status order, then id. Tasks in a closed
 status are hidden unless you pass `-a` or name that status with `-s`. `-t`
 requires *all* the tags given. Column headers appear only when stdout is a
 terminal, so `yman ls | grep` stays predictable. `--json` prints one object per
@@ -316,6 +316,25 @@ max_bytes = 200       # hard cap 240
 a task to the second entry, `yman done` to the last, and `yman ls` hides the
 last one by default. A status that is no longer in the list never breaks a
 task; it is reported, not rejected.
+
+Those last three are *derived from position*, which means inserting a status
+quietly changes what `yman start` does. At `version = 2` you can name them
+instead, and say which statuses count as closed:
+
+```toml
+version = 2
+
+[statuses]
+list = ["todo", "doing", "blocked", "done", "cancelled"]
+default = "todo"
+start = "doing"
+done = "done"
+cancel = "cancelled"
+terminal = ["done", "cancelled"]
+```
+
+`ls` then hides every terminal status, not just the last one. All four keys are
+optional; leaving them out reproduces the positional behaviour exactly.
 
 ### Choosing an id scheme
 

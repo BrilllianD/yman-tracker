@@ -127,6 +127,36 @@ impl Fx {
         )
     }
 
+    /// Rewrite `.yman/config.toml` and commit it. There is no CLI for this:
+    /// the status roles and the terminal set are a hand edit by design.
+    pub fn set_config(&self, clone: &Path, text: &str) {
+        let ydir = clone.join(".yman");
+        std::fs::write(ydir.join("config.toml"), text).expect("write config.toml");
+        self.git(&ydir, &["add", "--", "config.toml"]);
+        self.git(
+            &ydir,
+            &["commit", "-q", "--no-verify", "-m", "yman: config"],
+        );
+    }
+
+    /// A version 2 config with five statuses, two of them closed.
+    pub fn v2_config(&self, clone: &Path) {
+        self.set_config(
+            clone,
+            "version = 2\n\n\
+             [ids]\nscheme = \"seq\"\nrandom_len = 4\n\n\
+             [statuses]\n\
+             list = [\"todo\", \"doing\", \"blocked\", \"done\", \"cancelled\"]\n\
+             default = \"todo\"\n\
+             start = \"doing\"\n\
+             done = \"done\"\n\
+             cancel = \"cancelled\"\n\
+             terminal = [\"done\", \"cancelled\"]\n\n\
+             [priorities]\ndefault = 5\n\n\
+             [slug]\nmax_bytes = 200\n",
+        );
+    }
+
     /// The `.yman/{p}.{id}.{slug}` folder of a task, by id.
     pub fn task_dir(&self, clone: &Path, id: &str) -> PathBuf {
         let ydir = clone.join(".yman");

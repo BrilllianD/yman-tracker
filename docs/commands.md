@@ -58,8 +58,9 @@ status index is the position in `config.statuses.list` and ids compare
 numerically when they are numbers, by numeric tail when they share a `prefix-`,
 lexically otherwise.
 
-Default filtering hides tasks in the final status; `-a` includes them, and
-naming that status with `-s` includes it too. `-t` requires **all** the tags
+Default filtering hides tasks in any **terminal** status — `statuses.terminal`,
+or the done status when that key is unset; `-a` includes them, and naming one
+with `-s` includes it too. `-t` requires **all** the tags
 given. Column headers are printed only when stdout is a terminal. Trailing empty
 columns are omitted, and zero counts render blank rather than `0`.
 
