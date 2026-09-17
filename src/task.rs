@@ -179,6 +179,9 @@ pub fn render_md(title: &str, body: &str) -> String {
 #[derive(Clone, Debug)]
 pub struct Task {
     pub folder: FolderName,
+    /// Status directory this folder sits in, `None` at the top level of
+    /// `.yman`. See `docs/storage.md` §5.
+    pub parent: Option<String>,
     /// Absolute.
     pub dir: PathBuf,
     pub title: String,
@@ -192,11 +195,15 @@ pub struct Task {
 #[allow(clippy::large_enum_variant)]
 pub enum Entry {
     Task(Task),
-    Broken { dir: PathBuf, error: String },
+    Broken {
+        dir: PathBuf,
+        parent: Option<String>,
+        error: String,
+    },
 }
 
 impl Entry {
-    /// Folder name of this entry, parsed or not.
+    /// Leaf folder name of this entry, parsed or not.
     pub fn dir_name(&self) -> String {
         let dir = match self {
             Entry::Task(t) => &t.dir,
@@ -207,9 +214,25 @@ impl Entry {
             .to_string_lossy()
             .into_owned()
     }
+
+    /// Path relative to `.yman`, status directory included. What error
+    /// messages and `ls` print, since a bare folder name cannot tell two
+    /// copies of one id apart.
+    pub fn rel(&self) -> String {
+        let parent = match self {
+            Entry::Task(t) => &t.parent,
+            Entry::Broken { parent, .. } => parent,
+        };
+        match parent {
+            Some(p) => format!("{p}/{}", self.dir_name()),
+            None => self.dir_name(),
+        }
+    }
 }
 
-pub fn load(dir: &Path) -> Result<Task> {
+/// Load the task folder at `dir`. `ydir` is needed to tell a top-level folder
+/// from one archived under a status directory.
+pub fn load(ydir: &Path, dir: &Path) -> Result<Task> {
     let name = dir
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -217,6 +240,7 @@ pub fn load(dir: &Path) -> Result<Task> {
     let Some(folder) = FolderName::parse(&name) else {
         bail!("folder name does not look like {{priority}}.{{id}}.{{slug}}");
     };
+    let parent = parent_of(ydir, dir)?;
     let md = std::fs::read_to_string(dir.join(MD_FILE))
         .map_err(|e| anyhow::anyhow!("cannot read {MD_FILE}: {e}"))?;
     let (title, body) = extract_title(&md)?;
@@ -226,6 +250,7 @@ pub fn load(dir: &Path) -> Result<Task> {
         crate::yml::parse(&yml).map_err(|e| anyhow::anyhow!("invalid {META_FILE}: {e:#}"))?;
     Ok(Task {
         folder,
+        parent,
         dir: dir.to_path_buf(),
         title,
         body,
@@ -233,10 +258,38 @@ pub fn load(dir: &Path) -> Result<Task> {
     })
 }
 
-/// Every task folder in `ydir`, in folder-name order. Non-directories and
-/// directories whose name is not a task name are ignored entirely.
+/// `None` for `.yman/<task>`, `Some(status)` for `.yman/<status>/<task>`.
+/// Anything deeper is not a task folder.
+fn parent_of(ydir: &Path, dir: &Path) -> Result<Option<String>> {
+    let Some(up) = dir.parent() else {
+        bail!("task folder has no parent directory");
+    };
+    if up == ydir {
+        return Ok(None);
+    }
+    if up.parent() == Some(ydir) {
+        let name = up
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
+        if crate::config::is_status_dir_name(&name) {
+            return Ok(Some(name));
+        }
+    }
+    bail!("task folder is not directly under .yman or a status directory");
+}
+
+/// Every task folder in `ydir`, at the top level and one directory down, in
+/// relative-path order. Non-directories and directories whose name is not a
+/// task name are ignored entirely.
+///
+/// The second level is found by *grammar*, not by consulting the configured
+/// terminal set: a task archived under a status that was later removed from
+/// `statuses.list` must still be found, or editing the config would make tasks
+/// disappear.
 pub fn list(ydir: &Path) -> Result<Vec<Entry>> {
-    let mut names: Vec<String> = Vec::new();
+    let mut rels: Vec<(Option<String>, String)> = Vec::new();
     for entry in std::fs::read_dir(ydir)? {
         let entry = entry?;
         if !entry.file_type()?.is_dir() {
@@ -244,18 +297,34 @@ pub fn list(ydir: &Path) -> Result<Vec<Entry>> {
         }
         let name = entry.file_name().to_string_lossy().into_owned();
         if FolderName::parse(&name).is_some() {
-            names.push(name);
+            rels.push((None, name));
+        } else if crate::config::is_status_dir_name(&name) {
+            for nested in std::fs::read_dir(entry.path())? {
+                let nested = nested?;
+                if !nested.file_type()?.is_dir() {
+                    continue;
+                }
+                let leaf = nested.file_name().to_string_lossy().into_owned();
+                if FolderName::parse(&leaf).is_some() {
+                    rels.push((Some(name.clone()), leaf));
+                }
+            }
         }
     }
-    names.sort();
-    Ok(names
+    // Top-level tasks first, then each status directory, both by name.
+    rels.sort();
+    Ok(rels
         .into_iter()
-        .map(|name| {
-            let dir = ydir.join(&name);
-            match load(&dir) {
+        .map(|(parent, name)| {
+            let dir = match &parent {
+                Some(p) => ydir.join(p).join(&name),
+                None => ydir.join(&name),
+            };
+            match load(ydir, &dir) {
                 Ok(t) => Entry::Task(t),
                 Err(e) => Entry::Broken {
                     dir,
+                    parent,
                     error: format!("{e:#}"),
                 },
             }
@@ -277,19 +346,20 @@ pub fn find(ydir: &Path, id: &str) -> Result<Task> {
     }
     match hits.len() {
         0 => bail!("task {id} not found"),
-        1 => match hits.pop().expect("length checked") {
-            Entry::Task(t) => Ok(t),
-            Entry::Broken { dir, error } => {
-                let name = dir
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .into_owned();
-                bail!("task {id} is broken: {name}: {error}")
+        1 => {
+            let hit = hits.pop().expect("length checked");
+            let rel = hit.rel();
+            match hit {
+                Entry::Task(t) => Ok(t),
+                Entry::Broken { error, .. } => {
+                    bail!("task {id} is broken: {rel}: {error}")
+                }
             }
-        },
+        }
         _ => {
-            let names: Vec<String> = hits.iter().map(|e| e.dir_name()).collect();
+            // Relative paths, not folder names: after a bad merge both copies
+            // can share a leaf name and differ only in their status directory.
+            let names: Vec<String> = hits.iter().map(|e| e.rel()).collect();
             bail!("duplicate task id {id}: {}", names.join(", "))
         }
     }
@@ -312,8 +382,12 @@ impl Task {
     }
 
     /// Folder name, i.e. the path relative to `.yman`.
+    /// Path relative to `.yman` — what every git call and `ls --json` use.
     pub fn rel(&self) -> String {
-        self.folder.to_string()
+        match &self.parent {
+            Some(p) => format!("{p}/{}", self.folder),
+            None => self.folder.to_string(),
+        }
     }
 
     pub fn id(&self) -> &str {
@@ -487,5 +561,35 @@ mod tests {
         let mut ids = vec!["10", "2", "1", "t-b", "t-a", "ab-10", "ab-2"];
         ids.sort_by(|a, b| cmp_id(a, b));
         assert_eq!(ids, ["1", "2", "10", "ab-2", "ab-10", "t-a", "t-b"]);
+    }
+
+    #[test]
+    fn rel_includes_the_status_directory() {
+        let folder = FolderName::parse("5.1.fix-login").unwrap();
+        let mut t = Task {
+            folder,
+            parent: None,
+            dir: PathBuf::from("/tmp/.yman/5.1.fix-login"),
+            title: "Fix login".to_string(),
+            body: String::new(),
+            meta: Meta::new("todo".to_string(), Vec::new()),
+        };
+        assert_eq!(t.rel(), "5.1.fix-login");
+        t.parent = Some("done".to_string());
+        assert_eq!(t.rel(), "done/5.1.fix-login");
+    }
+
+    #[test]
+    fn parent_is_derived_from_the_path() {
+        let ydir = Path::new("/repo/.yman");
+        assert_eq!(parent_of(ydir, &ydir.join("5.1.x")).unwrap(), None);
+        assert_eq!(
+            parent_of(ydir, &ydir.join("done").join("5.1.x")).unwrap(),
+            Some("done".to_string())
+        );
+        // Two levels down is not a task folder, and neither is a parent whose
+        // name could never be a status.
+        assert!(parent_of(ydir, &ydir.join("a").join("b").join("5.1.x")).is_err());
+        assert!(parent_of(ydir, &ydir.join("5.9.other").join("5.1.x")).is_err());
     }
 }

@@ -18,15 +18,9 @@ pub fn run(ctx: &mut Context, a: LsArgs) -> Result<()> {
     let mut broken: Vec<(String, String)> = Vec::new();
 
     for entry in task::list(&ctx.ydir)? {
+        let rel = entry.rel();
         match entry {
-            Entry::Broken { dir, error } => {
-                let name = dir
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .into_owned();
-                broken.push((name, error));
-            }
+            Entry::Broken { error, .. } => broken.push((rel, error)),
             Entry::Task(t) => {
                 let keep_status = if a.statuses.is_empty() {
                     a.all || !ctx.config().is_terminal(&t.meta.status)

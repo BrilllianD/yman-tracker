@@ -157,25 +157,55 @@ impl Fx {
         );
     }
 
-    /// The `.yman/{p}.{id}.{slug}` folder of a task, by id.
-    pub fn task_dir(&self, clone: &Path, id: &str) -> PathBuf {
+    /// Every task folder in a clone, top level and one directory down, as
+    /// paths relative to `.yman`.
+    pub fn task_dirs(&self, clone: &Path) -> Vec<PathBuf> {
         let ydir = clone.join(".yman");
-        let mut hits: Vec<PathBuf> = Vec::new();
+        let mut out: Vec<PathBuf> = Vec::new();
+        // `{priority}.{id}.{slug}`: a digit, then at least two more parts.
+        let is_task =
+            |n: &str| n.starts_with(|c: char| c.is_ascii_digit()) && n.split('.').count() >= 3;
         for e in std::fs::read_dir(&ydir).expect("read .yman") {
             let e = e.unwrap();
             if !e.file_type().unwrap().is_dir() {
                 continue;
             }
             let name = e.file_name().to_string_lossy().into_owned();
-            let mut parts = name.splitn(3, '.');
-            let (Some(_p), Some(got), Some(_slug)) = (parts.next(), parts.next(), parts.next())
-            else {
+            if is_task(&name) {
+                out.push(PathBuf::from(&name));
                 continue;
-            };
-            if got == id {
-                hits.push(ydir.join(name));
+            }
+            if name.starts_with('.') {
+                continue;
+            }
+            // A status directory: archived tasks live one level down.
+            for nested in std::fs::read_dir(e.path()).expect("read status dir") {
+                let nested = nested.unwrap();
+                if !nested.file_type().unwrap().is_dir() {
+                    continue;
+                }
+                let leaf = nested.file_name().to_string_lossy().into_owned();
+                if is_task(&leaf) {
+                    out.push(PathBuf::from(&name).join(leaf));
+                }
             }
         }
+        out.sort();
+        out
+    }
+
+    /// The folder of a task, by id, wherever it currently sits.
+    pub fn task_dir(&self, clone: &Path, id: &str) -> PathBuf {
+        let ydir = clone.join(".yman");
+        let mut hits: Vec<PathBuf> = self
+            .task_dirs(clone)
+            .into_iter()
+            .filter(|rel| {
+                let leaf = rel.file_name().unwrap().to_string_lossy().into_owned();
+                leaf.split('.').nth(1) == Some(id)
+            })
+            .map(|rel| ydir.join(rel))
+            .collect();
         match hits.len() {
             1 => hits.pop().unwrap(),
             0 => panic!("no task {id} in {}", ydir.display()),
@@ -183,16 +213,21 @@ impl Fx {
         }
     }
 
+    /// Path of a task relative to `.yman`, e.g. `done/5.1.fix-login`.
+    pub fn task_rel(&self, clone: &Path, id: &str) -> String {
+        self.task_dir(clone, id)
+            .strip_prefix(clone.join(".yman"))
+            .expect("inside .yman")
+            .to_string_lossy()
+            .replace('\\', "/")
+    }
+
     pub fn has_task(&self, clone: &Path, id: &str) -> bool {
-        let ydir = clone.join(".yman");
-        std::fs::read_dir(&ydir)
-            .map(|rd| {
-                rd.filter_map(|e| e.ok()).any(|e| {
-                    let name = e.file_name().to_string_lossy().into_owned();
-                    name.split('.').nth(1) == Some(id) && e.path().is_dir()
-                })
-            })
-            .unwrap_or(false)
+        self.task_dirs(clone).iter().any(|rel| {
+            rel.file_name()
+                .map(|n| n.to_string_lossy().split('.').nth(1) == Some(id))
+                .unwrap_or(false)
+        })
     }
 
     /// An `$EDITOR` that overwrites whatever file it is handed with

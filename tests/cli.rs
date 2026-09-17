@@ -1893,3 +1893,39 @@ fn ls_hides_the_whole_terminal_set() {
         "{text}"
     );
 }
+
+/// A folder one level down is a task like any other, and a broken one is
+/// reported with the path that tells you where to look.
+#[test]
+fn a_broken_folder_in_a_status_dir_is_listed_with_its_path() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v2_config(&fx.a);
+    fx.yman(&fx.a).args(["add", "real one"]).assert().success();
+
+    let ydir = fx.a.join(".yman");
+    std::fs::create_dir_all(ydir.join("done").join("5.9.hand-made")).unwrap();
+    std::fs::write(
+        ydir.join("done").join("5.9.hand-made").join("m.yml"),
+        "status: done\n",
+    )
+    .unwrap();
+
+    let out = fx.yman(&fx.a).arg("ls").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("done/5.9.hand-made"), "{text}");
+    assert!(text.contains("cannot read t.md"), "{text}");
+
+    let text = stdout(&fx.yman(&fx.a).args(["ls", "--json"]).output().unwrap());
+    assert!(text.contains("\"dir\":\"done/5.9.hand-made\""), "{text}");
+
+    // And it is findable by id, not invisible.
+    let out = fx.yman(&fx.a).args(["show", "9"]).output().unwrap();
+    assert!(!out.status.success());
+    assert!(
+        stderr(&out).contains("task 9 is broken: done/5.9.hand-made"),
+        "{}",
+        stderr(&out)
+    );
+}

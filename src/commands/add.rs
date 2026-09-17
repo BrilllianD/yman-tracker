@@ -48,6 +48,7 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
     std::fs::create_dir_all(&dir)?;
     let mut t = Task {
         folder,
+        parent: None,
         dir,
         title,
         body: a.message.unwrap_or_default(),
@@ -58,7 +59,7 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
 
     if a.edit {
         open_editor(&t.dir.join(task::MD_FILE))?;
-        let edited = task::load(&t.dir)?;
+        let edited = task::load(&ctx.ydir, &t.dir)?;
         t.title = edited.title;
         t.body = edited.body;
         // The title may have changed; the folder is not tracked yet, so this

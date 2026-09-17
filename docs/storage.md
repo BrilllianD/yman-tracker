@@ -110,11 +110,30 @@ dependency.
 - **The folder name is the source of truth** for priority and id. `m.yml` does
   not repeat them, and changing either is a `git mv` so history follows.
 - Entries in `.yman/` that are not directories, or whose names do not match, are
-  ignored entirely (`config.toml`, `.git`, dotfiles).
+  ignored entirely (`config.toml`, `.git`, dotfiles) — except that a directory
+  whose name is a legal status name is descended into, because closed tasks live
+  one level down (below).
 - A directory that matches but fails to load is a **broken task**: `ls` prints it
   with a `!` marker and the parse error; commands that target it fail.
 - Two folders with the same id is an error — `duplicate task id …` — and can
-  only result from a badly resolved merge.
+  only result from a badly resolved merge. The message names paths relative to
+  `.yman`, not folder names, because the two copies can differ only in which
+  status directory they sit in.
+
+### Closed tasks live one level down
+
+A task in a terminal status (§7) is stored at
+`.yman/{status}/{priority}.{id}.{slug}/` instead of at the top level. Only
+`version = 2` does this; a version 1 repository keeps every task flat.
+
+- **`m.yml` is the source of truth, not the path.** A task physically under
+  `done/` whose `m.yml` says `todo` is listed as `todo`, and the next `set`
+  moves it where it belongs. This is what keeps a config change from bricking
+  a repository, the same promise §6 makes about unknown status values.
+- The second level is found by *grammar* — any directory whose name is a legal
+  status name is descended into — not by consulting `statuses.terminal`. A task
+  archived under a status later removed from the list must still be found.
+- Nothing is nested deeper than one level.
 
 ### `slugify(title, max_bytes)`
 

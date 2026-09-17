@@ -110,7 +110,7 @@ fn check_resolved_tasks(ctx: &Context) -> Result<()> {
             ))
             .into());
         }
-        if let Err(e) = task::load(&path) {
+        if let Err(e) = task::load(&ctx.ydir, &path) {
             return Err(MergePending::new(format!(
                 "conflict markers or invalid task in {dir}: {e:#}"
             ))

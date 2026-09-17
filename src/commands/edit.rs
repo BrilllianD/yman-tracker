@@ -36,7 +36,7 @@ pub fn run(ctx: &mut Context, id: &str) -> Result<()> {
     let before = task::find(&ctx.ydir, id)?;
     open_editor(&before.dir.join(task::MD_FILE))?;
 
-    let mut t = task::load(&before.dir).map_err(|e| {
+    let mut t = task::load(&ctx.ydir, &before.dir).map_err(|e| {
         anyhow::anyhow!("t.md invalid after edit: {e:#}; fix the file then run: yman edit {id}")
     })?;
 
