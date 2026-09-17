@@ -1,147 +1,484 @@
 # yman
 
-A task tracker that lives next to the code, syncs through the project's own git
-remote, and never shows up in `git branch`, your IDE's branch picker, or CI.
+A task tracker that lives next to the code, travels through the project's own
+git remote, and never shows up in `git branch`, your IDE's branch picker, or CI.
 
+No server, no account, no extra remote. Tasks are plain Markdown and YAML in
+your repository — but in a namespace ordinary git use never walks into.
+
+```console
+$ yman init
+$ yman add "Fix login" -p 2 -t auth
+added 1  2.1.fix-login
+$ yman start 1
+1: status todo -> doing
+$ yman comment 1 -m "reproduced on staging"
+$ yman sync
+synced  pulled 0, pushed 3, renumbered 0   refs/yman/local @ 3f2a1c9
 ```
+
+Your teammate, in their own clone:
+
+```console
+$ yman init
+$ yman ls
+2  1  doing  Fix login  auth    1
+```
+
+---
+
+## Contents
+
+- [Install](#install)
+- [Why it stays out of the way](#why-it-stays-out-of-the-way)
+- [How tasks are stored](#how-tasks-are-stored)
+- [Command reference](#command-reference)
+- [Configuration](#configuration)
+- [Sharing work: sync, refresh, hooks](#sharing-work-sync-refresh-hooks)
+- [When two people collide](#when-two-people-collide)
+- [Troubleshooting](#troubleshooting)
+- [Limits and future work](#limits-and-future-work)
+- [Development](#development)
+
+---
+
+## Install
+
+Requires a Rust toolchain and a `git` binary, 2.42 or newer.
+
+```sh
+cargo install --path .
+```
+
+The binary is called `yman`. It must be on your `PATH` for the optional git
+hooks to find it.
+
+Then, in any repository with an `origin` you can push to:
+
+```sh
 yman init
-yman add "Fix login" -p 2 -t auth
-yman start 1
-yman comment 1 -m "reproduced on staging"
-yman done 1
-yman sync
 ```
 
-## How it stores things
+That is the only setup step. It creates `.yman/`, adds one fetch refspec to the
+repository config, and excludes `.yman/` from the code worktree. Everyone else
+on the project runs the same command and gets the existing tasks.
 
-`.yman/` in the repo root is a **linked git worktree of the same repository**.
-Its HEAD is the symbolic ref `refs/yman/local` — deliberately outside
-`refs/heads/`, so nothing that lists branches ever sees it. Tasks are committed
-into that ref; the code history is never touched.
+---
 
-| Thing | Where |
+## Why it stays out of the way
+
+A task tracker inside a repository usually means a branch, and a branch means a
+CI run, an entry in every branch picker, and a merge conflict waiting to happen.
+
+`yman` stores the task history under **`refs/yman/local`** — a ref outside
+`refs/heads/`. Git is perfectly happy to keep commits there; almost nothing goes
+looking for them:
+
+| Command | Sees the task history? |
+|---|---|
+| `git branch -a` | no |
+| `git status`, `git log`, `git diff` | no |
+| your IDE's branch list | no |
+| your CI provider | no — `refs/tasks/main` is not a branch |
+| `git log --all`, `git show-ref`, `git worktree list` | yes |
+
+`.yman/` is a **linked git worktree of the same repository** whose HEAD is that
+symbolic ref, so your code worktree keeps a clean `git status` no matter how
+many tasks you write.
+
+| Thing | Where it lives |
 |---|---|
 | Task history, locally | `refs/yman/local` |
 | What origin last told us | `refs/yman/remote` |
-| The ref on the server | `refs/tasks/main` (never a branch) |
+| The ref on the server | `refs/tasks/main` — never a branch |
 | Working copy of the tasks | `.yman/`, listed in `.git/info/exclude` |
 
-`yman init` adds one line to the repo config —
-`remote.origin.fetch = +refs/tasks/main:refs/yman/remote` — so an ordinary
-`git fetch` brings task commits along for free. Pushing is always explicit
-(`git push origin refs/yman/local:refs/tasks/main`); `remote.origin.push` is
-never set, so your plain `git push` keeps doing exactly what it did before.
+`yman init` appends exactly one line to the repository config:
 
-Because `refs/tasks/main` is not a branch, hosting providers show no new branch
-and start no pipeline.
+```
+remote.origin.fetch = +refs/tasks/main:refs/yman/remote
+```
+
+so an ordinary `git fetch` or `git pull` brings task commits along at no cost.
+Pushing is always explicit — `git push origin refs/yman/local:refs/tasks/main`.
+`remote.origin.push` is never set, so your plain `git push` keeps doing exactly
+what it did before.
+
+---
+
+## How tasks are stored
 
 One task is one folder:
 
 ```
-.yman/2.14.fix-login/
-  t.md      # "# Title" plus free-form body
-  m.yml     # status, tags, assignee, timestamps, attachments, links, related
-  d.md      # discussion, append-only, merged with merge=union
-  f/        # attachments
+.yman/
+  config.toml              # committed; shared by everyone on the project
+  .gitignore
+  .gitattributes           # */d.md merge=union
+  2.14.fix-login/
+    t.md                   # "# Title" plus a free-form Markdown body
+    m.yml                  # status, tags, assignee, timestamps, attachments…
+    d.md                   # discussion, append-only  (only once commented)
+    f/                     # attachments               (only once attached)
+      screenshot.png
 ```
 
-The folder name `{priority}.{id}.{slug}` is the source of truth for the
-priority and the id — `m.yml` does not repeat them, and changing either is a
-`git mv`. Priority is `0`–`9` with `0` highest, so a plain `ls .yman/` already
-lists the most urgent work first.
+### The folder name is the data
 
-## Commands
+`{priority}.{id}.{slug}` is the source of truth for the priority and the id —
+`m.yml` does not repeat them. Changing either is a `git mv`, and `yman log <id>`
+follows the rename, so history is never lost to a retitling.
 
-```
-yman init     [--id-scheme random|seq|author] [--author <pfx>] [--remote <url>]
-              [--offline] [--hooks] [--refresh lazy|manual]
-yman add      <title> [-p 0-9] [-s <status>] [-t <tag>]... [-m <body>] [-e]
-yman ls       [-s <status>]... [-t <tag>]... [-a] [--json]
-yman show     <id>
-yman edit     <id>
-yman set      <id> [--status S] [--priority 0-9] [--title T]
-                   [--assignee A|--no-assignee] [--tag X]... [--untag X]...
-                   [--link URL]... [--unlink URL]... [--relate ID]... [--unrelate ID]...
-yman start    <id>              yman done <id>              yman prio <id> <0-9>
-yman rm       <id> [-f]
-yman attach   <id> <file>... [--name <n>] [--force]
-yman detach   <id> <name>
-yman comment  <id> [-m <text>] [-e]
-yman path     <id>              # cd $(yman path 14)
-yman log      [<id>] [-n <N>]   # follows folder renames
-yman status
-yman refresh  [--quiet]
-yman hooks    install|remove|status
-yman sync     [--continue] [--abort] [--no-push]
-yman git      [--] <args>...    # raw git, inside .yman
+Priority runs `0`–`9` with `0` highest, which means a plain `ls .yman/` already
+sorts the most urgent work to the top. The slug is the title lowercased with
+every non-alphanumeric run collapsed to `-`; Unicode survives intact
+(`1.1.первая-задача`).
+
+### `t.md`
+
+```markdown
+# Fix login
+
+Anything you like down here. Headings, code fences, checklists — it is
+just Markdown, and it is written back verbatim.
 ```
 
-Exit codes: `0` success, `1` error, `2` usage (from clap), `3` a sync merge is
-waiting to be resolved.
+The first `# ` line is the title. A file without one is a broken task: `yman ls`
+prints it with a `!` marker and the parse error instead of failing, and commands
+that target it say so.
 
-## Staying in sync
+### `m.yml`
 
-`yman sync` is the only command that talks to the network. It snapshots any
-uncommitted edits in `.yman`, fetches, merges, and pushes.
+```yaml
+status: doing
+tags:
+- auth
+- bug
+assignee: Ivan
+created: 2026-09-16T10:00:00Z
+updated: 2026-09-16T10:12:30Z
+attachments:
+- path: f/screenshot.png
+  name: screenshot.png
+  added: 2026-09-16T10:05:00Z
+  by: Ivan
+links:
+- https://example.com/issues/12
+related:
+- '5'
+```
 
-Two people working offline with the `seq` or `author` scheme will mint the same
-id. On sync, the side that is *behind* renumbers its own new tasks, because the
-other side's ids are already published:
+Timestamps are RFC 3339, UTC, second precision. Keys yman does not know are
+dropped when it rewrites the file.
+
+### `d.md`
+
+Append-only, one entry per comment:
+
+```markdown
+## 2026-09-16T10:10:00Z — Ivan
+
+reproduced on staging
+```
+
+`.gitattributes` marks `*/d.md` as `merge=union`, so two people commenting on
+the same task at the same time merge cleanly instead of conflicting.
+
+---
+
+## Command reference
+
+### Creating and reading
+
+```sh
+yman add <title> [-p 0-9] [-s <status>] [-t <tag>]... [-m <body>] [-e]
+```
+Creates a task and commits it. `-t` repeats. `-e` opens `$EDITOR` on the new
+`t.md` first — whatever title you type there wins, and the folder is named after
+it.
+
+```sh
+yman ls [-s <status>]... [-t <tag>]... [-a] [--json]
+```
+Lists tasks sorted by priority, then status order, then id. Tasks in the final
+status are hidden unless you pass `-a` or name that status with `-s`. `-t`
+requires *all* the tags given. Column headers appear only when stdout is a
+terminal, so `yman ls | grep` stays predictable. `--json` prints one object per
+task, plus `{dir, error}` for anything broken.
 
 ```
-renumbered 2 -> 3  (id taken on origin)
+P  ID  STATUS  TITLE       TAGS      F  C
+2  1   doing   Fix login   auth,bug  1  3
+5  2   todo    Write docs
 ```
 
-References to the old id inside other tasks' `related` lists are **not**
-rewritten; sync prints a note when this can matter.
+`F` is the attachment count, `C` the comment count; both blank at zero.
 
-Conflicting edits to the same `m.yml` stop the sync with exit code 3. Edit the
-files, remove the markers, and run `yman sync --continue` — staging is yman's
-job, not yours — or `yman sync --abort` to throw the merge away. Comments never
-conflict: `.gitattributes` marks `*/d.md` as `merge=union`.
+```sh
+yman show <id>     # everything about one task, including the discussion
+yman path <id>     # just the absolute path:  cd $(yman path 14)
+yman log [<id>] [-n N]
+```
+`yman log <id>` follows the task across every rename it has been through.
 
-### Refresh: how task commits reach your working copy
+### Changing things
 
-| `yman.refresh` | Effect |
+```sh
+yman set <id> [--status S] [--priority 0-9] [--title T]
+              [--assignee A | --no-assignee]
+              [--tag X]... [--untag X]...
+              [--link URL]... [--unlink URL]...
+              [--relate ID]... [--unrelate ID]...
+yman start <id>          # = set --status <second status in the list>
+yman done  <id>          # = set --status <last status in the list>
+yman prio  <id> <0-9>    # = set --priority
+yman edit  <id>          # $VISUAL, else $EDITOR, else vi
+yman rm    <id> [-f]
+```
+
+List fields keep their insertion order. Adding a value that is already there is
+not a change and commits nothing; removing one that was never there is quietly
+accepted. A `set` that changes nothing prints `no changes` and leaves the
+history alone.
+
+`yman rm` asks for confirmation on a terminal and refuses outright without `-f`
+when there is no terminal to ask at.
+
+### Attachments and discussion
+
+```sh
+yman attach <id> <file>... [--name <n>] [--force]
+yman detach <id> <name>
+yman comment <id> [-m <text>] [-e]
+```
+
+`--name` renames a single file on the way in. `--force` replaces an attachment
+that already exists. Files over 5 MiB get a warning, never a refusal. With
+neither `-m` nor `-e`, `yman comment` reads the comment from stdin — so
+`git log -1 | yman comment 14` works.
+
+### Plumbing
+
+```sh
+yman status              # where everything stands; never changes anything
+yman refresh [--quiet]   # fast-forward onto already-fetched task commits
+yman sync [--continue] [--abort] [--no-push]
+yman hooks install|remove|status
+yman git [--] <args>...  # raw git, run inside .yman
+```
+
+```console
+$ yman status
+.yman  refs/yman/local @ 3f2a1c9   (refresh: lazy, hooks: installed)
+remote: refs/tasks/main @ 9b8c7d6   ahead 2, behind 1   → run: yman sync
+worktree: clean
+tasks:   todo 4, doing 1, done 7
+```
+
+### Exit codes
+
+| Code | Meaning |
 |---|---|
-| `lazy` (default) | Every read/write command fast-forwards `.yman` onto whatever `refs/yman/remote` already holds |
+| `0` | success |
+| `1` | error — the message says what happened |
+| `2` | usage error, from the argument parser |
+| `3` | a sync merge is waiting to be resolved |
+
+Errors go to stderr prefixed `error: `, warnings `warning: `, notes `note: `.
+Everything a script would want to read goes to stdout.
+
+---
+
+## Configuration
+
+`.yman/config.toml` is committed, so a project agrees on these once:
+
+```toml
+version = 1
+
+[ids]
+scheme = "seq"        # "random" | "seq" | "author"
+random_len = 4        # hex chars, random scheme only
+
+[statuses]
+list = ["todo", "doing", "done"]
+default = "todo"
+
+[priorities]
+default = 5           # 0..=9
+
+[slug]
+max_bytes = 200       # hard cap 240
+```
+
+`statuses.list` is yours to change — the order is meaningful. `yman start` moves
+a task to the second entry, `yman done` to the last, and `yman ls` hides the
+last one by default. A status that is no longer in the list never breaks a
+task; it is reported, not rejected.
+
+### Choosing an id scheme
+
+Pick this at `yman init`; it is stored in `config.toml` and cannot be changed
+per-clone afterwards.
+
+| Scheme | Ids look like | Best when |
+|---|---|---|
+| `seq` (default) | `1`, `2`, `14` | Small team, short ids worth typing |
+| `author` | `iv-1`, `an-3` | Several people adding tasks offline a lot |
+| `random` | `t-7f3a` | Ids must never collide, at any cost |
+
+`seq` and `author` can mint the same id on two machines at once; `yman sync`
+sorts that out (see below). `random` cannot collide in practice, at the price of
+ids nobody remembers.
+
+The `author` prefix comes from `git config yman.author`, else `$YMAN_AUTHOR`,
+else the initials of your `user.name`.
+
+### Repository-local settings
+
+| Key | Values | Set by |
+|---|---|---|
+| `yman.refresh` | `lazy` (default), `manual` | `yman init --refresh` |
+| `yman.author` | any prefix | `yman init --author` |
+
+---
+
+## Sharing work: sync, refresh, hooks
+
+**`yman sync` is the only command that talks to the network.** It snapshots any
+uncommitted edits in `.yman`, fetches, merges, and pushes:
+
+```console
+$ yman sync
+snapshotted 1 local change(s)
+synced  pulled 3, pushed 2, renumbered 0   refs/yman/local @ 3f2a1c9
+```
+
+Getting *other* people's tasks does not need a sync at all, because they arrive
+with any ordinary fetch:
+
+| `yman.refresh` | What happens |
+|---|---|
+| `lazy` (default) | Every read or write command fast-forwards `.yman` onto whatever `refs/yman/remote` already holds |
 | `manual` | Only `yman refresh` and `yman sync` move `.yman` |
 
-A refresh is always a fast-forward and never touches the network. It backs off
-silently when `.yman` has uncommitted changes or local commits that are not
-pushed yet; `yman refresh` and `yman status` say why.
+A refresh is always a fast-forward, never touches the network, and backs off
+silently when `.yman` has uncommitted changes or local commits you have not
+pushed. `yman refresh` and `yman status` explain why when it does.
 
 `yman hooks install` adds `post-merge` and `post-checkout` hooks that run
-`yman refresh --quiet`, so a plain `git pull` updates your tasks too. Hooks that
-someone else wrote are reported, never overwritten or deleted.
+`yman refresh --quiet`, so a plain `git pull` updates your tasks as a side
+effect. Hooks somebody else wrote are reported and left alone, never overwritten
+or deleted — yman tells you the one line to add instead. `core.hooksPath` is
+honoured.
 
-## Things worth knowing
+---
 
-- **`git clean -fdx` deletes `.yman/`.** The history survives in
-  `refs/yman/local`; run `yman init` again and everything comes back, including
-  tasks you had not pushed.
-- Only one `.yman` worktree per clone is supported.
-- `yman` shells out to the `git` binary (2.42+), and requires a git identity
-  (`user.name`, `user.email`) like any other committing tool.
-- Unknown keys in `m.yml` are dropped when yman rewrites the file.
-- Windows: should work with `core.longpaths`, but is not tested.
+## When two people collide
 
-## Future work
+### Same id, two machines
 
-- A field-wise merge driver for `m.yml`, so status and tag edits auto-resolve.
-- Rewriting `related` ids after a renumber.
-- git-lfs for attachments.
-- Reading refs without spawning git on every lazy refresh.
-- Several `.yman` worktrees per clone.
-- Colour, a TUI, a web UI, a GitHub Issues bridge.
+With `seq` or `author`, two people working offline will both mint id `2`. On
+sync, whoever is *behind* renumbers their own new task, because the other side's
+id is already published:
+
+```console
+$ yman sync
+renumbered 2 -> 3  (id taken on origin)
+note: update references to 2 manually if any
+synced  pulled 1, pushed 3, renumbered 1   refs/yman/local @ 1f7d06f
+```
+
+References to the old id in other tasks' `related` lists are **not** rewritten —
+hence the note.
+
+### Same field, two edits
+
+Two people changing the status of the same task conflict like any other git
+conflict. Sync stops with exit code 3 and tells you which files:
+
+```console
+$ yman sync
+  5.1.fix-login/m.yml
+error: conflicts in 1 file(s); edit them, remove markers, then: yman sync --continue  (or: yman sync --abort)
+```
+
+Edit the files and remove the markers — staging is yman's job, not yours — then:
+
+```sh
+yman sync --continue     # or: yman sync --abort
+```
+
+`--continue` refuses while any conflict marker is still in place, and checks
+that every task the merge touched still parses before it commits. Until the
+merge is settled, commands that would change a task exit 3 rather than build on
+a half-merged state. `yman status` shows the same information at any time.
+
+Comments never conflict: `merge=union` keeps both sides.
+
+---
+
+## Troubleshooting
+
+**`git clean -fdx` deleted `.yman/`.** Nothing is lost — the history lives in
+`refs/yman/local`, which is not in the worktree. Run `yman init` again and
+everything comes back, including tasks you had never pushed.
+
+**`.yman is not initialized; run: yman init`.** Either this clone has never run
+`init`, or `.yman/` was removed. Same fix.
+
+**`refs/yman/local is already checked out in another worktree`.** One `.yman`
+per clone is supported. Remove the other worktree, or use a separate clone.
+
+**`git identity missing`.** yman commits like any other tool; set `user.name`
+and `user.email`.
+
+**A task shows as broken.** Its `t.md` lost its `# Title`, or its `m.yml` will
+not parse — usually a hand-edit or a merge resolved carelessly. `yman ls` shows
+the error; fix the file and the task comes back. Nothing else is affected.
+
+**Tasks are not appearing after someone else pushed.** You have not fetched
+(`yman refresh` never uses the network on its own), or `yman.refresh` is
+`manual`, or your `.yman` has uncommitted changes. `yman status` says which.
+
+---
+
+## Limits and future work
+
+- `m.yml` conflicts are resolved by hand; a field-wise merge driver would settle
+  status and tag edits automatically.
+- A renumber does not rewrite `related` ids that point at the old id.
+- Attachments go straight into git; there is no git-lfs integration.
+- Every ref read spawns a `git` process, including on the lazy refresh path.
+- One `.yman` worktree per clone.
+- Windows should work with `core.longpaths`, but is not tested.
+- No colour, no TUI, no web UI, no GitHub Issues bridge.
+
+---
 
 ## Development
 
-```
-cargo test                      # unit tests plus the two-clone integration suite
+```sh
+cargo test                                  # unit tests + the two-clone suite
 cargo clippy --all-targets -- -D warnings
-sh scripts/spike-symref.sh      # the git invariant this design rests on
+sh scripts/spike-symref.sh                  # the git invariant this rests on
 ```
 
-The integration tests build a bare remote and two clones in a temp dir; nothing
-touches the network or your real git configuration.
+The integration suite builds a bare remote and two clones in a temp directory
+and drives both through init, add, sync, id collisions, conflicts and hooks.
+Nothing touches the network or your real git configuration.
+
+Layout:
+
+| Path | What it holds |
+|---|---|
+| `src/git.rs` | the `git` runner; every invocation goes through it |
+| `src/repo.rs` | repository discovery, `.yman` state, preflight checks |
+| `src/task.rs` | folder names, slugs, `t.md`/`m.yml`, load and save |
+| `src/ids.rs` | id generation and what counts as taken |
+| `src/refresh.rs` | the fast-forward policy |
+| `src/commands/` | one module per subcommand |
+| `scripts/spike-symref.sh` | proves committing in the worktree moves `refs/yman/local` |
+
+`YMAN_PLAN.md` is the original implementation spec, kept for reference; where
+the code and the spec disagree, the commit that changed it says why.
