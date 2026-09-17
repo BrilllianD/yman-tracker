@@ -1,0 +1,201 @@
+//! Two clones of one bare remote, on local disk. Nothing here touches the
+//! network or the developer's real git configuration.
+
+#![allow(dead_code)]
+
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use tempfile::TempDir;
+
+pub struct Fx {
+    pub tmp: TempDir,
+    pub remote: PathBuf,
+    pub a: PathBuf,
+    pub b: PathBuf,
+    home: PathBuf,
+    gitconfig: PathBuf,
+}
+
+impl Fx {
+    pub fn new() -> Fx {
+        let tmp = TempDir::new().expect("tempdir");
+        let base = tmp.path().to_path_buf();
+        let home = base.join("home");
+        std::fs::create_dir_all(&home).unwrap();
+        let gitconfig = home.join(".gitconfig");
+        std::fs::write(
+            &gitconfig,
+            "[user]\n\tname = Test\n\temail = test@example.invalid\n\
+             [init]\n\tdefaultBranch = main\n[advice]\n\tdetachedHead = false\n",
+        )
+        .unwrap();
+
+        let fx = Fx {
+            remote: base.join("remote.git"),
+            a: base.join("a"),
+            b: base.join("b"),
+            tmp,
+            home,
+            gitconfig,
+        };
+
+        fx.git_at(&base, &["init", "--bare", "-b", "main", "remote.git"]);
+        // Seed the default branch so cloning produces a normal checkout.
+        let seed = base.join("seed");
+        fx.git_at(&base, &["clone", fx.remote.to_str().unwrap(), "seed"]);
+        std::fs::write(seed.join("README.md"), "# project\n").unwrap();
+        fx.git_at(&seed, &["add", "-A"]);
+        fx.git_at(&seed, &["commit", "-m", "initial"]);
+        fx.git_at(&seed, &["push", "origin", "main"]);
+        std::fs::remove_dir_all(&seed).unwrap();
+
+        for (dir, who) in [(&fx.a, "A"), (&fx.b, "B")] {
+            let name = dir.file_name().unwrap().to_str().unwrap().to_string();
+            fx.git_at(&base, &["clone", fx.remote.to_str().unwrap(), &name]);
+            fx.git_at(dir, &["config", "user.name", &format!("Test {who}")]);
+            fx.git_at(
+                dir,
+                &["config", "user.email", &format!("{}@example.invalid", who.to_lowercase())],
+            );
+        }
+        fx
+    }
+
+    fn env(&self, cmd: &mut Command) {
+        cmd.env("HOME", &self.home)
+            .env("GIT_CONFIG_GLOBAL", &self.gitconfig)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("EDITOR", "true")
+            .env("VISUAL", "")
+            .env("TERM", "dumb")
+            .env_remove("YMAN_AUTHOR")
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE");
+    }
+
+    /// A `yman` invocation in `dir`, with the sandboxed environment applied.
+    pub fn yman(&self, dir: &Path) -> assert_cmd::Command {
+        let mut cmd = assert_cmd::Command::cargo_bin("yman").expect("yman binary");
+        cmd.current_dir(dir)
+            .env("HOME", &self.home)
+            .env("GIT_CONFIG_GLOBAL", &self.gitconfig)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("EDITOR", "true")
+            .env("VISUAL", "")
+            .env("TERM", "dumb")
+            .env_remove("YMAN_AUTHOR")
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE");
+        cmd
+    }
+
+    /// Run git, panic on failure, return trimmed stdout.
+    pub fn git(&self, dir: &Path, args: &[&str]) -> String {
+        self.git_at(dir, args)
+    }
+
+    fn git_at(&self, dir: &Path, args: &[&str]) -> String {
+        let mut cmd = Command::new("git");
+        cmd.current_dir(dir).args(args);
+        self.env(&mut cmd);
+        let out = cmd.output().expect("git runs");
+        if !out.status.success() {
+            panic!(
+                "git {:?} in {} failed:\n{}",
+                args,
+                dir.display(),
+                String::from_utf8_lossy(&out.stderr)
+            );
+        }
+        String::from_utf8_lossy(&out.stdout).trim_end().to_string()
+    }
+
+    /// Same as `git`, but returns the whole output instead of panicking.
+    pub fn git_try(&self, dir: &Path, args: &[&str]) -> (bool, String, String) {
+        let mut cmd = Command::new("git");
+        cmd.current_dir(dir).args(args);
+        self.env(&mut cmd);
+        let out = cmd.output().expect("git runs");
+        (
+            out.status.success(),
+            String::from_utf8_lossy(&out.stdout).trim_end().to_string(),
+            String::from_utf8_lossy(&out.stderr).trim_end().to_string(),
+        )
+    }
+
+    /// The `.yman/{p}.{id}.{slug}` folder of a task, by id.
+    pub fn task_dir(&self, clone: &Path, id: &str) -> PathBuf {
+        let ydir = clone.join(".yman");
+        let mut hits: Vec<PathBuf> = Vec::new();
+        for e in std::fs::read_dir(&ydir).expect("read .yman") {
+            let e = e.unwrap();
+            if !e.file_type().unwrap().is_dir() {
+                continue;
+            }
+            let name = e.file_name().to_string_lossy().into_owned();
+            let mut parts = name.splitn(3, '.');
+            let (Some(_p), Some(got), Some(_slug)) = (parts.next(), parts.next(), parts.next())
+            else {
+                continue;
+            };
+            if got == id {
+                hits.push(ydir.join(name));
+            }
+        }
+        match hits.len() {
+            1 => hits.pop().unwrap(),
+            0 => panic!("no task {id} in {}", ydir.display()),
+            _ => panic!("several folders for task {id}: {hits:?}"),
+        }
+    }
+
+    pub fn has_task(&self, clone: &Path, id: &str) -> bool {
+        let ydir = clone.join(".yman");
+        std::fs::read_dir(&ydir)
+            .map(|rd| {
+                rd.filter_map(|e| e.ok()).any(|e| {
+                    let name = e.file_name().to_string_lossy().into_owned();
+                    name.split('.').nth(1) == Some(id) && e.path().is_dir()
+                })
+            })
+            .unwrap_or(false)
+    }
+
+    pub fn write(&self, path: &Path, content: &str) {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(path, content).unwrap();
+    }
+
+    pub fn read(&self, path: &Path) -> String {
+        std::fs::read_to_string(path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()))
+    }
+
+    /// Title of a task, read straight off disk.
+    pub fn title(&self, clone: &Path, id: &str) -> String {
+        let md = self.read(&self.task_dir(clone, id).join("t.md"));
+        md.lines()
+            .find(|l| l.starts_with("# "))
+            .map(|l| l[2..].to_string())
+            .unwrap_or_default()
+    }
+
+    /// `status` field of a task's m.yml.
+    pub fn status(&self, clone: &Path, id: &str) -> String {
+        let yml = self.read(&self.task_dir(clone, id).join("m.yml"));
+        yml.lines()
+            .find_map(|l| l.strip_prefix("status:"))
+            .map(|v| v.trim().trim_matches('"').to_string())
+            .unwrap_or_default()
+    }
+}
+
+/// stdout of a successful yman run.
+pub fn stdout(out: &std::process::Output) -> String {
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+pub fn stderr(out: &std::process::Output) -> String {
+    String::from_utf8_lossy(&out.stderr).into_owned()
+}
