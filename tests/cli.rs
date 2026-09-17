@@ -1321,7 +1321,7 @@ fn random_scheme_round_trip() {
     fx.yman(&fx.a).args(["add", "A one"]).assert().success();
     fx.yman(&fx.a).args(["add", "A two"]).assert().success();
 
-    let ids = ids_in(&fx, &fx.a);
+    let ids = ids_in(&fx.a);
     assert_eq!(ids.len(), 2, "{ids:?}");
     for id in &ids {
         assert!(id.starts_with("t-"), "{id}");
@@ -1337,10 +1337,10 @@ fn random_scheme_round_trip() {
     let out = fx.yman(&fx.b).arg("sync").output().unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
     assert!(stdout(&out).contains("renumbered 0"), "{}", stdout(&out));
-    assert_eq!(ids_in(&fx, &fx.b).len(), 3);
+    assert_eq!(ids_in(&fx.b).len(), 3);
 
     // The scheme travels in config.toml, so B mints random ids too.
-    for id in ids_in(&fx, &fx.b) {
+    for id in ids_in(&fx.b) {
         assert!(id.starts_with("t-"), "{id}");
     }
 }
@@ -1354,7 +1354,7 @@ fn author_scheme_derives_a_prefix_from_the_committer() {
         .assert()
         .success();
     fx.yman(&fx.a).args(["add", "A one"]).assert().success();
-    assert_eq!(ids_in(&fx, &fx.a), vec!["ta-1".to_string()]);
+    assert_eq!(ids_in(&fx.a), vec!["ta-1".to_string()]);
 
     // An explicit prefix wins over the derived one.
     fx.yman(&fx.a).args(["init", "--author", "iv"]).assert().success();
@@ -1386,7 +1386,7 @@ fn hooks_honour_core_hooks_path() {
 }
 
 /// Task ids present in a clone, in folder-name order.
-fn ids_in(fx: &Fx, clone: &std::path::Path) -> Vec<String> {
+fn ids_in(clone: &std::path::Path) -> Vec<String> {
     let mut names: Vec<String> = std::fs::read_dir(clone.join(".yman"))
         .unwrap()
         .filter_map(|e| e.ok())
