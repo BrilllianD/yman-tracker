@@ -58,6 +58,11 @@ convenience.
 - Conventional Commits: `feat:`, `fix:`, `test:`, `docs:`, `style:`. Subject in
   the imperative; body explains *why*, not what the diff already shows.
 - Work on a feature branch and merge it — do not commit straight to `master`.
+- Commit each task from `TASKS.md` as soon as it is finished, before starting
+  the next one: run the gate (`.claude/skills/verify`), commit the code, the
+  tests, the docs and the `TASKS.md` entry together, and say so. One task per
+  commit keeps the history reviewable and the working tree honest — do not let
+  finished tasks pile up uncommitted.
 - `.git/hooks/pre-commit` rejects a commit when `cargo fmt --check` fails.
 
 ## Specification
