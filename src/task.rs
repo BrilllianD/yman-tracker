@@ -208,7 +208,10 @@ impl Entry {
             Entry::Task(t) => &t.dir,
             Entry::Broken { dir, .. } => dir,
         };
-        dir.file_name().unwrap_or_default().to_string_lossy().into_owned()
+        dir.file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned()
     }
 }
 
@@ -271,7 +274,10 @@ pub fn find(ydir: &Path, id: &str) -> Result<Task> {
     let mut hits: Vec<Entry> = Vec::new();
     for entry in list(ydir)? {
         let name = entry.dir_name();
-        if FolderName::parse(&name).map(|f| f.id == id).unwrap_or(false) {
+        if FolderName::parse(&name)
+            .map(|f| f.id == id)
+            .unwrap_or(false)
+        {
             hits.push(entry);
         }
     }
@@ -280,7 +286,11 @@ pub fn find(ydir: &Path, id: &str) -> Result<Task> {
         1 => match hits.pop().expect("length checked") {
             Entry::Task(t) => Ok(t),
             Entry::Broken { dir, error } => {
-                let name = dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                let name = dir
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned();
                 bail!("task {id} is broken: {name}: {error}")
             }
         },
@@ -459,7 +469,13 @@ mod tests {
 
     #[test]
     fn title_missing_h1_errors() {
-        for md in ["no heading\n# late\n", "## sub only\n", "#nospace\n", "", "   \n"] {
+        for md in [
+            "no heading\n# late\n",
+            "## sub only\n",
+            "#nospace\n",
+            "",
+            "   \n",
+        ] {
             let err = extract_title(md).unwrap_err().to_string();
             assert_eq!(err, "t.md must start with \"# Title\"", "for {md:?}");
         }

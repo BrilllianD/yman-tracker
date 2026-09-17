@@ -16,7 +16,9 @@ pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
     match ctx.ydir_state() {
         YdirState::Worktree => return repair(ctx, &a, &url),
         YdirState::StandaloneRepo => {
-            bail!("{YDIR_NAME} is a standalone git repository, not a worktree; move it aside and rerun")
+            bail!(
+                "{YDIR_NAME} is a standalone git repository, not a worktree; move it aside and rerun"
+            )
         }
         YdirState::PlainDir => {
             bail!("{YDIR_NAME} exists and is not a yman worktree; move it aside and rerun")
@@ -48,7 +50,12 @@ pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
         ctx.main.ok(&["update-ref", LOCAL, REMOTE])?;
         false
     } else {
-        let tree = ctx.main.with_stdin(&["mktree"], "")?.stdout.trim().to_string();
+        let tree = ctx
+            .main
+            .with_stdin(&["mktree"], "")?
+            .stdout
+            .trim()
+            .to_string();
         let commit = ctx.main.out(&["commit-tree", &tree, "-m", "yman: init"])?;
         ctx.main.ok(&["update-ref", LOCAL, commit.trim()])?;
         true
@@ -140,9 +147,7 @@ fn resolve_remote(ctx: &Context, requested: Option<&str>) -> Result<String> {
 /// Fetch `refs/tasks/main`. A remote that simply has no tasks yet is not an
 /// error; anything else is.
 fn fetch_tasks(ctx: &Context, failure_msg: &str) -> Result<()> {
-    let out = ctx
-        .main
-        .run(&["fetch", "origin", FETCH_REFSPEC])?;
+    let out = ctx.main.run(&["fetch", "origin", FETCH_REFSPEC])?;
     if out.ok() {
         return Ok(());
     }
@@ -159,7 +164,8 @@ fn add_worktree(ctx: &mut Context) -> Result<()> {
         .main
         .run(&["worktree", "add", "--detach", &ydir, LOCAL])?;
     if !out.ok() {
-        if out.stderr.contains("already checked out") || out.stderr.contains("is already used by worktree")
+        if out.stderr.contains("already checked out")
+            || out.stderr.contains("is already used by worktree")
         {
             bail!(
                 "{LOCAL} is already checked out in another worktree of this repo; only one {YDIR_NAME} per clone is supported"

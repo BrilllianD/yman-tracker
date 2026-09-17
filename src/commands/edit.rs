@@ -41,11 +41,7 @@ pub fn run(ctx: &mut Context, id: &str) -> Result<()> {
     })?;
 
     let rel_md = format!("{}/{}", t.rel(), task::MD_FILE);
-    if ctx
-        .wt
-        .run(&["diff", "--quiet", "--", &rel_md])?
-        .ok()
-    {
+    if ctx.wt.run(&["diff", "--quiet", "--", &rel_md])?.ok() {
         println!("no changes");
         return Ok(());
     }

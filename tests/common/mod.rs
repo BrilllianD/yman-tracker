@@ -55,7 +55,11 @@ impl Fx {
             fx.git_at(dir, &["config", "user.name", &format!("Test {who}")]);
             fx.git_at(
                 dir,
-                &["config", "user.email", &format!("{}@example.invalid", who.to_lowercase())],
+                &[
+                    "config",
+                    "user.email",
+                    &format!("{}@example.invalid", who.to_lowercase()),
+                ],
             );
         }
         fx
@@ -164,7 +168,10 @@ impl Fx {
     /// An `$EDITOR` that overwrites whatever file it is handed with
     /// `content`, so editor-driven commands can be driven from a test.
     pub fn editor_writing(&self, name: &str, content: &str) -> PathBuf {
-        self.editor_script(name, &format!("cat > \"$1\" <<'YMAN_FIXTURE_EOF'\n{content}YMAN_FIXTURE_EOF\n"))
+        self.editor_script(
+            name,
+            &format!("cat > \"$1\" <<'YMAN_FIXTURE_EOF'\n{content}YMAN_FIXTURE_EOF\n"),
+        )
     }
 
     /// An `$EDITOR` that leaves the file alone and exits with `code`.

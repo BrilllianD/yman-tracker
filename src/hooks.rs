@@ -119,9 +119,7 @@ pub fn report(ctx: &Context) -> Result<()> {
 /// Are both hooks ours? Used for the one-word summary in `init` and `status`.
 pub fn all_installed(ctx: &Context) -> Result<bool> {
     let (dir, _) = hooks_dir(ctx)?;
-    Ok(HOOKS
-        .iter()
-        .all(|n| state(&dir, n) == HookState::Installed))
+    Ok(HOOKS.iter().all(|n| state(&dir, n) == HookState::Installed))
 }
 
 #[cfg(unix)]

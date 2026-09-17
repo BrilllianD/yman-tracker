@@ -75,10 +75,7 @@ pub fn run(ctx: &mut Context) -> Result<()> {
             },
         }
     }
-    let mut parts: Vec<String> = counts
-        .iter()
-        .map(|(s, n)| format!("{s} {n}"))
-        .collect();
+    let mut parts: Vec<String> = counts.iter().map(|(s, n)| format!("{s} {n}")).collect();
     if other > 0 {
         parts.push(format!("other {other}"));
     }

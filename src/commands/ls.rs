@@ -21,7 +21,11 @@ pub fn run(ctx: &mut Context, a: LsArgs) -> Result<()> {
     for entry in task::list(&ctx.ydir)? {
         match entry {
             Entry::Broken { dir, error } => {
-                let name = dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
+                let name = dir
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned();
                 broken.push((name, error));
             }
             Entry::Task(t) => {
@@ -115,10 +119,7 @@ fn display_width(s: &str) -> usize {
 fn join_row(row: &[String; 7], width: &[usize; 7]) -> String {
     let mut out = String::new();
     // Trailing empty columns are dropped so short rows stay short.
-    let last = row
-        .iter()
-        .rposition(|c| !c.is_empty())
-        .unwrap_or(0);
+    let last = row.iter().rposition(|c| !c.is_empty()).unwrap_or(0);
     for (i, cell) in row.iter().enumerate().take(last + 1) {
         if i > 0 {
             out.push_str("  ");
@@ -148,7 +149,12 @@ fn print_json(tasks: &[Task], broken: &[(String, String)]) {
             t.priority(),
             js(&t.meta.status),
             js(&t.title),
-            t.meta.tags.iter().map(|s| js(s)).collect::<Vec<_>>().join(","),
+            t.meta
+                .tags
+                .iter()
+                .map(|s| js(s))
+                .collect::<Vec<_>>()
+                .join(","),
             match &t.meta.assignee {
                 Some(a) => js(a),
                 None => "null".to_string(),

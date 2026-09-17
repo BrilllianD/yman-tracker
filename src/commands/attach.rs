@@ -38,7 +38,10 @@ pub fn run(ctx: &mut Context, a: AttachArgs) -> Result<()> {
         }
         let dest = fdir.join(&name);
         if dest.exists() && !a.force {
-            bail!("attachment \"{name}\" already exists on task {}; use --force", t.id());
+            bail!(
+                "attachment \"{name}\" already exists on task {}; use --force",
+                t.id()
+            );
         }
         if meta.len() > BIG_FILE {
             eprintln!(
@@ -59,10 +62,7 @@ pub fn run(ctx: &mut Context, a: AttachArgs) -> Result<()> {
             Some(i) => t.meta.attachments[i] = entry,
             None => t.meta.attachments.push(entry),
         }
-        println!(
-            "attached {name} -> {}",
-            ctx.display_path(&dest)
-        );
+        println!("attached {name} -> {}", ctx.display_path(&dest));
         names.push(name);
     }
 

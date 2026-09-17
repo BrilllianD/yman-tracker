@@ -178,9 +178,15 @@ mod tests {
 
     #[test]
     fn seq_takes_max_plus_one() {
-        assert_eq!(next_free(Scheme::Seq, &cfg(), None, &set(&["1", "2", "9"])), "10");
+        assert_eq!(
+            next_free(Scheme::Seq, &cfg(), None, &set(&["1", "2", "9"])),
+            "10"
+        );
         // Gaps are never reused: 3 is free but 9 is the high-water mark.
-        assert_eq!(next_free(Scheme::Seq, &cfg(), None, &set(&["1", "9"])), "10");
+        assert_eq!(
+            next_free(Scheme::Seq, &cfg(), None, &set(&["1", "9"])),
+            "10"
+        );
     }
 
     #[test]
@@ -194,9 +200,18 @@ mod tests {
     #[test]
     fn author_scheme_counts_its_own_prefix() {
         let taken = set(&["iv-1", "iv-4", "an-9", "7"]);
-        assert_eq!(next_free(Scheme::Author, &cfg(), Some("iv"), &taken), "iv-5");
-        assert_eq!(next_free(Scheme::Author, &cfg(), Some("an"), &taken), "an-10");
-        assert_eq!(next_free(Scheme::Author, &cfg(), Some("zz"), &taken), "zz-1");
+        assert_eq!(
+            next_free(Scheme::Author, &cfg(), Some("iv"), &taken),
+            "iv-5"
+        );
+        assert_eq!(
+            next_free(Scheme::Author, &cfg(), Some("an"), &taken),
+            "an-10"
+        );
+        assert_eq!(
+            next_free(Scheme::Author, &cfg(), Some("zz"), &taken),
+            "zz-1"
+        );
     }
 
     #[test]

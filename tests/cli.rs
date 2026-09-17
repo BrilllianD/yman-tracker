@@ -35,7 +35,9 @@ fn init_creates_worktree_and_config() {
     // The fetch refspec is in place; remote.origin.push is not.
     let fetch = fx.git(&fx.a, &["config", "--get-all", "remote.origin.fetch"]);
     assert!(
-        fetch.lines().any(|l| l == "+refs/tasks/main:refs/yman/remote"),
+        fetch
+            .lines()
+            .any(|l| l == "+refs/tasks/main:refs/yman/remote"),
         "{fetch}"
     );
     let (ok, _, _) = fx.git_try(&fx.a, &["config", "--get", "remote.origin.push"]);
@@ -79,7 +81,11 @@ fn init_idempotent() {
         .output()
         .unwrap();
     assert!(out.status.success());
-    assert!(stderr(&out).contains("--id-scheme ignored"), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("--id-scheme ignored"),
+        "{}",
+        stderr(&out)
+    );
 }
 
 #[test]
@@ -99,11 +105,26 @@ fn add_ls_show() {
 
     let out = fx
         .yman(&fx.a)
-        .args(["add", "Fix login", "-p", "2", "-t", "auth", "-t", "bug", "-m", "body text"])
+        .args([
+            "add",
+            "Fix login",
+            "-p",
+            "2",
+            "-t",
+            "auth",
+            "-t",
+            "bug",
+            "-m",
+            "body text",
+        ])
         .output()
         .unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
-    assert!(stdout(&out).starts_with("added 1  2.1.fix-login"), "{}", stdout(&out));
+    assert!(
+        stdout(&out).starts_with("added 1  2.1.fix-login"),
+        "{}",
+        stdout(&out)
+    );
     assert!(fx.a.join(".yman/2.1.fix-login/t.md").is_file());
     assert_eq!(
         fx.read(&fx.a.join(".yman/2.1.fix-login/t.md")),
@@ -111,7 +132,10 @@ fn add_ls_show() {
     );
 
     // Second task takes the next sequential id and the default priority.
-    fx.yman(&fx.a).args(["add", "Write docs"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Write docs"])
+        .assert()
+        .success();
     assert!(fx.a.join(".yman/5.2.write-docs").is_dir());
 
     let out = fx.yman(&fx.a).arg("ls").output().unwrap();
@@ -129,7 +153,10 @@ fn add_ls_show() {
     let out = fx.yman(&fx.a).args(["show", "1"]).output().unwrap();
     let text = stdout(&out);
     assert!(text.starts_with("1  Fix login\n"), "{text}");
-    assert!(text.contains("priority: 2   status: todo   assignee: -   tags: auth, bug"), "{text}");
+    assert!(
+        text.contains("priority: 2   status: todo   assignee: -   tags: auth, bug"),
+        "{text}"
+    );
     assert!(text.contains("folder:   .yman/2.1.fix-login"), "{text}");
     assert!(text.contains("\nbody text\n"), "{text}");
     assert!(!text.contains("attachments:"), "{text}");
@@ -147,7 +174,11 @@ fn add_ls_show() {
     assert!(!out.status.success());
     assert_eq!(stderr(&out).trim(), "error: task 99 not found");
 
-    let out = fx.yman(&fx.a).args(["add", "X", "-s", "nope"]).output().unwrap();
+    let out = fx
+        .yman(&fx.a)
+        .args(["add", "X", "-s", "nope"])
+        .output()
+        .unwrap();
     assert!(!out.status.success());
     assert_eq!(
         stderr(&out).trim(),
@@ -204,7 +235,10 @@ fn init_existing_remote() {
     );
 
     // B's next task continues A's numbering.
-    fx.yman(&fx.b).args(["add", "Write docs"]).assert().success();
+    fx.yman(&fx.b)
+        .args(["add", "Write docs"])
+        .assert()
+        .success();
     assert!(fx.has_task(&fx.b, "2"));
 }
 
@@ -254,7 +288,16 @@ fn set_title_renames_folder() {
 
     let out = fx
         .yman(&fx.a)
-        .args(["set", "1", "--title", "Fix logout", "--status", "doing", "--tag", "auth"])
+        .args([
+            "set",
+            "1",
+            "--title",
+            "Fix logout",
+            "--status",
+            "doing",
+            "--tag",
+            "auth",
+        ])
         .output()
         .unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
@@ -325,7 +368,11 @@ fn attach_detach() {
         .output()
         .unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
-    assert!(stdout(&out).contains("attached screenshot.png"), "{}", stdout(&out));
+    assert!(
+        stdout(&out).contains("attached screenshot.png"),
+        "{}",
+        stdout(&out)
+    );
     assert!(fx.a.join(".yman/5.1.fix-login/f/screenshot.png").is_file());
 
     let shown = stdout(&fx.yman(&fx.a).args(["show", "1"]).output().unwrap());
@@ -360,7 +407,11 @@ fn attach_detach() {
     let shown = stdout(&fx.yman(&fx.a).args(["show", "1"]).output().unwrap());
     assert!(!shown.contains("attachments:"), "{shown}");
 
-    let out = fx.yman(&fx.a).args(["detach", "1", "nope.png"]).output().unwrap();
+    let out = fx
+        .yman(&fx.a)
+        .args(["detach", "1", "nope.png"])
+        .output()
+        .unwrap();
     assert!(!out.status.success());
     assert_eq!(
         stderr(&out).trim(),
@@ -397,7 +448,11 @@ fn comment_appends() {
     let text = stdout(&fx.yman(&fx.a).args(["ls", "--json"]).output().unwrap());
     assert!(text.contains("\"comments\":2"), "{text}");
 
-    let out = fx.yman(&fx.a).args(["comment", "1", "-m", "   "]).output().unwrap();
+    let out = fx
+        .yman(&fx.a)
+        .args(["comment", "1", "-m", "   "])
+        .output()
+        .unwrap();
     assert!(!out.status.success());
     assert_eq!(stderr(&out).trim(), "error: empty comment");
 }
@@ -417,7 +472,10 @@ fn rm_requires_force_without_a_tty() {
     assert_eq!(stdout(&out).trim_end(), "removed 1");
     assert!(!fx.a.join(".yman/5.1.fix-login").exists());
     let subject = fx.git(&fx.a.join(".yman"), &["log", "--oneline", "-1"]);
-    assert!(subject.contains("task(1): remove \"Fix login\""), "{subject}");
+    assert!(
+        subject.contains("task(1): remove \"Fix login\""),
+        "{subject}"
+    );
 
     // The id is never handed out again.
     fx.yman(&fx.a).args(["add", "Another"]).assert().success();
@@ -430,13 +488,19 @@ fn log_follows_renames() {
     let fx = Fx::new();
     fx.yman(&fx.a).arg("init").assert().success();
     fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).args(["add", "Other task"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Other task"])
+        .assert()
+        .success();
     fx.yman(&fx.a).args(["prio", "1", "2"]).assert().success();
     fx.yman(&fx.a)
         .args(["set", "1", "--title", "Fix logout"])
         .assert()
         .success();
-    fx.yman(&fx.a).args(["comment", "1", "-m", "note"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["comment", "1", "-m", "note"])
+        .assert()
+        .success();
 
     let log = stdout(&fx.yman(&fx.a).args(["log", "1"]).output().unwrap());
     assert!(log.contains("task(1): add \"Fix login\""), "{log}");
@@ -456,7 +520,10 @@ fn log_follows_renames() {
 fn round_trip() {
     let fx = Fx::new();
     fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "Fix login", "-p", "2"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Fix login", "-p", "2"])
+        .assert()
+        .success();
 
     let out = fx.yman(&fx.a).arg("sync").output().unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
@@ -483,7 +550,10 @@ fn round_trip() {
     assert!(fx.a.join(".yman/.git").is_file());
 
     // B's change comes back to A.
-    fx.yman(&fx.b).args(["add", "Write docs"]).assert().success();
+    fx.yman(&fx.b)
+        .args(["add", "Write docs"])
+        .assert()
+        .success();
     fx.yman(&fx.b).arg("sync").assert().success();
     let out = fx.yman(&fx.a).arg("sync").output().unwrap();
     let text = stdout(&out);
@@ -564,9 +634,15 @@ fn conflict_and_continue() {
     fx.yman(&fx.b).arg("init").assert().success();
 
     // Same task, different status on each side.
-    fx.yman(&fx.a).args(["set", "1", "--status", "doing"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["set", "1", "--status", "doing"])
+        .assert()
+        .success();
     fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).args(["set", "1", "--status", "done"]).assert().success();
+    fx.yman(&fx.b)
+        .args(["set", "1", "--status", "done"])
+        .assert()
+        .success();
 
     let out = fx.yman(&fx.b).arg("sync").output().unwrap();
     assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
@@ -577,10 +653,18 @@ fn conflict_and_continue() {
     // Any mutating command is refused until the merge is settled.
     let out = fx.yman(&fx.b).args(["add", "Nope"]).output().unwrap();
     assert_eq!(out.status.code(), Some(3));
-    assert!(stderr(&out).contains("sync merge in progress"), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("sync merge in progress"),
+        "{}",
+        stderr(&out)
+    );
 
     // --continue refuses while markers are still there.
-    let out = fx.yman(&fx.b).args(["sync", "--continue"]).output().unwrap();
+    let out = fx
+        .yman(&fx.b)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
     assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
     assert!(stderr(&out).contains("still unmerged"), "{}", stderr(&out));
 
@@ -598,7 +682,11 @@ fn conflict_and_continue() {
         .collect();
     fx.write(&mpath, &resolved);
 
-    let out = fx.yman(&fx.b).args(["sync", "--continue"]).output().unwrap();
+    let out = fx
+        .yman(&fx.b)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
     assert_eq!(fx.status(&fx.b, "1"), "done");
 
@@ -615,9 +703,15 @@ fn conflict_abort() {
     fx.yman(&fx.a).arg("sync").assert().success();
     fx.yman(&fx.b).arg("init").assert().success();
 
-    fx.yman(&fx.a).args(["set", "1", "--status", "doing"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["set", "1", "--status", "doing"])
+        .assert()
+        .success();
     fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).args(["set", "1", "--status", "done"]).assert().success();
+    fx.yman(&fx.b)
+        .args(["set", "1", "--status", "done"])
+        .assert()
+        .success();
     let out = fx.yman(&fx.b).arg("sync").output().unwrap();
     assert_eq!(out.status.code(), Some(3));
 
@@ -625,7 +719,10 @@ fn conflict_abort() {
     assert!(out.status.success(), "{}", stderr(&out));
     assert_eq!(stdout(&out).trim_end(), "merge aborted");
     assert_eq!(fx.status(&fx.b, "1"), "done");
-    assert!(!fx.read(&fx.b.join(".yman/5.1.fix-login/m.yml")).contains("<<<<<<<"));
+    assert!(
+        !fx.read(&fx.b.join(".yman/5.1.fix-login/m.yml"))
+            .contains("<<<<<<<")
+    );
 
     // With no merge outstanding, both flags say so plainly.
     let out = fx.yman(&fx.b).args(["sync", "--abort"]).output().unwrap();
@@ -638,12 +735,21 @@ fn concurrent_comments_union() {
     let fx = Fx::new();
     fx.yman(&fx.a).arg("init").assert().success();
     fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).args(["comment", "1", "-m", "from A first"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["comment", "1", "-m", "from A first"])
+        .assert()
+        .success();
     fx.yman(&fx.a).arg("sync").assert().success();
     fx.yman(&fx.b).arg("init").assert().success();
 
-    fx.yman(&fx.a).args(["comment", "1", "-m", "only A"]).assert().success();
-    fx.yman(&fx.b).args(["comment", "1", "-m", "only B"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["comment", "1", "-m", "only A"])
+        .assert()
+        .success();
+    fx.yman(&fx.b)
+        .args(["comment", "1", "-m", "only B"])
+        .assert()
+        .success();
     fx.yman(&fx.a).arg("sync").assert().success();
 
     let out = fx.yman(&fx.b).arg("sync").output().unwrap();
@@ -721,7 +827,11 @@ fn sync_snapshots_hand_edits() {
 
     let out = fx.yman(&fx.a).arg("sync").output().unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
-    assert!(stdout(&out).contains("snapshotted 1 local change(s)"), "{}", stdout(&out));
+    assert!(
+        stdout(&out).contains("snapshotted 1 local change(s)"),
+        "{}",
+        stdout(&out)
+    );
     assert_eq!(fx.git(&fx.a.join(".yman"), &["status", "--porcelain"]), "");
 }
 
@@ -751,7 +861,10 @@ fn fresh_on_fetch() {
 #[test]
 fn refresh_manual() {
     let fx = Fx::new();
-    fx.yman(&fx.a).args(["init", "--refresh", "manual"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["init", "--refresh", "manual"])
+        .assert()
+        .success();
     fx.yman(&fx.a).args(["add", "A one"]).assert().success();
     fx.yman(&fx.a).arg("sync").assert().success();
     fx.yman(&fx.b).arg("init").assert().success();
@@ -760,12 +873,19 @@ fn refresh_manual() {
 
     fx.git(&fx.a, &["fetch", "origin"]);
     let text = stdout(&fx.yman(&fx.a).arg("ls").output().unwrap());
-    assert!(!text.contains("B two"), "manual policy must not refresh: {text}");
+    assert!(
+        !text.contains("B two"),
+        "manual policy must not refresh: {text}"
+    );
 
     // An explicit refresh still works, and says what it did.
     let out = fx.yman(&fx.a).arg("refresh").output().unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
-    assert!(stderr(&out).contains("refreshed: 1 new commit(s)"), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("refreshed: 1 new commit(s)"),
+        "{}",
+        stderr(&out)
+    );
     let text = stdout(&fx.yman(&fx.a).arg("ls").output().unwrap());
     assert!(text.contains("B two"), "{text}");
 
@@ -795,7 +915,10 @@ fn refresh_skips_dirty() {
     );
     assert!(!fx.has_task(&fx.a, "2"));
     // The hand edit survives untouched.
-    assert!(fx.read(&fx.a.join(".yman/5.1.a-one/t.md")).contains("mid-edit"));
+    assert!(
+        fx.read(&fx.a.join(".yman/5.1.a-one/t.md"))
+            .contains("mid-edit")
+    );
 }
 
 #[test]
@@ -857,7 +980,11 @@ fn hooks_install_remove_status() {
     // Installing twice is a no-op.
     let out = fx.yman(&fx.a).args(["hooks", "install"]).output().unwrap();
     assert!(out.status.success());
-    assert!(stdout(&out).contains("already installed"), "{}", stdout(&out));
+    assert!(
+        stdout(&out).contains("already installed"),
+        "{}",
+        stdout(&out)
+    );
 
     fx.yman(&fx.a).args(["hooks", "remove"]).assert().success();
     assert!(!hook.exists());
@@ -866,7 +993,11 @@ fn hooks_install_remove_status() {
     fx.write(&hook, "#!/bin/sh\necho mine\n");
     let out = fx.yman(&fx.a).args(["hooks", "install"]).output().unwrap();
     assert!(!out.status.success());
-    assert!(stderr(&out).contains("add this line to it"), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("add this line to it"),
+        "{}",
+        stderr(&out)
+    );
     assert_eq!(fx.read(&hook), "#!/bin/sh\necho mine\n");
     let text = stdout(&fx.yman(&fx.a).args(["hooks", "status"]).output().unwrap());
     assert!(text.contains("hook post-merge: foreign"), "{text}");
@@ -911,7 +1042,11 @@ fn hooks_refresh_on_pull() {
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .output()
         .unwrap();
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 
     assert!(
         fx.has_task(&fx.a, "2"),
@@ -947,7 +1082,10 @@ fn status_reports_ahead_behind() {
 
     let text = stdout(&fx.yman(&fx.a).arg("status").output().unwrap());
     assert!(text.contains(".yman  refs/yman/local @ "), "{text}");
-    assert!(text.contains("(refresh: lazy, hooks: not installed)"), "{text}");
+    assert!(
+        text.contains("(refresh: lazy, hooks: not installed)"),
+        "{text}"
+    );
     assert!(text.contains("worktree: clean"), "{text}");
     assert!(text.contains("tasks:   todo 0, doing 0, done 0"), "{text}");
     assert!(!text.contains("merge:"), "{text}");
@@ -969,7 +1107,10 @@ fn status_reports_ahead_behind() {
     assert!(!fx.has_task(&fx.a, "2"));
 
     // A dirty worktree is called out too.
-    fx.write(&fx.a.join(".yman/5.1.fix-login/t.md"), "# Fix login\n\nedit\n");
+    fx.write(
+        &fx.a.join(".yman/5.1.fix-login/t.md"),
+        "# Fix login\n\nedit\n",
+    );
     let text = stdout(&fx.yman(&fx.a).arg("status").output().unwrap());
     assert!(
         text.contains("worktree: 1 uncommitted change(s) (will be snapshotted by next sync)"),
@@ -984,14 +1125,23 @@ fn status_reports_merge_in_progress() {
     fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
     fx.yman(&fx.a).arg("sync").assert().success();
     fx.yman(&fx.b).arg("init").assert().success();
-    fx.yman(&fx.a).args(["set", "1", "--status", "doing"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["set", "1", "--status", "doing"])
+        .assert()
+        .success();
     fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).args(["set", "1", "--status", "done"]).assert().success();
+    fx.yman(&fx.b)
+        .args(["set", "1", "--status", "done"])
+        .assert()
+        .success();
     let out = fx.yman(&fx.b).arg("sync").output().unwrap();
     assert_eq!(out.status.code(), Some(3));
 
     let text = stdout(&fx.yman(&fx.b).arg("status").output().unwrap());
-    assert!(text.contains("merge:   in progress, 1 unmerged file(s)"), "{text}");
+    assert!(
+        text.contains("merge:   in progress, 1 unmerged file(s)"),
+        "{text}"
+    );
     assert!(text.contains("5.1.fix-login/m.yml"), "{text}");
 }
 
@@ -1010,7 +1160,11 @@ fn yman_git_passthrough() {
     assert!(stdout(&out).contains("task(1): add"), "{}", stdout(&out));
 
     // Exit codes come straight from git.
-    let out = fx.yman(&fx.a).args(["git", "--", "cat-file", "-e", "deadbeef"]).output().unwrap();
+    let out = fx
+        .yman(&fx.a)
+        .args(["git", "--", "cat-file", "-e", "deadbeef"])
+        .output()
+        .unwrap();
     assert!(!out.status.success());
 }
 
@@ -1032,7 +1186,11 @@ fn broken_task_is_listed_not_fatal() {
     // Commands that target it fail, and say why.
     let out = fx.yman(&fx.a).args(["show", "2"]).output().unwrap();
     assert!(!out.status.success());
-    assert!(stderr(&out).contains("task 2 is broken"), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("task 2 is broken"),
+        "{}",
+        stderr(&out)
+    );
 
     let text = stdout(&fx.yman(&fx.a).arg("status").output().unwrap());
     assert!(text.contains("(1 broken)"), "{text}");
@@ -1054,7 +1212,11 @@ fn edit_rewrites_title_and_renames_folder() {
         .output()
         .unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
-    assert!(stdout(&out).contains("edited 1  5.1.fix-logout"), "{}", stdout(&out));
+    assert!(
+        stdout(&out).contains("edited 1  5.1.fix-logout"),
+        "{}",
+        stdout(&out)
+    );
 
     assert!(fx.a.join(".yman/5.1.fix-logout").is_dir());
     assert!(!fx.a.join(".yman/5.1.fix-login").exists());
@@ -1082,7 +1244,10 @@ fn edit_body_only_keeps_the_folder() {
         .success();
 
     assert!(fx.a.join(".yman/5.1.fix-login").is_dir());
-    assert!(fx.read(&fx.a.join(".yman/5.1.fix-login/t.md")).contains("just a new body"));
+    assert!(
+        fx.read(&fx.a.join(".yman/5.1.fix-login/t.md"))
+            .contains("just a new body")
+    );
 }
 
 #[test]
@@ -1125,7 +1290,11 @@ fn edit_rejects_a_file_without_a_title() {
     // ...and the next sync snapshots it rather than losing it.
     let out = fx.yman(&fx.a).arg("sync").output().unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
-    assert!(stdout(&out).contains("snapshotted 1 local change(s)"), "{}", stdout(&out));
+    assert!(
+        stdout(&out).contains("snapshotted 1 local change(s)"),
+        "{}",
+        stdout(&out)
+    );
 }
 
 #[test]
@@ -1179,11 +1348,18 @@ fn add_with_editor_uses_the_edited_title() {
         .output()
         .unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
-    assert!(stdout(&out).contains("added 1  1.1.real-title"), "{}", stdout(&out));
+    assert!(
+        stdout(&out).contains("added 1  1.1.real-title"),
+        "{}",
+        stdout(&out)
+    );
 
     assert!(fx.a.join(".yman/1.1.real-title").is_dir());
     assert!(!fx.a.join(".yman/1.1.placeholder").exists());
-    assert!(fx.read(&fx.a.join(".yman/1.1.real-title/t.md")).contains("written in the editor"));
+    assert!(
+        fx.read(&fx.a.join(".yman/1.1.real-title/t.md"))
+            .contains("written in the editor")
+    );
 
     // One commit, under the final title; the placeholder never existed.
     let log = fx.git(&fx.a.join(".yman"), &["log", "--oneline"]);
@@ -1234,24 +1410,40 @@ fn comment_from_editor_and_from_stdin() {
 fn init_offline_touches_no_remote() {
     let fx = Fx::new();
     // An origin that could not be reached even if we tried.
-    fx.git(&fx.a, &["remote", "set-url", "origin", "/nonexistent/remote.git"]);
+    fx.git(
+        &fx.a,
+        &["remote", "set-url", "origin", "/nonexistent/remote.git"],
+    );
 
     let out = fx.yman(&fx.a).args(["init", "--offline"]).output().unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
-    assert!(stdout(&out).contains("initialized .yman"), "{}", stdout(&out));
+    assert!(
+        stdout(&out).contains("initialized .yman"),
+        "{}",
+        stdout(&out)
+    );
 
     // Local history exists; nothing was fetched or pushed.
     assert!(fx.a.join(".yman/config.toml").is_file());
     let (ok, _, _) = fx.git_try(&fx.a, &["rev-parse", "--verify", "refs/yman/remote"]);
     assert!(!ok, "refs/yman/remote must not exist after an offline init");
-    fx.yman(&fx.a).args(["add", "Offline task"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Offline task"])
+        .assert()
+        .success();
     assert_eq!(fx.title(&fx.a, "1"), "Offline task");
 
     let text = stdout(&fx.yman(&fx.a).arg("status").output().unwrap());
-    assert!(text.contains("remote: refs/tasks/main not fetched yet"), "{text}");
+    assert!(
+        text.contains("remote: refs/tasks/main not fetched yet"),
+        "{text}"
+    );
 
     // Once a reachable origin is back, a plain sync publishes everything.
-    fx.git(&fx.a, &["remote", "set-url", "origin", fx.remote.to_str().unwrap()]);
+    fx.git(
+        &fx.a,
+        &["remote", "set-url", "origin", fx.remote.to_str().unwrap()],
+    );
     let out = fx.yman(&fx.a).arg("sync").output().unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
     assert_eq!(
@@ -1285,7 +1477,10 @@ fn init_without_an_origin_needs_a_remote_url() {
     );
     fx.yman(&fx.a).args(["add", "A task"]).assert().success();
     fx.yman(&fx.a).arg("sync").assert().success();
-    assert!(!fx.git(&fx.remote, &["rev-parse", "refs/tasks/main"]).is_empty());
+    assert!(
+        !fx.git(&fx.remote, &["rev-parse", "refs/tasks/main"])
+            .is_empty()
+    );
 }
 
 #[test]
@@ -1357,7 +1552,10 @@ fn author_scheme_derives_a_prefix_from_the_committer() {
     assert_eq!(ids_in(&fx.a), vec!["ta-1".to_string()]);
 
     // An explicit prefix wins over the derived one.
-    fx.yman(&fx.a).args(["init", "--author", "iv"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["init", "--author", "iv"])
+        .assert()
+        .success();
     fx.yman(&fx.a).args(["add", "A two"]).assert().success();
     assert!(fx.has_task(&fx.a, "iv-1"));
 }
@@ -1413,33 +1611,47 @@ fn set_assignee_links_and_related() {
     let out = fx
         .yman(&fx.a)
         .args([
-            "set", "1",
-            "--assignee", "Ivan",
-            "--link", "https://example.invalid/issues/12",
-            "--relate", "2",
+            "set",
+            "1",
+            "--assignee",
+            "Ivan",
+            "--link",
+            "https://example.invalid/issues/12",
+            "--relate",
+            "2",
         ])
         .output()
         .unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
     let text = stdout(&out);
     assert!(text.contains("1: assignee - -> Ivan"), "{text}");
-    assert!(text.contains("1: links +https://example.invalid/issues/12"), "{text}");
+    assert!(
+        text.contains("1: links +https://example.invalid/issues/12"),
+        "{text}"
+    );
     assert!(text.contains("1: related +2"), "{text}");
 
     let shown = stdout(&fx.yman(&fx.a).args(["show", "1"]).output().unwrap());
     assert!(shown.contains("assignee: Ivan"), "{shown}");
-    assert!(shown.contains("links:    https://example.invalid/issues/12"), "{shown}");
+    assert!(
+        shown.contains("links:    https://example.invalid/issues/12"),
+        "{shown}"
+    );
     assert!(shown.contains("related:  2"), "{shown}");
 
     // Removing works, and removing something absent is quietly fine.
     let out = fx
         .yman(&fx.a)
         .args([
-            "set", "1",
+            "set",
+            "1",
             "--no-assignee",
-            "--unlink", "https://example.invalid/issues/12",
-            "--unrelate", "2",
-            "--unrelate", "999",
+            "--unlink",
+            "https://example.invalid/issues/12",
+            "--unrelate",
+            "2",
+            "--unrelate",
+            "999",
         ])
         .output()
         .unwrap();
@@ -1447,7 +1659,10 @@ fn set_assignee_links_and_related() {
     let text = stdout(&out);
     assert!(text.contains("1: assignee Ivan -> -"), "{text}");
     assert!(text.contains("1: related -2"), "{text}");
-    assert!(!text.contains("999"), "removing an absent value is not a change: {text}");
+    assert!(
+        !text.contains("999"),
+        "removing an absent value is not a change: {text}"
+    );
 
     let shown = stdout(&fx.yman(&fx.a).args(["show", "1"]).output().unwrap());
     assert!(shown.contains("assignee: -"), "{shown}");
@@ -1468,7 +1683,11 @@ fn set_tags_keep_their_order_and_dedupe() {
 
     // Adding a tag that is already there changes nothing at all.
     let before = fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]);
-    let out = fx.yman(&fx.a).args(["set", "1", "--tag", "auth"]).output().unwrap();
+    let out = fx
+        .yman(&fx.a)
+        .args(["set", "1", "--tag", "auth"])
+        .output()
+        .unwrap();
     assert!(out.status.success());
     assert_eq!(stdout(&out).trim_end(), "no changes");
     assert_eq!(fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]), before);
@@ -1501,7 +1720,11 @@ fn set_rejects_an_unknown_status_and_an_empty_title() {
         "error: unknown status \"wip\"; allowed: todo, doing, done"
     );
 
-    let out = fx.yman(&fx.a).args(["set", "1", "--title", "   "]).output().unwrap();
+    let out = fx
+        .yman(&fx.a)
+        .args(["set", "1", "--title", "   "])
+        .output()
+        .unwrap();
     assert!(!out.status.success());
     assert_eq!(stderr(&out).trim(), "error: title must not be empty");
 

@@ -46,7 +46,9 @@ pub fn refresh(ctx: &Context, quiet: bool) -> Result<RefreshReport> {
     }
     if !ctx.main.is_ancestor(LOCAL, REMOTE)? {
         // Diverged or ahead: only `sync` may decide what happens next.
-        return Ok(RefreshReport::skip("local has unpushed commits; run: yman sync"));
+        return Ok(RefreshReport::skip(
+            "local has unpushed commits; run: yman sync",
+        ));
     }
     if ctx.wt.is_dirty()? {
         if !quiet {

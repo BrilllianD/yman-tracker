@@ -65,7 +65,9 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
         // is a plain rename rather than a `git mv`.
         let slug = task::slugify(&t.title, ctx.config().slug.max_bytes);
         if slug != t.folder.slug {
-            let new_dir = ctx.ydir.join(format!("{}.{}.{}", t.folder.priority, t.folder.id, slug));
+            let new_dir = ctx
+                .ydir
+                .join(format!("{}.{}.{}", t.folder.priority, t.folder.id, slug));
             std::fs::rename(&t.dir, &new_dir)?;
             t.folder.slug = slug;
             t.dir = new_dir;

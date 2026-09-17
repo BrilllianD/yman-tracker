@@ -280,14 +280,20 @@ mod tests {
     #[test]
     fn rejects_short_status_list() {
         reject(
-            &base().replace("list = [\"todo\", \"doing\", \"done\"]", "list = [\"todo\"]"),
+            &base().replace(
+                "list = [\"todo\", \"doing\", \"done\"]",
+                "list = [\"todo\"]",
+            ),
             "at least 2",
         );
     }
 
     #[test]
     fn rejects_default_outside_list() {
-        reject(&base().replace("default = \"todo\"", "default = \"nope\""), "nope");
+        reject(
+            &base().replace("default = \"todo\"", "default = \"nope\""),
+            "nope",
+        );
     }
 
     #[test]
@@ -297,14 +303,26 @@ mod tests {
 
     #[test]
     fn rejects_slug_cap() {
-        reject(&base().replace("max_bytes = 200", "max_bytes = 241"), "1..=240");
-        reject(&base().replace("max_bytes = 200", "max_bytes = 0"), "1..=240");
+        reject(
+            &base().replace("max_bytes = 200", "max_bytes = 241"),
+            "1..=240",
+        );
+        reject(
+            &base().replace("max_bytes = 200", "max_bytes = 0"),
+            "1..=240",
+        );
     }
 
     #[test]
     fn rejects_random_len() {
-        reject(&base().replace("random_len = 4", "random_len = 1"), "2..=16");
-        reject(&base().replace("random_len = 4", "random_len = 17"), "2..=16");
+        reject(
+            &base().replace("random_len = 4", "random_len = 1"),
+            "2..=16",
+        );
+        reject(
+            &base().replace("random_len = 4", "random_len = 17"),
+            "2..=16",
+        );
     }
 
     #[test]

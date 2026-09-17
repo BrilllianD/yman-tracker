@@ -76,8 +76,7 @@ fn resume(ctx: &mut Context, no_push: bool) -> Result<()> {
     check_resolved_tasks(ctx)?;
 
     ctx.wt.ok(&["add", "-A"])?;
-    ctx.wt
-        .ok(&["commit", "-q", "--no-verify", "--no-edit"])?;
+    ctx.wt.ok(&["commit", "-q", "--no-verify", "--no-edit"])?;
 
     let mut totals = Totals::default();
     if !no_push {
@@ -112,10 +111,10 @@ fn check_resolved_tasks(ctx: &Context) -> Result<()> {
             .into());
         }
         if let Err(e) = task::load(&path) {
-            return Err(
-                MergePending::new(format!("conflict markers or invalid task in {dir}: {e:#}"))
-                    .into(),
-            );
+            return Err(MergePending::new(format!(
+                "conflict markers or invalid task in {dir}: {e:#}"
+            ))
+            .into());
         }
     }
     Ok(())
@@ -147,7 +146,10 @@ fn has_conflict_markers(dir: &std::path::Path) -> Result<Option<String>> {
         };
         if text.lines().any(is_marker) {
             return Ok(Some(
-                path.file_name().unwrap_or_default().to_string_lossy().into_owned(),
+                path.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned(),
             ));
         }
     }

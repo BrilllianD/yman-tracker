@@ -24,10 +24,8 @@ pub fn run(ctx: &mut Context, a: RmArgs) -> Result<()> {
     }
 
     ctx.wt.ok(&["rm", "-rq", "--", &t.rel()])?;
-    ctx.wt.commit(&format!(
-        "task({id}): remove \"{}\"",
-        quote_title(&t.title)
-    ))?;
+    ctx.wt
+        .commit(&format!("task({id}): remove \"{}\"", quote_title(&t.title)))?;
     println!("removed {id}");
     Ok(())
 }
