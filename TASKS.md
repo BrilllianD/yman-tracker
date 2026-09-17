@@ -222,6 +222,43 @@ when someone remembers to run it.
   `cargo test` and `sh scripts/spike-symref.sh` — the same four steps as the
   `verify` skill in `.claude/skills/verify/SKILL.md`.
 
+### Exercise yman on a synthetic local project
+
+`tests/cli.rs` drives two clones in a tempdir, each holding a handful of tasks
+that live for the length of one test. That shape is good at pinning strings and
+bad at everything that only shows up with age: a history deep enough for
+`ever_assigned` to cost something, enough tasks for a plain `ls .yman/` to be
+worth reading, a repository that has moved through a config change, and folders
+that have been renamed several times.
+
+The status-flow work is the argument for it. Three defects came out of running
+the binary by hand rather than out of the suite: `*/d.md merge=union` silently
+not matching a path one level deeper, `sync` renumbering any task with a file
+added under it, and a version 2 config with `terminal` but no `statuses.done`
+quietly making `yman done` mean `cancelled`. Each was then easy to pin, but
+nothing in the suite was going to ask the question.
+
+- Where: a new `scripts/` generator plus whatever it needs from
+  `tests/common/mod.rs`; the results belong in `README.md` (limits) and
+  `docs/storage.md` where they contradict what is written.
+- Approach: build a repository with a real commit history — on the order of a
+  thousand tasks across several hundred commits, three or four clones, tasks
+  that were retitled, reprioritized, closed, reopened and renumbered — then
+  drive it. Keep it a script that regenerates the fixture rather than a
+  committed fixture: a checked-in repository inside this repository is a
+  maintenance trap, and `.yman` being a linked worktree makes nesting one
+  worse.
+- Done when: the script exists and is documented, the run is reproducible, and
+  what it found is written down — either as fixed behaviour, as a new entry
+  here, or as a recorded limit. Specifically answer: what `add` costs on that
+  history (this closes the `ever_assigned` measurement entry above), whether
+  `yman log <id>` stays usable after a task has crossed into and out of a
+  status directory several times, and whether a version 1 repository with
+  hundreds of closed tasks can be moved to version 2 with the documented
+  `yman done <id>` loop without anything being lost.
+- Not in scope: making this part of CI. It is a thing someone runs before a
+  release, not on every push.
+
 ---
 
 ## Distribution
