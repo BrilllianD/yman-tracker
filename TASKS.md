@@ -16,22 +16,6 @@ closes it. Anything that changes a user-facing string must change
 
 ## Correctness and data integrity
 
-### Rewrite `related` references when sync renumbers an id
-
-A collision renumber moves a task's id but leaves every `related:` entry that
-pointed at the old id dangling. Today the user gets a note
-(`src/commands/sync.rs:351`) telling them to fix it by hand.
-
-- Where: `src/commands/sync.rs` (`renumber_collisions`), `src/task.rs`
-- Done when: after a renumber batch, no task on `refs/yman/local` refers to a
-  renumbered id by its old value; the manual-update note is gone from the code,
-  `docs/commands.md` §6 and `README.md`; an integration scenario in
-  `tests/cli.rs` creates a cross-referenced pair, forces a collision on the
-  second clone and asserts the reference followed the move.
-- Note: the renamed ids and the rewritten references must land in the *same*
-  commit as the `git mv` batch, or a mid-sync failure leaves the tree
-  inconsistent.
-
 ### Field-wise merge driver for `m.yml`
 
 Two machines editing different fields of the same task produce a textual

@@ -101,7 +101,7 @@ Never fatal, always stderr:
 | `warning: installing into core.hooksPath=<p>` | hooks redirected away from `.git/hooks` |
 | `note: added remote "origin" -> <url>` | `init --remote` created the remote |
 | `note: .yman has uncommitted changes, refresh skipped` | refresh backed off |
-| `note: update references to <ids> manually if any` | after a collision renumber |
+| `note: rewrote N reference(s) to renumbered ids` | a collision renumber moved ids other tasks related to |
 
 ## Deliberate non-errors
 
