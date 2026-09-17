@@ -219,7 +219,9 @@ that is behind moves, because the other side's id is already published.
 - Each rename is a `git mv`, the task's `updated` is touched, and one commit
   covers the batch.
 - Each move prints `renumbered {old} -> {new}  (id taken on origin)`.
-- `related` references to the old id are **not** rewritten; a note says so.
+- `related` references to the old id are rewritten to the new one, in the
+  same commit as the moves, and `note: rewrote N reference(s) to renumbered
+  ids` reports how many changed. A folder that does not load is left alone.
 
 ### `--continue` and `--abort`
 

@@ -386,12 +386,12 @@ id is already published:
 ```console
 $ yman sync
 renumbered 2 -> 3  (id taken on origin)
-note: update references to 2 manually if any
+note: rewrote 1 reference(s) to renumbered ids
 synced  pulled 1, pushed 3, renumbered 1   refs/yman/local @ 1f7d06f
 ```
 
-References to the old id in other tasks' `related` lists are **not** rewritten —
-hence the note.
+References to the old id in other tasks' `related` lists follow the move, in the
+same commit as the rename.
 
 ### Same field, two edits
 
@@ -448,7 +448,6 @@ the error; fix the file and the task comes back. Nothing else is affected.
 
 - `m.yml` conflicts are resolved by hand; a field-wise merge driver would settle
   status and tag edits automatically.
-- A renumber does not rewrite `related` ids that point at the old id.
 - Attachments go straight into git; there is no git-lfs integration.
 - Every ref read spawns a `git` process, including on the lazy refresh path.
 - One `.yman` worktree per clone.

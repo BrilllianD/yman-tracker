@@ -596,6 +596,50 @@ fn seq_collision_renumber() {
 }
 
 #[test]
+fn collision_renumber_rewrites_related() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "A one"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+
+    // Both mint id 2 offline; B also has a task 3 pointing at its own 2.
+    fx.yman(&fx.a).args(["add", "A two"]).assert().success();
+    fx.yman(&fx.b).args(["add", "B two"]).assert().success();
+    fx.yman(&fx.b).args(["add", "B three"]).assert().success();
+    fx.yman(&fx.b)
+        .args(["set", "3", "--relate", "2"])
+        .assert()
+        .success();
+    fx.yman(&fx.b)
+        .args(["set", "2", "--relate", "3"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stdout(&out).contains("renumbered 2 -> 4"),
+        "{}",
+        stdout(&out)
+    );
+    let err = stderr(&out);
+    assert!(err.contains("rewrote 1 reference(s)"), "{err}");
+    assert!(!err.contains("manually"), "{err}");
+
+    // The reference followed the move; the moved task keeps its own.
+    assert_eq!(fx.title(&fx.b, "4"), "B two");
+    let three = stdout(&fx.yman(&fx.b).args(["show", "3"]).output().unwrap());
+    assert!(three.contains("related:  4"), "{three}");
+    let four = stdout(&fx.yman(&fx.b).args(["show", "4"]).output().unwrap());
+    assert!(four.contains("related:  3"), "{four}");
+
+    // Nothing was left uncommitted by the rewrite.
+    assert_eq!(fx.git(&fx.b, &["-C", ".yman", "status", "--porcelain"]), "");
+}
+
+#[test]
 fn author_collision_renumber() {
     let fx = Fx::new();
     fx.yman(&fx.a)

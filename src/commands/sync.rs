@@ -322,6 +322,7 @@ fn renumber_collisions(ctx: &mut Context, base: &str) -> Result<usize> {
 
     let scheme = ctx.config().ids.scheme;
     let mut pairs: Vec<String> = Vec::new();
+    let mut moves: Vec<(String, String)> = Vec::new();
     for old in &colliding {
         let mut t = task::find(&ctx.ydir, old)?;
         let prefix = match scheme {
@@ -341,17 +342,57 @@ fn renumber_collisions(ctx: &mut Context, base: &str) -> Result<usize> {
         ctx.wt.ok(&["add", "--", &new_rel])?;
         println!("renumbered {old} -> {new}  (id taken on origin)");
         pairs.push(format!("{old}->{new}"));
+        moves.push((old.clone(), new));
     }
 
+    let rewritten = rewrite_related(ctx, &moves)?;
     ctx.wt.commit(&format!(
         "yman: renumber {} (sync collision)",
         pairs.join(", ")
     ))?;
-    eprintln!(
-        "note: update references to {} manually if any",
-        colliding.join(", ")
-    );
+    if rewritten > 0 {
+        eprintln!("note: rewrote {rewritten} reference(s) to renumbered ids");
+    }
     Ok(colliding.len())
+}
+
+/// Point every `related:` entry that named a renumbered id at its new one.
+/// Staged but not committed: the caller commits it together with the `git mv`
+/// batch, so a failure in between cannot leave half a renumber on the ref.
+fn rewrite_related(ctx: &Context, moves: &[(String, String)]) -> Result<usize> {
+    let mut rewritten = 0;
+    for entry in task::list(&ctx.ydir)? {
+        // A folder that does not load is left alone; rewriting it would mean
+        // parsing what we already failed to parse.
+        let task::Entry::Task(mut t) = entry else {
+            continue;
+        };
+        let mut related: Vec<String> = Vec::with_capacity(t.meta.related.len());
+        let mut hits = 0;
+        for id in &t.meta.related {
+            let mapped = match moves.iter().find(|(old, _)| old == id) {
+                Some((_, new)) => {
+                    hits += 1;
+                    new.clone()
+                }
+                None => id.clone(),
+            };
+            // A task related to both ids of a collision pair keeps one entry.
+            if !related.contains(&mapped) {
+                related.push(mapped);
+            }
+        }
+        if hits == 0 {
+            continue;
+        }
+        t.meta.related = related;
+        t.touch();
+        t.write_meta()?;
+        let rel = t.rel();
+        ctx.wt.ok(&["add", "--", &rel])?;
+        rewritten += hits;
+    }
+    Ok(rewritten)
 }
 
 fn push_with_count(ctx: &Context, totals: &mut Totals) -> Result<()> {
