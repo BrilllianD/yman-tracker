@@ -1400,3 +1400,130 @@ fn ids_in(fx: &Fx, clone: &std::path::Path) -> Vec<String> {
         .filter_map(|n| n.split('.').nth(1).map(String::from))
         .collect()
 }
+
+// ------------------------------------------------------- the rest of `set`
+
+#[test]
+fn set_assignee_links_and_related() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).args(["add", "Other"]).assert().success();
+
+    let out = fx
+        .yman(&fx.a)
+        .args([
+            "set", "1",
+            "--assignee", "Ivan",
+            "--link", "https://example.invalid/issues/12",
+            "--relate", "2",
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("1: assignee - -> Ivan"), "{text}");
+    assert!(text.contains("1: links +https://example.invalid/issues/12"), "{text}");
+    assert!(text.contains("1: related +2"), "{text}");
+
+    let shown = stdout(&fx.yman(&fx.a).args(["show", "1"]).output().unwrap());
+    assert!(shown.contains("assignee: Ivan"), "{shown}");
+    assert!(shown.contains("links:    https://example.invalid/issues/12"), "{shown}");
+    assert!(shown.contains("related:  2"), "{shown}");
+
+    // Removing works, and removing something absent is quietly fine.
+    let out = fx
+        .yman(&fx.a)
+        .args([
+            "set", "1",
+            "--no-assignee",
+            "--unlink", "https://example.invalid/issues/12",
+            "--unrelate", "2",
+            "--unrelate", "999",
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("1: assignee Ivan -> -"), "{text}");
+    assert!(text.contains("1: related -2"), "{text}");
+    assert!(!text.contains("999"), "removing an absent value is not a change: {text}");
+
+    let shown = stdout(&fx.yman(&fx.a).args(["show", "1"]).output().unwrap());
+    assert!(shown.contains("assignee: -"), "{shown}");
+    assert!(!shown.contains("links:"), "{shown}");
+    assert!(!shown.contains("related:"), "{shown}");
+}
+
+#[test]
+fn set_tags_keep_their_order_and_dedupe() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Fix login", "-t", "auth", "-t", "auth", "-t", "bug"])
+        .assert()
+        .success();
+    let text = stdout(&fx.yman(&fx.a).args(["ls", "--json"]).output().unwrap());
+    assert!(text.contains("\"tags\":[\"auth\",\"bug\"]"), "{text}");
+
+    // Adding a tag that is already there changes nothing at all.
+    let before = fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]);
+    let out = fx.yman(&fx.a).args(["set", "1", "--tag", "auth"]).output().unwrap();
+    assert!(out.status.success());
+    assert_eq!(stdout(&out).trim_end(), "no changes");
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]), before);
+
+    fx.yman(&fx.a)
+        .args(["set", "1", "--tag", "ui", "--untag", "auth"])
+        .assert()
+        .success();
+    let text = stdout(&fx.yman(&fx.a).args(["ls", "--json"]).output().unwrap());
+    assert!(text.contains("\"tags\":[\"bug\",\"ui\"]"), "{text}");
+
+    let subject = fx.git(&fx.a.join(".yman"), &["log", "--oneline", "-1"]);
+    assert!(subject.contains("tags=+ui,-auth"), "{subject}");
+}
+
+#[test]
+fn set_rejects_an_unknown_status_and_an_empty_title() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["set", "1", "--status", "wip"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert_eq!(
+        stderr(&out).trim(),
+        "error: unknown status \"wip\"; allowed: todo, doing, done"
+    );
+
+    let out = fx.yman(&fx.a).args(["set", "1", "--title", "   "]).output().unwrap();
+    assert!(!out.status.success());
+    assert_eq!(stderr(&out).trim(), "error: title must not be empty");
+
+    // A priority outside 0..=9 is a usage error, caught by the parser.
+    let out = fx.yman(&fx.a).args(["prio", "1", "10"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(2));
+
+    // Nothing above touched the task.
+    assert_eq!(fx.status(&fx.a, "1"), "todo");
+    assert_eq!(fx.title(&fx.a, "1"), "Fix login");
+    assert!(fx.a.join(".yman/5.1.fix-login").is_dir());
+}
+
+#[test]
+fn assignee_flags_conflict() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let out = fx
+        .yman(&fx.a)
+        .args(["set", "1", "--assignee", "Ivan", "--no-assignee"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2));
+}
