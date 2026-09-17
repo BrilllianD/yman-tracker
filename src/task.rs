@@ -280,6 +280,30 @@ fn parent_of(ydir: &Path, dir: &Path) -> Result<Option<String>> {
     bail!("task folder is not directly under .yman or a status directory");
 }
 
+/// The task folder a git path belongs to, as a path relative to `.yman`, with
+/// its parsed name. Accepts both `5.1.x/m.yml` and `done/5.1.x/m.yml`, and
+/// rejects root files such as `config.toml`.
+///
+/// Every place that reads paths out of git — the rename graph, the id history,
+/// the collision renumber, the merge check — goes through this, so a task keeps
+/// its identity when it moves into or out of a status directory.
+pub fn task_path_of(path: &str) -> Option<(String, FolderName)> {
+    let segs: Vec<&str> = path.split('/').collect();
+    let first = *segs.first()?;
+    if segs.len() >= 2
+        && let Some(folder) = FolderName::parse(first)
+    {
+        return Some((first.to_string(), folder));
+    }
+    if segs.len() >= 3 && crate::config::is_status_dir_name(first) {
+        let second = segs[1];
+        if let Some(folder) = FolderName::parse(second) {
+            return Some((format!("{first}/{second}"), folder));
+        }
+    }
+    None
+}
+
 /// Every task folder in `ydir`, at the top level and one directory down, in
 /// relative-path order. Non-directories and directories whose name is not a
 /// task name are ignored entirely.

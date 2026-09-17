@@ -1,6 +1,6 @@
 use crate::cli::LogArgs;
 use crate::repo::{Context, LOCAL};
-use crate::task::{self, FolderName};
+use crate::task::{self, task_path_of};
 use anyhow::Result;
 use std::collections::HashSet;
 
@@ -78,10 +78,6 @@ fn historical_names(ctx: &Context, current: &str) -> Result<Vec<String>> {
 }
 
 /// First path segment, when it names a task folder.
-fn first_segment(path: &str) -> Option<&str> {
-    let mut segs = path.split('/');
-    let first = segs.next()?;
-    segs.next()?;
-    FolderName::parse(first)?;
-    Some(first)
+fn first_segment(path: &str) -> Option<String> {
+    task_path_of(path).map(|(rel, _)| rel)
 }

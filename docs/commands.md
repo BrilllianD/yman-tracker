@@ -81,10 +81,11 @@ The lazy refresh still runs, silently.
 
 ### `log`
 
-`-n` defaults to 20. With an id, it collects every folder name the task has ever
-had by parsing `--diff-filter=R -M` rename records into a graph and walking
-backwards from the current name, then limits the log to those paths — so a task
-that changed priority or title keeps its full history.
+`-n` defaults to 20. With an id, it collects every path the task has ever had by
+parsing `--diff-filter=R -M` rename records into a graph and walking backwards
+from the current one, then limits the log to those paths — so a task that
+changed priority or title, or moved into a status directory, keeps its full
+history.
 
 ## 4. Writing
 
@@ -231,8 +232,31 @@ Both require a merge in progress.
 `--continue` treats a file as unresolved while it still carries conflict
 markers — staging is yman's job, since the message tells the user to edit and
 rerun, not to run `git add`. It then checks that every task folder the merge
-touched still loads and is marker-free, stages everything, commits with
-`--no-edit`, and pushes.
+touched still loads and is marker-free, that no id has two folders, stages
+everything, commits with `--no-edit`, and pushes.
+
+The folder list comes from both `HEAD..MERGE_HEAD` and the unmerged paths,
+because a rename conflict names paths that survive in neither tree.
+
+### A task closed to two different statuses
+
+Closing one task to `done` on one clone and `cancelled` on another renames it
+two ways, and git resolves that by keeping **both** folders. Both load, and
+neither holds a conflict marker, so every other check here passes — the
+duplicate-id check is the only thing between that state and a pushed task no
+command can touch afterwards. It reports
+
+```
+duplicate task id 1: cancelled/5.1.fix-login, done/5.1.fix-login; delete one folder, then: yman sync --continue
+```
+
+with exit 3, and `sync` names the same pair on stderr when the merge fails:
+
+```
+note: task 1 was closed to two different statuses; keep one of done/5.1.fix-login, cancelled/5.1.fix-login
+```
+
+Delete the folder you do not want, then rerun `yman sync --continue`.
 
 `--abort` runs `git merge --abort` and reports `merge aborted`.
 

@@ -1929,3 +1929,67 @@ fn a_broken_folder_in_a_status_dir_is_listed_with_its_path() {
         stderr(&out)
     );
 }
+
+/// A task closed to a different status on each clone is a rename/rename
+/// conflict: git keeps both folders, both load, and neither carries a marker.
+/// Without the duplicate-id gate `--continue` commits and pushes a task that
+/// no later command can touch.
+#[test]
+fn a_split_close_cannot_be_continued_into_a_duplicate_id() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+
+    // Each side files the same task under a different status directory.
+    let archive = |clone: &std::path::Path, status: &str| {
+        let ydir = clone.join(".yman");
+        std::fs::create_dir_all(ydir.join(status)).unwrap();
+        fx.git(
+            &ydir,
+            &["mv", "5.1.fix-login", &format!("{status}/5.1.fix-login")],
+        );
+        fx.git(&ydir, &["commit", "-q", "--no-verify", "-m", "archive"]);
+    };
+    archive(&fx.a, "done");
+    fx.yman(&fx.a).arg("sync").assert().success();
+    archive(&fx.b, "cancelled");
+
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    let err = stderr(&out);
+    assert!(
+        err.contains("was closed to two different statuses"),
+        "{err}"
+    );
+    assert!(err.contains("done/5.1.fix-login"), "{err}");
+    assert!(err.contains("cancelled/5.1.fix-login"), "{err}");
+
+    // Both folders are on disk, both load, no file has a marker — every other
+    // check passes, so only the gate stands between here and a corrupt push.
+    assert!(fx.b.join(".yman/done/5.1.fix-login/t.md").exists());
+    assert!(fx.b.join(".yman/cancelled/5.1.fix-login/t.md").exists());
+
+    let out = fx
+        .yman(&fx.b)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    let err = stderr(&out);
+    assert!(
+        err.contains("duplicate task id 1: cancelled/5.1.fix-login, done/5.1.fix-login"),
+        "{err}"
+    );
+    assert!(err.contains("delete one folder"), "{err}");
+
+    // Resolving as instructed finishes the sync.
+    std::fs::remove_dir_all(fx.b.join(".yman/cancelled/5.1.fix-login")).unwrap();
+    fx.yman(&fx.b)
+        .args(["sync", "--continue"])
+        .assert()
+        .success();
+    assert_eq!(fx.task_rel(&fx.b, "1"), "done/5.1.fix-login");
+    assert_eq!(fx.git(&fx.b, &["-C", ".yman", "status", "--porcelain"]), "");
+}

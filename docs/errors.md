@@ -23,6 +23,10 @@ there is no colour anywhere.
 | `2` | usage error | the argument parser, before anything runs |
 | `3` | a sync merge is unresolved | the `MergePending` marker error |
 
+Messages that carry code 3, beyond the preflight and merge ones: a
+`sync --continue` that would leave two folders for one id reports
+`duplicate task id <id>: <relA>, <relB>; delete one folder, then: yman sync --continue`.
+
 Code 3 travels as a distinct error type (`src/errors.rs`) and is recognised in
 `main` by downcasting. Returning the same text as a plain `anyhow` error would
 silently degrade it to code 1, which scripts cannot distinguish from a genuine
@@ -48,7 +52,7 @@ commit.
 | ref already checked out | `refs/yman/local is already checked out in another worktree of this repo; only one .yman per clone is supported` |
 | unknown task | `task <id> not found` |
 | task present but unloadable | `task <id> is broken: <dir>: <why>` |
-| duplicate folders for one id | `duplicate task id <id>: <dirA>, <dirB>` |
+| duplicate folders for one id | `duplicate task id <id>: <relA>, <relB>` — paths relative to `.yman`, so the two may differ only in their status directory |
 | bad status | `unknown status "<s>"; allowed: <list joined by ", ">` |
 | unsupported config version | `invalid .yman/config.toml: unsupported version <n> (this yman understands 1 and 2)` |
 | a status role on a version 1 config | `invalid .yman/config.toml: statuses.<key> needs version = 2; bump version in .yman/config.toml` |
@@ -113,6 +117,7 @@ Never fatal, always stderr:
 | `note: added remote "origin" -> <url>` | `init --remote` created the remote |
 | `note: .yman has uncommitted changes, refresh skipped` | refresh backed off |
 | `note: rewrote N reference(s) to renumbered ids` | a collision renumber moved ids other tasks related to |
+| `note: task <id> was closed to two different statuses; keep one of <relA>, <relB>` | a merge renamed one task into two status directories |
 
 ## Deliberate non-errors
 
