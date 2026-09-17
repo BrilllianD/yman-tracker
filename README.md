@@ -479,6 +479,10 @@ Layout:
 | `src/refresh.rs` | the fast-forward policy |
 | `src/commands/` | one module per subcommand |
 | `scripts/spike-symref.sh` | proves committing in the worktree moves `refs/yman/local` |
+| `docs/` | the normative specification |
 
-`YMAN_PLAN.md` is the original implementation spec, kept for reference; where
-the code and the spec disagree, the commit that changed it says why.
+`docs/` holds the normative, as-built specification — [storage.md](docs/storage.md)
+for the ref and on-disk contract, [commands.md](docs/commands.md) for per-command
+semantics, [errors.md](docs/errors.md) for exit codes and the pinned messages.
+They describe what the code does, so a disagreement between the two is a bug in
+one of them.
