@@ -39,6 +39,7 @@ $ yman ls
 - [Troubleshooting](#troubleshooting)
 - [Limits and future work](#limits-and-future-work)
 - [Development](#development)
+- [License](#license)
 
 ---
 
@@ -487,3 +488,9 @@ for the ref and on-disk contract, [commands.md](docs/commands.md) for per-comman
 semantics, [errors.md](docs/errors.md) for exit codes and the pinned messages.
 They describe what the code does, so a disagreement between the two is a bug in
 one of them.
+
+---
+
+## License
+
+MIT. See [LICENSE](LICENSE).
