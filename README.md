@@ -230,8 +230,11 @@ yman set <id> [--status S] [--priority 0-9] [--title T]
               [--tag X]... [--untag X]...
               [--link URL]... [--unlink URL]...
               [--relate ID]... [--unrelate ID]...
-yman start <id>          # = set --status <second status in the list>
-yman done  <id>          # = set --status <last status in the list>
+yman start <id>          # = set --status <start status>
+yman done  <id>          # = set --status <done status>
+yman move <id> <status>  # = set --status <status>
+yman cancel <id>         # = set --status <cancel status>   (version 2)
+yman reopen <id>         # a closed task back to the default status
 yman prio  <id> <0-9>    # = set --priority
 yman edit  <id>          # $VISUAL, else $EDITOR, else vi
 yman rm    <id> [-f]

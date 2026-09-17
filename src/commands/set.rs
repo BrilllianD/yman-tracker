@@ -214,6 +214,34 @@ pub fn run_done(ctx: &mut Context, id: &str) -> Result<()> {
     one(ctx, id, Some(status), None)
 }
 
+/// `move` is a positional spelling of `set --status`; an unknown status is
+/// rejected by `run` with the wording every other command uses.
+pub fn run_move(ctx: &mut Context, id: &str, status: String) -> Result<()> {
+    one(ctx, id, Some(status), None)
+}
+
+pub fn run_cancel(ctx: &mut Context, id: &str) -> Result<()> {
+    // No fallback: guessing which of several closed statuses means "gave up"
+    // is exactly the positional cleverness the roles exist to remove.
+    let Some(status) = ctx.config().cancel_status().map(str::to_string) else {
+        bail!("no cancel status configured; set statuses.cancel in .yman/config.toml");
+    };
+    one(ctx, id, Some(status), None)
+}
+
+pub fn run_reopen(ctx: &mut Context, id: &str) -> Result<()> {
+    let t = task::find(&ctx.ydir, id)?;
+    if !ctx.config().is_terminal(&t.meta.status) {
+        bail!(
+            "task {id} is not closed (status \"{}\"); closed statuses: {}",
+            t.meta.status,
+            ctx.config().terminal_joined()
+        );
+    }
+    let status = ctx.config().statuses.default.clone();
+    one(ctx, id, Some(status), None)
+}
+
 pub fn run_prio(ctx: &mut Context, id: &str, priority: u8) -> Result<()> {
     one(ctx, id, None, Some(priority))
 }

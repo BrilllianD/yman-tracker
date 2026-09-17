@@ -185,6 +185,17 @@ impl Config {
         }
     }
 
+    /// The effective terminal set, in `statuses.list` order.
+    pub fn terminal_joined(&self) -> String {
+        self.statuses
+            .list
+            .iter()
+            .map(String::as_str)
+            .filter(|s| self.is_terminal(s))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
     pub fn statuses_joined(&self) -> String {
         self.statuses.list.join(", ")
     }

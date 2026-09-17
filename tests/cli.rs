@@ -2216,3 +2216,83 @@ fn setting_a_status_relocates_a_misplaced_task() {
         .unwrap();
     assert_eq!(stdout(&out).trim(), "no changes");
 }
+
+/// `move` is `set --status` without the flag, and rejects the same values.
+#[test]
+fn move_is_a_positional_set_status() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v2_config(&fx.a);
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["move", "1", "blocked"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stdout(&out).contains("1: status todo -> blocked"),
+        "{}",
+        stdout(&out)
+    );
+    assert_eq!(fx.status(&fx.a, "1"), "blocked");
+    // Not a closed status, so it stays at the top level.
+    assert_eq!(fx.task_rel(&fx.a, "1"), "5.1.fix-login");
+
+    let out = fx.yman(&fx.a).args(["move", "1", "nope"]).output().unwrap();
+    assert!(!out.status.success());
+    assert_eq!(
+        stderr(&out).trim(),
+        "error: unknown status \"nope\"; allowed: todo, doing, blocked, done, cancelled"
+    );
+}
+
+/// `cancel` needs the config to say which status it means.
+#[test]
+fn cancel_uses_the_configured_status() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+
+    // Version 1 has no cancel status at all.
+    let out = fx.yman(&fx.a).args(["cancel", "1"]).output().unwrap();
+    assert!(!out.status.success());
+    assert_eq!(
+        stderr(&out).trim(),
+        "error: no cancel status configured; set statuses.cancel in .yman/config.toml"
+    );
+
+    fx.v2_config(&fx.a);
+    let out = fx.yman(&fx.a).args(["cancel", "1"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(fx.status(&fx.a, "1"), "cancelled");
+    assert_eq!(fx.task_rel(&fx.a, "1"), "cancelled/5.1.fix-login");
+}
+
+/// `reopen` only applies to a closed task, and says so when it does not.
+#[test]
+fn reopen_returns_a_closed_task_to_the_default_status() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v2_config(&fx.a);
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+
+    let out = fx.yman(&fx.a).args(["reopen", "1"]).output().unwrap();
+    assert!(!out.status.success());
+    assert_eq!(
+        stderr(&out).trim(),
+        "error: task 1 is not closed (status \"todo\"); closed statuses: done, cancelled"
+    );
+
+    fx.yman(&fx.a).args(["cancel", "1"]).assert().success();
+    let out = fx.yman(&fx.a).args(["reopen", "1"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stdout(&out).contains("1: status cancelled -> todo"),
+        "{}",
+        stdout(&out)
+    );
+    assert_eq!(fx.task_rel(&fx.a, "1"), "5.1.fix-login");
+    assert!(!fx.a.join(".yman/cancelled").exists());
+}

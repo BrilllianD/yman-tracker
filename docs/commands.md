@@ -18,7 +18,7 @@ Normative, as-built. Companion documents: [storage.md](storage.md),
    down.
 
 Mutating commands, for the purposes of step 2: `add`, `edit`, `set`, `start`,
-`done`, `prio`, `rm`, `attach`, `detach`, `comment`. `sync` is excluded because
+`done`, `move`, `cancel`, `reopen`, `prio`, `rm`, `attach`, `detach`, `comment`. `sync` is excluded because
 it handles `MERGE_HEAD` itself.
 
 ## 2. Commit messages
@@ -32,7 +32,7 @@ interfere. GPG signing is deliberately left to the user's configuration.
 | `init` | `yman: init (<scheme>)` |
 | `add` | `task({id}): add "{title}"` |
 | `edit` | `task({id}): edit` |
-| `set`, `start`, `done`, `prio` | `task({id}): set {pairs}` |
+| `set`, `start`, `done`, `move`, `cancel`, `reopen`, `prio` | `task({id}): set {pairs}` |
 | `rm` | `task({id}): remove "{title}"` |
 | `attach` | `task({id}): attach {name}[, {name}…]` |
 | `detach` | `task({id}): detach {name}` |
@@ -107,7 +107,7 @@ user's text**; the next `sync` snapshots it. When nothing changed, it prints
 `no changes` and commits nothing. A changed title re-slugs the folder with
 `git mv`.
 
-### `set` (and `start`, `done`, `prio`)
+### `set` (and `start`, `done`, `move`, `cancel`, `reopen`, `prio`)
 
 At least one flag is required, enforced by the argument parser. Changes are
 applied in memory first, then:
@@ -133,6 +133,17 @@ relocates a task that is in the wrong place — a hand edit, a resolved merge, o
 a repository that raised its version with closed tasks already on disk — and
 reports it as `folder <old> -> <new>`, with `folder` as the commit-subject
 token. There is no separate repair command.
+
+The remaining verbs are `set --status` with the status looked up for you:
+
+| Command | Status | When it refuses |
+|---|---|---|
+| `move <id> <status>` | the one you name | unknown status, as for `set` |
+| `cancel <id>` | `statuses.cancel` | the key is unset |
+| `reopen <id>` | `statuses.default` | the task is not in a terminal status |
+
+`cancel` has no fallback on purpose: picking one of several closed statuses by
+position is the guesswork the named roles exist to remove.
 
 ### `rm`
 
