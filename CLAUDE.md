@@ -57,12 +57,16 @@ convenience.
 
 - Conventional Commits: `feat:`, `fix:`, `test:`, `docs:`, `style:`. Subject in
   the imperative; body explains *why*, not what the diff already shows.
-- Work on a feature branch and merge it — do not commit straight to `master`.
+- Work on a feature branch and merge it — do not commit straight to `main`.
 - Commit each task from `TASKS.md` as soon as it is finished, before starting
   the next one: run the gate (`.claude/skills/verify`), commit the code, the
-  tests, the docs and the `TASKS.md` entry together, and say so. One task per
+  tests, the docs and the `TASKS.md` edit together, and say so. One task per
   commit keeps the history reviewable and the working tree honest — do not let
   finished tasks pile up uncommitted.
+- A finished task is deleted from `TASKS.md`, not annotated as done. The commit
+  that implements it removes its entry in the same diff, so the file only ever
+  lists open work. The history is the record of what was done; leaving completed
+  entries behind duplicates it and makes the backlog read longer than it is.
 - `.git/hooks/pre-commit` rejects a commit when `cargo fmt --check` fails.
 
 ## Specification
