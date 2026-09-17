@@ -161,6 +161,28 @@ impl Fx {
             .unwrap_or(false)
     }
 
+    /// An `$EDITOR` that overwrites whatever file it is handed with
+    /// `content`, so editor-driven commands can be driven from a test.
+    pub fn editor_writing(&self, name: &str, content: &str) -> PathBuf {
+        self.editor_script(name, &format!("cat > \"$1\" <<'YMAN_FIXTURE_EOF'\n{content}YMAN_FIXTURE_EOF\n"))
+    }
+
+    /// An `$EDITOR` that leaves the file alone and exits with `code`.
+    pub fn editor_failing(&self, name: &str, code: i32) -> PathBuf {
+        self.editor_script(name, &format!("exit {code}\n"))
+    }
+
+    fn editor_script(&self, name: &str, body: &str) -> PathBuf {
+        let path = self.tmp.path().join(name);
+        std::fs::write(&path, format!("#!/bin/sh\n{body}")).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        path
+    }
+
     pub fn write(&self, path: &Path, content: &str) {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).unwrap();

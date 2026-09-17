@@ -1037,3 +1037,193 @@ fn broken_task_is_listed_not_fatal() {
     let text = stdout(&fx.yman(&fx.a).arg("status").output().unwrap());
     assert!(text.contains("(1 broken)"), "{text}");
 }
+
+// ------------------------------------------------------------- editor paths
+
+#[test]
+fn edit_rewrites_title_and_renames_folder() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+
+    let editor = fx.editor_writing("ed-title", "# Fix logout\n\nnow with a body\n");
+    let out = fx
+        .yman(&fx.a)
+        .env("EDITOR", &editor)
+        .args(["edit", "1"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stdout(&out).contains("edited 1  5.1.fix-logout"), "{}", stdout(&out));
+
+    assert!(fx.a.join(".yman/5.1.fix-logout").is_dir());
+    assert!(!fx.a.join(".yman/5.1.fix-login").exists());
+    assert_eq!(fx.title(&fx.a, "1"), "Fix logout");
+
+    let subject = fx.git(&fx.a.join(".yman"), &["log", "--oneline", "-1"]);
+    assert!(subject.contains("task(1): edit"), "{subject}");
+    // The rename is a git rename, so `log <id>` still reaches the add commit.
+    let log = stdout(&fx.yman(&fx.a).args(["log", "1"]).output().unwrap());
+    assert!(log.contains("task(1): add \"Fix login\""), "{log}");
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["status", "--porcelain"]), "");
+}
+
+#[test]
+fn edit_body_only_keeps_the_folder() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+
+    let editor = fx.editor_writing("ed-body", "# Fix login\n\njust a new body\n");
+    fx.yman(&fx.a)
+        .env("EDITOR", &editor)
+        .args(["edit", "1"])
+        .assert()
+        .success();
+
+    assert!(fx.a.join(".yman/5.1.fix-login").is_dir());
+    assert!(fx.read(&fx.a.join(".yman/5.1.fix-login/t.md")).contains("just a new body"));
+}
+
+#[test]
+fn edit_without_changes_commits_nothing() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let before = fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]);
+
+    // The fixture's default EDITOR is `true`: it touches nothing.
+    let out = fx.yman(&fx.a).args(["edit", "1"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out).trim_end(), "no changes");
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]), before);
+}
+
+#[test]
+fn edit_rejects_a_file_without_a_title() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+
+    let editor = fx.editor_writing("ed-broken", "no heading at all\n");
+    let out = fx
+        .yman(&fx.a)
+        .env("EDITOR", &editor)
+        .args(["edit", "1"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    let err = stderr(&out);
+    assert!(err.contains("t.md invalid after edit"), "{err}");
+    assert!(err.contains("fix the file then run: yman edit 1"), "{err}");
+
+    // The user's text is left exactly as they wrote it, not reverted.
+    assert_eq!(
+        fx.read(&fx.a.join(".yman/5.1.fix-login/t.md")),
+        "no heading at all\n"
+    );
+    // ...and the next sync snapshots it rather than losing it.
+    let out = fx.yman(&fx.a).arg("sync").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stdout(&out).contains("snapshotted 1 local change(s)"), "{}", stdout(&out));
+}
+
+#[test]
+fn edit_reports_an_editor_that_fails() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+
+    let editor = fx.editor_failing("ed-fail", 3);
+    let out = fx
+        .yman(&fx.a)
+        .env("EDITOR", &editor)
+        .args(["edit", "1"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert_eq!(
+        stderr(&out).trim(),
+        "error: editor exited with status 3; file left as is"
+    );
+    assert_eq!(fx.title(&fx.a, "1"), "Fix login");
+}
+
+#[test]
+fn visual_wins_over_editor() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+
+    let visual = fx.editor_writing("ed-visual", "# From VISUAL\n");
+    let editor = fx.editor_writing("ed-editor", "# From EDITOR\n");
+    fx.yman(&fx.a)
+        .env("VISUAL", &visual)
+        .env("EDITOR", &editor)
+        .args(["edit", "1"])
+        .assert()
+        .success();
+    assert_eq!(fx.title(&fx.a, "1"), "From VISUAL");
+}
+
+#[test]
+fn add_with_editor_uses_the_edited_title() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+
+    let editor = fx.editor_writing("ed-add", "# Real title\n\nwritten in the editor\n");
+    let out = fx
+        .yman(&fx.a)
+        .env("EDITOR", &editor)
+        .args(["add", "Placeholder", "-e", "-p", "1"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stdout(&out).contains("added 1  1.1.real-title"), "{}", stdout(&out));
+
+    assert!(fx.a.join(".yman/1.1.real-title").is_dir());
+    assert!(!fx.a.join(".yman/1.1.placeholder").exists());
+    assert!(fx.read(&fx.a.join(".yman/1.1.real-title/t.md")).contains("written in the editor"));
+
+    // One commit, under the final title; the placeholder never existed.
+    let log = fx.git(&fx.a.join(".yman"), &["log", "--oneline"]);
+    assert!(log.contains("task(1): add \"Real title\""), "{log}");
+    assert!(!log.contains("Placeholder"), "{log}");
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["status", "--porcelain"]), "");
+}
+
+#[test]
+fn comment_from_editor_and_from_stdin() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+
+    let editor = fx.editor_writing("ed-comment", "written in the editor\n");
+    fx.yman(&fx.a)
+        .env("EDITOR", &editor)
+        .args(["comment", "1", "-e"])
+        .assert()
+        .success();
+
+    fx.yman(&fx.a)
+        .args(["comment", "1"])
+        .write_stdin("piped from stdin\n")
+        .assert()
+        .success();
+
+    let d = fx.read(&fx.a.join(".yman/5.1.fix-login/d.md"));
+    assert!(d.contains("written in the editor"), "{d}");
+    assert!(d.contains("piped from stdin"), "{d}");
+    assert_eq!(d.matches("— Test A").count(), 2, "{d}");
+
+    // An editor session the user left empty is not a comment.
+    let empty = fx.editor_writing("ed-empty", "   \n");
+    let out = fx
+        .yman(&fx.a)
+        .env("EDITOR", &empty)
+        .args(["comment", "1", "-e"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert_eq!(stderr(&out).trim(), "error: empty comment");
+}
