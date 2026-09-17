@@ -1227,3 +1227,176 @@ fn comment_from_editor_and_from_stdin() {
     assert!(!out.status.success());
     assert_eq!(stderr(&out).trim(), "error: empty comment");
 }
+
+// -------------------------------------------- init variants and id schemes
+
+#[test]
+fn init_offline_touches_no_remote() {
+    let fx = Fx::new();
+    // An origin that could not be reached even if we tried.
+    fx.git(&fx.a, &["remote", "set-url", "origin", "/nonexistent/remote.git"]);
+
+    let out = fx.yman(&fx.a).args(["init", "--offline"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stdout(&out).contains("initialized .yman"), "{}", stdout(&out));
+
+    // Local history exists; nothing was fetched or pushed.
+    assert!(fx.a.join(".yman/config.toml").is_file());
+    let (ok, _, _) = fx.git_try(&fx.a, &["rev-parse", "--verify", "refs/yman/remote"]);
+    assert!(!ok, "refs/yman/remote must not exist after an offline init");
+    fx.yman(&fx.a).args(["add", "Offline task"]).assert().success();
+    assert_eq!(fx.title(&fx.a, "1"), "Offline task");
+
+    let text = stdout(&fx.yman(&fx.a).arg("status").output().unwrap());
+    assert!(text.contains("remote: refs/tasks/main not fetched yet"), "{text}");
+
+    // Once a reachable origin is back, a plain sync publishes everything.
+    fx.git(&fx.a, &["remote", "set-url", "origin", fx.remote.to_str().unwrap()]);
+    let out = fx.yman(&fx.a).arg("sync").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(
+        fx.git(&fx.remote, &["rev-parse", "refs/tasks/main"]),
+        fx.git(&fx.a, &["rev-parse", "refs/yman/local"])
+    );
+}
+
+#[test]
+fn init_without_an_origin_needs_a_remote_url() {
+    let fx = Fx::new();
+    fx.git(&fx.a, &["remote", "remove", "origin"]);
+
+    let out = fx.yman(&fx.a).arg("init").output().unwrap();
+    assert!(!out.status.success());
+    assert_eq!(
+        stderr(&out).trim(),
+        "error: main repo has no \"origin\" remote; pass --remote <url>"
+    );
+
+    // With a URL, init creates the remote it is going to push to.
+    let out = fx
+        .yman(&fx.a)
+        .args(["init", "--remote", fx.remote.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(
+        fx.git(&fx.a, &["config", "--get", "remote.origin.url"]),
+        fx.remote.to_string_lossy()
+    );
+    fx.yman(&fx.a).args(["add", "A task"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    assert!(!fx.git(&fx.remote, &["rev-parse", "refs/tasks/main"]).is_empty());
+}
+
+#[test]
+fn init_refuses_a_foreign_yman_directory() {
+    let fx = Fx::new();
+    fx.write(&fx.a.join(".yman/notes.txt"), "someone else's directory\n");
+    let out = fx.yman(&fx.a).arg("init").output().unwrap();
+    assert!(!out.status.success());
+    assert_eq!(
+        stderr(&out).trim(),
+        "error: .yman exists and is not a yman worktree; move it aside and rerun"
+    );
+
+    // A standalone repo there is called out separately, and left alone.
+    std::fs::remove_dir_all(fx.a.join(".yman")).unwrap();
+    fx.git(&fx.a, &["init", "-q", ".yman"]);
+    let out = fx.yman(&fx.a).arg("init").output().unwrap();
+    assert!(!out.status.success());
+    assert_eq!(
+        stderr(&out).trim(),
+        "error: .yman is a standalone git repository, not a worktree; move it aside and rerun"
+    );
+    assert!(fx.a.join(".yman/.git").is_dir());
+}
+
+#[test]
+fn random_scheme_round_trip() {
+    let fx = Fx::new();
+    fx.yman(&fx.a)
+        .args(["init", "--id-scheme", "random"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).args(["add", "A one"]).assert().success();
+    fx.yman(&fx.a).args(["add", "A two"]).assert().success();
+
+    let ids = ids_in(&fx, &fx.a);
+    assert_eq!(ids.len(), 2, "{ids:?}");
+    for id in &ids {
+        assert!(id.starts_with("t-"), "{id}");
+        assert_eq!(id.len(), 6, "{id}");
+        assert!(id[2..].bytes().all(|b| b.is_ascii_hexdigit()), "{id}");
+    }
+    assert_ne!(ids[0], ids[1], "random ids must not repeat");
+
+    // Random ids do not collide across clones, so a sync never renumbers.
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    fx.yman(&fx.b).args(["add", "B three"]).assert().success();
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stdout(&out).contains("renumbered 0"), "{}", stdout(&out));
+    assert_eq!(ids_in(&fx, &fx.b).len(), 3);
+
+    // The scheme travels in config.toml, so B mints random ids too.
+    for id in ids_in(&fx, &fx.b) {
+        assert!(id.starts_with("t-"), "{id}");
+    }
+}
+
+#[test]
+fn author_scheme_derives_a_prefix_from_the_committer() {
+    let fx = Fx::new();
+    // No --author: the prefix comes from the initials of user.name ("Test A").
+    fx.yman(&fx.a)
+        .args(["init", "--id-scheme", "author"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).args(["add", "A one"]).assert().success();
+    assert_eq!(ids_in(&fx, &fx.a), vec!["ta-1".to_string()]);
+
+    // An explicit prefix wins over the derived one.
+    fx.yman(&fx.a).args(["init", "--author", "iv"]).assert().success();
+    fx.yman(&fx.a).args(["add", "A two"]).assert().success();
+    assert!(fx.has_task(&fx.a, "iv-1"));
+}
+
+#[test]
+fn hooks_honour_core_hooks_path() {
+    let fx = Fx::new();
+    fx.git(&fx.a, &["config", "core.hooksPath", "githooks"]);
+    fx.yman(&fx.a).arg("init").assert().success();
+
+    let out = fx.yman(&fx.a).args(["hooks", "install"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("installing into core.hooksPath="),
+        "{}",
+        stderr(&out)
+    );
+    assert!(fx.a.join("githooks/post-merge").is_file());
+    assert!(!fx.a.join(".git/hooks/post-merge").exists());
+
+    let text = stdout(&fx.yman(&fx.a).args(["hooks", "status"]).output().unwrap());
+    assert!(text.contains("hook post-merge: installed"), "{text}");
+
+    fx.yman(&fx.a).args(["hooks", "remove"]).assert().success();
+    assert!(!fx.a.join("githooks/post-merge").exists());
+}
+
+/// Task ids present in a clone, in folder-name order.
+fn ids_in(fx: &Fx, clone: &std::path::Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(clone.join(".yman"))
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.split('.').count() >= 3)
+        .collect();
+    names.sort();
+    names
+        .iter()
+        .filter_map(|n| n.split('.').nth(1).map(String::from))
+        .collect()
+}
