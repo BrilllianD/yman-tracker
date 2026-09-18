@@ -12,6 +12,10 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
     if title.is_empty() {
         bail!("title must not be empty");
     }
+    if a.edit {
+        // Refuse before the folder exists; see `edit::resolve_editor`.
+        super::edit::resolve_editor()?;
+    }
     let body = match a.body_file {
         Some(src) => super::read_text_source(&src)?,
         None => a.message.unwrap_or_default(),

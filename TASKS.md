@@ -293,17 +293,6 @@ Agents drive `yman` through a shell, one call at a time, and pay per byte
 they read back. The entries below cut calls and bytes without moving any
 human default, table layout or pinned string. All are additive and opt-in.
 
-### `edit` refuses the `vi` fallback without a terminal
-
-With neither `$VISUAL` nor `$EDITOR` set, `edit` spawns `vi` even when stdin
-is a pipe. In an agent's shell that hangs until a timeout.
-
-- Where: `open_editor` in `src/commands/edit.rs`; `docs/errors.md`,
-  `docs/commands.md` §4.
-- Done when: the fallback bails with
-  `no terminal for vi; set $EDITOR, or use -m / --body-file` before spawning,
-  an explicit `EDITOR` still works, and a test removes both variables.
-
 ### Exit code 4 for an unknown task id
 
 `task 99 not found` exits 1 like every other error, so a script cannot tell

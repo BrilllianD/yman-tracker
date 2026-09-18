@@ -1,21 +1,34 @@
 use crate::repo::Context;
 use crate::task::{self, Task};
 use anyhow::{Result, bail};
+use std::io::IsTerminal;
 use std::path::Path;
 use std::process::Command;
 
-/// `$VISUAL`, else `$EDITOR`, else `vi`. Split on whitespace so
-/// `EDITOR="code --wait"` works.
-pub fn open_editor(path: &Path) -> Result<()> {
-    let spec = std::env::var("VISUAL")
+/// `$VISUAL`, else `$EDITOR`, else `vi`. Callers that create files before
+/// opening the editor (`add -e`) resolve first so a refusal leaves nothing
+/// behind.
+pub fn resolve_editor() -> Result<String> {
+    let configured = std::env::var("VISUAL")
         .ok()
         .filter(|s| !s.trim().is_empty())
         .or_else(|| {
             std::env::var("EDITOR")
                 .ok()
                 .filter(|s| !s.trim().is_empty())
-        })
-        .unwrap_or_else(|| "vi".to_string());
+        });
+    // `vi` on a pipe does not fail, it waits — in an agent's shell that is
+    // a timeout followed by a retry, the single most expensive way to lose.
+    // Someone who set $EDITOR explicitly asked for whatever it does.
+    if configured.is_none() && !std::io::stdin().is_terminal() {
+        bail!("no terminal for vi; set $EDITOR, or use -m / --body-file");
+    }
+    Ok(configured.unwrap_or_else(|| "vi".to_string()))
+}
+
+/// Split on whitespace so `EDITOR="code --wait"` works.
+pub fn open_editor(path: &Path) -> Result<()> {
+    let spec = resolve_editor()?;
     let mut parts = spec.split_whitespace();
     let Some(program) = parts.next() else {
         bail!("no editor configured; set $EDITOR");

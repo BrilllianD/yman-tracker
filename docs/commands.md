@@ -118,8 +118,11 @@ placeholder never enters git history.
 ### `edit`
 
 Opens `$VISUAL`, else `$EDITOR`, else `vi`, split on whitespace so
-`EDITOR="code --wait"` works. A non-zero editor exit aborts and leaves the file
-alone. If the file no longer parses, the command fails but **does not revert the
+`EDITOR="code --wait"` works. The `vi` fallback is taken only when stdin is a
+terminal; otherwise the command fails at once with
+`no terminal for vi; set $EDITOR, or use -m / --body-file` rather than leaving
+a `vi` waiting on a pipe. The same rule covers `add -e` and `comment -e`. A
+non-zero editor exit aborts and leaves the file alone. If the file no longer parses, the command fails but **does not revert the
 user's text**; the next `sync` snapshots it. When nothing changed, it prints
 `no changes` and commits nothing. A changed title re-slugs the folder with
 `git mv`.

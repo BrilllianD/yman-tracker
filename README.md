@@ -247,7 +247,7 @@ yman cancel <id>...         # = set --status <cancel status>   (version 2)
 yman reopen <id>...         # a closed task back to the default status
 yman prio  <id>... <0-9>    # = set --priority
                             # every one of these also takes -m <comment>
-yman edit  <id>          # $VISUAL, else $EDITOR, else vi
+yman edit  <id>          # $VISUAL, else $EDITOR, else vi (only on a terminal)
 yman rm    <id> [-f]
 ```
 

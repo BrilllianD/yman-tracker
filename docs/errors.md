@@ -80,6 +80,7 @@ commit.
 | `rm` with no terminal and no `-f` | `refusing to remove without -f` |
 | editor failed | `editor exited with status N; file left as is` (or `editor was killed by a signal; …`) |
 | no editor resolvable | `no editor configured; set $EDITOR` |
+| neither `$VISUAL` nor `$EDITOR` set, stdin not a terminal | `no terminal for vi; set $EDITOR, or use -m / --body-file` |
 | `rm` prompt declined | `aborted` |
 | `t.md` unparsable | `t.md must start with "# Title"` |
 | `t.md` unparsable after an edit | `t.md invalid after edit: <why>; fix the file then run: yman edit <id>` |

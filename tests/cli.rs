@@ -2749,3 +2749,38 @@ fn set_body_file_missing_is_an_error() {
     assert_eq!(before, after);
     assert_eq!(fx.task_rel(&fx.a, "1"), "5.1.fix-login");
 }
+
+/// With no editor configured and no terminal, `edit` refuses instead of
+/// leaving `vi` waiting on a pipe. An explicit `$EDITOR` is still honoured.
+#[test]
+fn edit_without_editor_or_tty_fails_fast() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+
+    for args in [
+        vec!["edit", "1"],
+        vec!["comment", "1", "-e"],
+        vec!["add", "Another", "-e"],
+    ] {
+        let out = fx
+            .yman(&fx.a)
+            .env_remove("EDITOR")
+            .env_remove("VISUAL")
+            .args(&args)
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(1), "{args:?}");
+        assert_eq!(
+            stderr(&out).trim(),
+            "error: no terminal for vi; set $EDITOR, or use -m / --body-file",
+            "{args:?}"
+        );
+    }
+    assert!(!fx.has_task(&fx.a, "2"), "add -e must not create anything");
+
+    // The fixture's EDITOR=true still works on a pipe.
+    let out = fx.yman(&fx.a).args(["edit", "1"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out).trim(), "no changes");
+}
