@@ -158,6 +158,8 @@ fn print_json(tasks: &[Task], broken: &[(String, String)]) {
                 .str("title", &t.title)
                 .raw("tags", json::strings(&t.meta.tags))
                 .opt("assignee", t.meta.assignee.as_deref())
+                .raw("links", json::strings(&t.meta.links))
+                .raw("related", json::strings(&t.meta.related))
                 .str("created", &format_ts(&t.meta.created))
                 .str("updated", &format_ts(&t.meta.updated))
                 .raw("attachments", t.attachment_count().to_string())

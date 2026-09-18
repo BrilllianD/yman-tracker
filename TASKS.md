@@ -293,18 +293,6 @@ Agents drive `yman` through a shell, one call at a time, and pay per byte
 they read back. The entries below cut calls and bytes without moving any
 human default, table layout or pinned string. All are additive and opt-in.
 
-### `--json` for `show` and `status`; `links` and `related` in `ls --json`
-
-Scripts that want a task's links or the sync state have to parse text.
-
-- Where: `src/commands/show.rs`, `src/commands/status.rs` (a shared report
-  struct so the text path stays byte-identical), `Cmd::Status` grows args;
-  `docs/commands.md` §3 shapes, `README.md`.
-- Done when: `show --json` is one object including attachments and the
-  discussion (honouring `-n`), `status --json` reports refs, ahead/behind,
-  merge state and counts, and `ls --json` gains `links` and `related` after
-  `assignee`.
-
 ---
 
 ## Explicitly out of scope

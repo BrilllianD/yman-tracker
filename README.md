@@ -214,7 +214,8 @@ requires *all* the tags given. `--assignee -` means unassigned, `-q` is a
 case-insensitive search over title and body, `-n` caps the rows after sorting.
 Column headers appear only when stdout is a terminal, so `yman ls | grep` stays
 predictable. `--json` prints one object per
-task, plus `{dir, error}` for anything broken.
+task — including its `links` and `related` ids — plus `{dir, error}` for
+anything broken.
 
 ```
 P  ID  STATUS  TITLE       TAGS      F  C
@@ -225,7 +226,7 @@ P  ID  STATUS  TITLE       TAGS      F  C
 `F` is the attachment count, `C` the comment count; both blank at zero.
 
 ```sh
-yman show <id> [-n N]   # everything about one task; -n keeps the last N comments
+yman show <id> [-n N] [--json]   # everything about one task; -n keeps the last N comments
 yman path <id>     # just the absolute path:  cd $(yman path 14)
 yman log [<id>] [-n N]
 ```
@@ -279,7 +280,7 @@ neither `-m` nor `-e`, `yman comment` reads the comment from stdin — so
 ### Plumbing
 
 ```sh
-yman status              # where everything stands; never changes anything
+yman status [--json]     # where everything stands; never changes anything
 yman refresh [--quiet]   # fast-forward onto already-fetched task commits
 yman sync [--continue] [--abort] [--no-push]
 yman hooks install|remove|status
@@ -294,6 +295,10 @@ remote: refs/tasks/main @ 9b8c7d6   ahead 2, behind 1   → run: yman sync
 worktree: clean
 tasks:   todo 4, doing 1, done 7
 ```
+
+`yman status --json` reports the same facts — refs, ahead/behind, the merge
+state and the per-status counts — as one object, for a script that would
+otherwise parse those four lines.
 
 ### Exit codes
 

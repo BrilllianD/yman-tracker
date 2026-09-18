@@ -82,7 +82,7 @@ pub fn dispatch(ctx: &mut Context, cmd: Cmd) -> Result<()> {
         Cmd::Comment(a) => comment::run(ctx, a),
         Cmd::Path(a) => path::run(ctx, &a.id),
         Cmd::Log(a) => log::run(ctx, a),
-        Cmd::Status => status::run(ctx),
+        Cmd::Status(a) => status::run(ctx, a),
         Cmd::Guide => guide::run(),
         Cmd::Refresh(a) => refresh::run(ctx, a),
         Cmd::Hooks(a) => hooks::run(ctx, a),

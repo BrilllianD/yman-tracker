@@ -60,7 +60,7 @@ pub enum Cmd {
     /// Show the task history log
     Log(LogArgs),
     /// Report the state of .yman and its remote
-    Status,
+    Status(StatusArgs),
     /// Fast-forward .yman onto the already-fetched remote state
     Refresh(RefreshArgs),
     /// Manage the git hooks that refresh .yman automatically
@@ -203,6 +203,9 @@ pub struct ShowArgs {
     /// Print only the last N discussion entries (0 hides the discussion)
     #[arg(short = 'n', long = "comments", value_name = "N")]
     pub comments: Option<usize>,
+    /// Print JSON instead of the text block
+    #[arg(long)]
+    pub json: bool,
 }
 
 /// `start`, `done`, `cancel`, `reopen`.
@@ -376,6 +379,13 @@ pub enum HooksAction {
 }
 
 #[derive(Args, Debug)]
+pub struct StatusArgs {
+    /// Print JSON instead of the text report
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
 pub struct SyncArgs {
     /// Finish a sync whose merge had conflicts
     #[arg(long = "continue", conflicts_with = "abort")]
@@ -424,7 +434,7 @@ impl Cmd {
             Cmd::Init(_)
                 | Cmd::Sync(_)
                 | Cmd::Refresh(_)
-                | Cmd::Status
+                | Cmd::Status(_)
                 | Cmd::Hooks(_)
                 | Cmd::Git(_)
                 | Cmd::Guide

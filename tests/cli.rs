@@ -1187,6 +1187,13 @@ fn status_reports_merge_in_progress() {
         "{text}"
     );
     assert!(text.contains("5.1.fix-login/m.yml"), "{text}");
+
+    let json = stdout(&fx.yman(&fx.b).args(["status", "--json"]).output().unwrap());
+    assert!(json.contains("\"in_progress\":true"), "{json}");
+    assert!(
+        json.contains("\"unmerged\":[\"5.1.fix-login/m.yml\"]"),
+        "{json}"
+    );
 }
 
 #[test]
@@ -2852,4 +2859,172 @@ fn guide_needs_no_repository() {
     assert_eq!(stdout(&out), expected);
     assert_eq!(stderr(&out), "");
     assert!(expected.lines().count() <= 60, "agents.md must stay short");
+}
+
+/// `show --json` is one object: the header fields, the body, the attachments
+/// and the discussion, with `-n` trimming the discussion but not the count.
+#[test]
+fn show_json_carries_the_whole_task() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Other"]).assert().success();
+    fx.yman(&fx.a)
+        .args([
+            "add",
+            "Fix login",
+            "-m",
+            "Body text",
+            "-a",
+            "claude",
+            "-t",
+            "ui",
+            "--link",
+            "https://example.test/1",
+            "--relate",
+            "1",
+        ])
+        .assert()
+        .success();
+    let src = fx.tmp.path().join("screenshot.png");
+    fx.write(&src, "not really a png");
+    fx.yman(&fx.a)
+        .args(["attach", "2", src.to_str().unwrap()])
+        .assert()
+        .success();
+    for n in 1..=2 {
+        fx.yman(&fx.a)
+            .args(["comment", "2", "-m", &format!("note {n}")])
+            .assert()
+            .success();
+    }
+
+    let text = stdout(
+        &fx.yman(&fx.a)
+            .args(["show", "2", "--json"])
+            .output()
+            .unwrap(),
+    );
+    assert!(
+        text.starts_with('{') && text.trim_end().ends_with('}'),
+        "{text}"
+    );
+    assert!(text.contains("\"id\":\"2\""), "{text}");
+    assert!(text.contains("\"title\":\"Fix login\""), "{text}");
+    assert!(text.contains("\"assignee\":\"claude\""), "{text}");
+    assert!(text.contains("\"tags\":[\"ui\"]"), "{text}");
+    assert!(
+        text.contains("\"links\":[\"https://example.test/1\"]"),
+        "{text}"
+    );
+    assert!(text.contains("\"related\":[\"1\"]"), "{text}");
+    assert!(text.contains("\"body\":\"Body text\""), "{text}");
+    assert!(text.contains("\"dir\":\"5.2.fix-login\""), "{text}");
+    assert!(text.contains("\"name\":\"screenshot.png\""), "{text}");
+    assert!(text.contains("\"text\":\"note 1\""), "{text}");
+    assert!(text.contains("\"discussion_total\":2"), "{text}");
+
+    // A task with nothing on it still has every key, as an empty array.
+    let bare = stdout(
+        &fx.yman(&fx.a)
+            .args(["show", "1", "--json"])
+            .output()
+            .unwrap(),
+    );
+    assert!(bare.contains("\"assignee\":null"), "{bare}");
+    assert!(bare.contains("\"tags\":[]"), "{bare}");
+    assert!(bare.contains("\"links\":[]"), "{bare}");
+    assert!(bare.contains("\"attachments\":[]"), "{bare}");
+    assert!(bare.contains("\"discussion\":[]"), "{bare}");
+    assert!(bare.contains("\"discussion_total\":0"), "{bare}");
+
+    // `-n` trims the entries; the total still says how many there were.
+    let last = stdout(
+        &fx.yman(&fx.a)
+            .args(["show", "2", "--json", "-n", "1"])
+            .output()
+            .unwrap(),
+    );
+    assert!(!last.contains("note 1"), "{last}");
+    assert!(last.contains("\"text\":\"note 2\""), "{last}");
+    assert!(last.contains("\"discussion_total\":2"), "{last}");
+
+    // An unknown id is still exit 4, and says nothing on stdout.
+    let out = fx
+        .yman(&fx.a)
+        .args(["show", "404", "--json"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(4));
+    assert_eq!(stdout(&out), "");
+}
+
+/// `ls --json` carries the links and the related ids, so a script does not
+/// need a `show` per row.
+#[test]
+fn ls_json_carries_links_and_related() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Other"]).assert().success();
+    fx.yman(&fx.a)
+        .args([
+            "add",
+            "Fix login",
+            "--link",
+            "https://example.test/1",
+            "--relate",
+            "1",
+        ])
+        .assert()
+        .success();
+
+    let text = stdout(&fx.yman(&fx.a).args(["ls", "--json"]).output().unwrap());
+    assert!(
+        text.contains("\"assignee\":null,\"links\":[\"https://example.test/1\"],\"related\":[\"1\"],\"created\":"),
+        "{text}"
+    );
+    assert!(text.contains("\"links\":[],\"related\":[],"), "{text}");
+}
+
+/// `status --json` reports the same facts as the text form, before and after
+/// the remote ref exists.
+#[test]
+fn status_json_reports_refs_and_counts() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+
+    // `init` publishes the ref but does not fetch it back.
+    fx.git(&fx.a, &["update-ref", "-d", "refs/yman/remote"]);
+    let text = stdout(&fx.yman(&fx.a).args(["status", "--json"]).output().unwrap());
+    assert!(
+        text.contains("\"remote\":{\"ref\":\"refs/tasks/main\",\"fetched\":false,\"head\":null,\"ahead\":0,\"behind\":0}"),
+        "{text}"
+    );
+    assert!(text.contains("\"refresh\":\"lazy\""), "{text}");
+    assert!(text.contains("\"hooks\":false"), "{text}");
+    assert!(text.contains("\"worktree\":{\"dirty\":0}"), "{text}");
+    assert!(
+        text.contains("\"merge\":{\"in_progress\":false,\"unmerged\":[]}"),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "\"tasks\":{\"by_status\":{\"todo\":0,\"doing\":0,\"done\":0},\"other\":0,\"broken\":0}"
+        ),
+        "{text}"
+    );
+
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.git(&fx.a, &["fetch", "origin"]);
+    let text = stdout(&fx.yman(&fx.a).args(["status", "--json"]).output().unwrap());
+    assert!(text.contains("\"fetched\":true"), "{text}");
+    assert!(text.contains("\"ahead\":1,\"behind\":0"), "{text}");
+    assert!(text.contains("\"todo\":1"), "{text}");
+
+    // A dirty worktree is counted, not described.
+    fx.write(
+        &fx.a.join(".yman/5.1.fix-login/t.md"),
+        "# Fix login\n\nedit\n",
+    );
+    let text = stdout(&fx.yman(&fx.a).args(["status", "--json"]).output().unwrap());
+    assert!(text.contains("\"worktree\":{\"dirty\":1}"), "{text}");
 }

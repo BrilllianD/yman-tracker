@@ -21,7 +21,8 @@ blank and trailing empty columns are dropped. Filters AND together:
 `-n <N>` caps the rows after sorting. Closed tasks need `-a`.
 
 `show <id>` prints a header block, the body, then `attachments:` and
-`discussion:`; empty sections are omitted. `-n <N>` keeps the last N entries.
+`discussion:`; empty sections are omitted, and `-n <N>` keeps the last N. `ls`,
+`show` and `status` take `--json`, which omits nothing: `[]` and `null` instead.
 
 ## Writing
 
@@ -55,5 +56,5 @@ The git committer stays whoever git says it is.
 ## Cost
 
 Plain output is the cheapest; `--json` repeats every key on every row, so use
-it only when the output goes into `jq`. Cap with `-n`, and prefer one verb
-with `-m` over a verb followed by `comment`.
+it only when the output goes into `jq`. Cap with `-n` (`show <id> -n 0` drops
+the discussion), and prefer one verb with `-m` over a verb then `comment`.

@@ -78,10 +78,11 @@ a terminal. Trailing empty
 columns are omitted, and zero counts render blank rather than `0`.
 
 `--json` emits one object per task —
-`{id, priority, status, title, tags, assignee, created, updated, attachments, comments, dir}` —
+`{id, priority, status, title, tags, assignee, links, related, created, updated, attachments, comments, dir}` —
 and `{dir, error}` for broken folders. `dir` is relative to `.yman` and names the
-status directory for a closed task (`done/5.1.fix-login`). The escaping is hand-rolled; there is no
-`serde_json` dependency.
+status directory for a closed task (`done/5.1.fix-login`). `attachments` and
+`comments` are counts here, not lists. The writer is `src/json.rs`: the escaping
+is hand-rolled and there is no `serde_json` dependency.
 
 ### `show`
 
@@ -92,6 +93,32 @@ Empty sections are omitted entirely, including `links` and `related`.
 parse counts as one) under the header `discussion (last N of M):`; `-n 0`
 drops the section. When N is not smaller than the number of entries the
 output is identical to the default, header included.
+
+`--json` emits one object —
+`{id, priority, status, title, tags, assignee, links, related, created, updated,
+dir, body, attachments, discussion, discussion_total}`. `attachments` is
+`[{name, added, by}]` and `discussion` is `[{ts, author, text}]`, with an
+unparsable chunk appearing as `{raw}`; `discussion_total` is the count before
+`-n` trimmed anything. Unlike the text form nothing is omitted: an empty
+section is an empty array and an absent assignee is `null`, so a script never
+has to branch on a missing key. `dir` is relative to `.yman`, as in `ls --json`,
+where the text form prints an absolute path.
+
+### `status`
+
+Reports and never changes anything: the local ref and its short head, the
+remote ref with `ahead`/`behind` when it has been fetched, the refresh policy,
+whether the hooks are installed, the number of uncommitted changes under
+`.yman`, an unresolved merge with its unmerged files, and the task counts per
+configured status.
+
+`--json` emits one object —
+`{local: {ref, head}, remote: {ref, fetched, head, ahead, behind}, refresh,
+hooks, worktree: {dirty}, merge: {in_progress, unmerged}, tasks: {by_status,
+other, broken}}`. Before the first fetch `fetched` is `false`, `head` is `null`
+and both counters are `0`. The per-status counts are nested under `by_status`
+so a status named `other` or `broken` cannot collide with the two totals beside
+it.
 
 ### `path`
 
