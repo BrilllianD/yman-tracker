@@ -74,6 +74,34 @@ mis-identified.
   fails `add` with a pinned message, and the accepted grammar is written
   down next to the id schemes.
 
+### A retitle can change a task's id on the next sync
+
+`sync` decides a task was created locally by looking for an added
+`{folder}/t.md` in `git diff --name-only --diff-filter=A -M <base> LOCAL`
+(`src/commands/sync.rs:340-351`). But a retitle is a `git mv` plus a rewritten
+first line of a short file, and git scores that rename as low as 10% — under
+its default 50% threshold — so the pair reads as a delete plus an add. The task
+then looks newly created, its own id counts as "taken on origin", and sync
+renumbers it. Retitle offline, sync against a moved remote, and the id silently
+changes. `scripts/synthetic-project.sh` reproduces it on every run.
+
+- Where: `src/commands/sync.rs`, `tests/cli.rs`
+- Done when: a retitled task keeps its id through a divergent sync, and a test
+  pins it. The id is in the folder name at both ends, so the fix need not lean
+  on git's rename scoring at all.
+
+### Renumbering leaves `related` references dangling on other clones
+
+`rewrite_related` (`src/commands/sync.rs:422-456`) walks the renumbering
+clone's own tree — the pre-merge one. A reference minted on another clone, or
+arriving in the same merge, keeps the old id and ends up pointing at nothing.
+The synthetic run left 140 of 142 references dangling, because the entry above
+made renumbering common.
+
+- Where: `src/commands/sync.rs`, `docs/commands.md` §6, `tests/cli.rs`
+- Done when: references on both sides of the merge are rewritten, and the scope
+  sentence added to `docs/commands.md` §6 comes back out.
+
 ### Keep `related` references consistent
 
 `set --relate` accepts an id that does not exist, and `rm` leaves dangling
@@ -115,6 +143,20 @@ whole chunk degrades to raw text.
   neutralises text lines that start with `#` (a leading space is enough; the
   reader trims), the reader only treats `## <timestamp> — ` with a
   whitespace-free timestamp as a header, and both cases have unit tests.
+
+### A retitle and a comment on two clones conflict
+
+`**/d.md merge=union` settles concurrent comments, but only while the folder
+keeps its name. Retitle on one clone, comment on another, sync: the comment was
+written against the old path, so it arrives as modify/delete and the merge stops
+with exit 3 on a file the union driver is never consulted about. Recorded as a
+limit in `docs/storage.md` §6; whether it is worth more than that is the open
+question.
+
+- Where: `src/commands/sync.rs`, `docs/storage.md` §6
+- Done when: either the merge resolves it (the discussion is append-only, so the
+  content is mergeable once the paths are matched up), or the limit is accepted
+  and this entry goes.
 
 ### `show`: order the discussion by timestamp
 
@@ -170,6 +212,8 @@ prints a line, and `ls` otherwise touches no git at all.
   call, or read the loose ref and `packed-refs` files directly and keep the
   spawn as a fallback. Do not add a git library dependency for this — see the
   dependency rule in `CLAUDE.md`.
+- Measured baseline (`scripts/synthetic-project.sh`, 1000 tasks): `yman ls` 6
+  processes and 32 ms, `yman show` 6 and 23 ms, `yman add` 11.
 - Done when: `yman ls` in a repository that needs no refresh spawns at most one
   `git` process, and `scripts/spike-symref.sh` still passes.
 
@@ -185,27 +229,24 @@ and `list` could stop descending into the status directories once it has a hit
 at the top level — but it did not fix it, and it added a second level to walk.
 
 - Where: `src/task.rs`
+- Measured baseline: 23 ms for `yman show <id>` at 1014 tasks.
 - Done when: `find` parses directory names with `FolderName::parse` at both
   levels, loads only the matching folder, still reports `duplicate task id …`
   from the names alone (relative paths, since two copies can share a leaf
   name), and the broken-folder error path is unchanged.
 
-### Measure the cost of `ever_assigned` before deciding anything
+### `log <id>` rebuilds the whole history's rename graph
 
-Every `add` runs `git log --diff-filter=A --name-only` over `LOCAL` and
-`REMOTE` to collect every id ever assigned, so `add` grows linearly with the
-history. That is the price of "ids are never reused"; a tombstone file would
-be a format change and is not wanted.
+`historical_names` (`src/commands/log.rs:35-78`) runs an uncapped
+`git log --diff-filter=R -M` over the entire history to find the paths one task
+ever had, then passes them all to a second `git log`. The cost tracks the
+number of renames in the repository, not in the task: measured at 420 ms
+against 3802 rename records, for a task with 17 commits.
 
-- Where: `src/ids.rs`, `README.md` (limits section)
-- Done when: the cost is measured on a synthetic history of a few thousand
-  commits and either recorded as acceptable in the README, or a new task
-  proposes a cache that adds no file to the format.
-
-Also doc-only: a plain `ls .yman/` orders `5.10.x` before `5.2.x` because
-the listing is lexical. `docs/storage.md` §5 only promises priority-first
-order, which holds; zero-padding ids would change the id contract and is not
-on the table. Say so in the doc.
+- Where: `src/commands/log.rs`
+- Done when: the walk is bounded — by `-n`, by restricting the first log to the
+  task's own paths, or by giving the final log `--follow` and dropping the graph
+  — and `scripts/synthetic-project.sh` reports a smaller number.
 
 ---
 
@@ -221,43 +262,6 @@ when someone remembers to run it.
 - Done when: pushes and pull requests run `cargo fmt --check`, the clippy gate,
   `cargo test` and `sh scripts/spike-symref.sh` — the same four steps as the
   `verify` skill in `.claude/skills/verify/SKILL.md`.
-
-### Exercise yman on a synthetic local project
-
-`tests/cli.rs` drives two clones in a tempdir, each holding a handful of tasks
-that live for the length of one test. That shape is good at pinning strings and
-bad at everything that only shows up with age: a history deep enough for
-`ever_assigned` to cost something, enough tasks for a plain `ls .yman/` to be
-worth reading, a repository that has moved through a config change, and folders
-that have been renamed several times.
-
-The status-flow work is the argument for it. Three defects came out of running
-the binary by hand rather than out of the suite: `*/d.md merge=union` silently
-not matching a path one level deeper, `sync` renumbering any task with a file
-added under it, and a version 2 config with `terminal` but no `statuses.done`
-quietly making `yman done` mean `cancelled`. Each was then easy to pin, but
-nothing in the suite was going to ask the question.
-
-- Where: a new `scripts/` generator plus whatever it needs from
-  `tests/common/mod.rs`; the results belong in `README.md` (limits) and
-  `docs/storage.md` where they contradict what is written.
-- Approach: build a repository with a real commit history — on the order of a
-  thousand tasks across several hundred commits, three or four clones, tasks
-  that were retitled, reprioritized, closed, reopened and renumbered — then
-  drive it. Keep it a script that regenerates the fixture rather than a
-  committed fixture: a checked-in repository inside this repository is a
-  maintenance trap, and `.yman` being a linked worktree makes nesting one
-  worse.
-- Done when: the script exists and is documented, the run is reproducible, and
-  what it found is written down — either as fixed behaviour, as a new entry
-  here, or as a recorded limit. Specifically answer: what `add` costs on that
-  history (this closes the `ever_assigned` measurement entry above), whether
-  `yman log <id>` stays usable after a task has crossed into and out of a
-  status directory several times, and whether a version 1 repository with
-  hundreds of closed tasks can be moved to version 2 with the documented
-  `yman done <id>` loop without anything being lost.
-- Not in scope: making this part of CI. It is a thing someone runs before a
-  release, not on every push.
 
 ---
 

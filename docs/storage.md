@@ -89,7 +89,7 @@ ROOT/
   .yman/
     .git                        # file: "gitdir: <COMMON>/worktrees/-yman"
     .gitignore                  # *.swp  *~  .#*  *.orig
-    .gitattributes              # */d.md merge=union
+    .gitattributes              # **/d.md merge=union
     config.toml
     2.14.fix-login/
       t.md
@@ -106,6 +106,9 @@ Grammar, anchored: `^([0-9])\.([^./\\]+)\.(.+)$` → `priority: u8`, `id: String
 dependency.
 
 - Priority `0`–`9`, `0` highest, so a plain `ls .yman/` sorts urgent work first.
+  Only the priority sorts numerically: the listing is lexical, so within one
+  priority `5.10.x` comes before `5.2.x`. `yman ls` orders ids properly
+  (commands.md §3); zero-padding them here would change the id contract.
 - `id` never contains `.`; every scheme satisfies this (`14`, `t-7f3a`, `iv-12`).
 - **The folder name is the source of truth** for priority and id. `m.yml` does
   not repeat them, and changing either is a `git mv` so history follows.
@@ -220,10 +223,12 @@ unparsable chunks as raw text, so a hand-edited or union-merged file never makes
 
 `.gitattributes` marks `**/d.md` as `merge=union`, so concurrent comments merge
 without a conflict. The pattern is `**`, not `*`, because a `*` does not cross a
-`/` and a closed task's discussion is one level deeper. **A repository
-initialized before this shipped still holds the old single-`*` line**; fix it by
-hand in the same commit that raises the version, or comments on closed tasks
-start conflicting.
+`/` and a closed task's discussion is one level deeper.
+
+`merge=union` settles concurrent comments only while the folder keeps its name.
+A retitle is a `git mv`, so a comment written on another clone against the old
+name arrives as modify/delete on a path the union driver is never asked about,
+and the merge stops with exit 3.
 
 ## 7. `config.toml`
 
@@ -323,8 +328,6 @@ cancel = "cancelled"
 terminal = ["done", "cancelled"]
 ```
 
-Change `*/d.md` to `**/d.md` in `.yman/.gitattributes` in the same commit (§6),
-then commit both.
 From that point an older `yman` refuses the repository outright with
 `unsupported version 2 (this yman understands 1)` — which is the intended
 failure, because it also would not find the archived tasks.
