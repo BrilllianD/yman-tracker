@@ -251,6 +251,9 @@ that is behind moves, because the other side's id is already published.
 - `related` references to the old id are rewritten to the new one, in the
   same commit as the moves, and `note: rewrote N reference(s) to renumbered
   ids` reports how many changed. A folder that does not load is left alone.
+  The rewrite covers the renumbering clone's own tree, which is the pre-merge
+  one: a reference held by another clone, or arriving in the same merge, keeps
+  the old id and is left pointing at nothing.
 
 ### `--continue` and `--abort`
 
