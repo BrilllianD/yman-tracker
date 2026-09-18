@@ -384,6 +384,16 @@ else the initials of your `user.name`.
 | `yman.refresh` | `lazy` (default), `manual` | `yman init --refresh` |
 | `yman.author` | any prefix | `yman init --author` |
 
+Two environment variables, easy to confuse:
+
+| Variable | Used for |
+|---|---|
+| `YMAN_AUTHOR` | fallback id prefix for the `author` scheme, after `yman.author` |
+| `YMAN_ACTOR` | display name on comments and attachments, before `user.name` |
+
+`YMAN_ACTOR` is meant for an agent or a script working under a person's git
+account. The git committer is never changed by it.
+
 ---
 
 ## Sharing work: sync, refresh, hooks

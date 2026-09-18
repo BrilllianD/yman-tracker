@@ -293,17 +293,6 @@ Agents drive `yman` through a shell, one call at a time, and pay per byte
 they read back. The entries below cut calls and bytes without moving any
 human default, table layout or pinned string. All are additive and opt-in.
 
-### `comment` and `attach` take the author from `YMAN_ACTOR`
-
-The author on a `d.md` entry and an attachment is `git config user.name`,
-which is the human, even when an agent is doing the work.
-
-- Where: a shared `actor()` in `src/commands/mod.rs` replacing the lookups in
-  `src/commands/comment.rs` and `src/commands/attach.rs`; the test fixture
-  must remove the variable; `docs/commands.md` §4, `README.md`.
-- Done when: `$YMAN_ACTOR` (trimmed, non-empty) wins over `user.name`, the
-  git committer is untouched, and a test asserts both.
-
 ### `set` and the state verbs append a comment with `-m`
 
 Closing a task with a note is `done` plus `comment`: two calls, two commits.

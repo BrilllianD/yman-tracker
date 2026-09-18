@@ -2361,3 +2361,41 @@ fn add_sets_assignee_links_and_related_in_one_call() {
         before.trim().parse::<u32>().unwrap() + 1
     );
 }
+
+/// `YMAN_ACTOR` names who a comment or attachment came from without touching
+/// who git says committed it.
+#[test]
+fn comment_and_attach_record_the_actor() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let file = fx.a.join("notes.txt");
+    fx.write(&file, "hello\n");
+
+    fx.yman(&fx.a)
+        .env("YMAN_ACTOR", "  claude  ")
+        .args(["comment", "1", "-m", "on it"])
+        .assert()
+        .success();
+    fx.yman(&fx.a)
+        .env("YMAN_ACTOR", "claude")
+        .args(["attach", "1", file.to_str().unwrap()])
+        .assert()
+        .success();
+
+    let d = fx.read(&fx.task_dir(&fx.a, "1").join("d.md"));
+    assert!(d.contains(" — claude\n"), "{d}");
+    let m = fx.read(&fx.task_dir(&fx.a, "1").join("m.yml"));
+    assert!(m.contains("by: claude"), "{m}");
+    let committer = fx.git(&fx.a, &["log", "-1", "--format=%an", "refs/yman/local"]);
+    assert_eq!(committer.trim(), "Test A");
+
+    // Blank is the same as unset: back to user.name.
+    fx.yman(&fx.a)
+        .env("YMAN_ACTOR", "   ")
+        .args(["comment", "1", "-m", "again"])
+        .assert()
+        .success();
+    let d = fx.read(&fx.task_dir(&fx.a, "1").join("d.md"));
+    assert!(d.contains(" — Test A\n"), "{d}");
+}

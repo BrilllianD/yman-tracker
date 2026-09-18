@@ -10,10 +10,7 @@ pub fn run(ctx: &mut Context, a: AttachArgs) -> Result<()> {
         bail!("--name only works with a single file");
     }
     let mut t = task::find(&ctx.ydir, &a.id)?;
-    let by = ctx
-        .get_cfg("user.name")?
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| "unknown".to_string());
+    let by = super::actor(ctx)?;
 
     let fdir = t.dir.join(task::FILES_DIR);
     let mut names: Vec<String> = Vec::new();

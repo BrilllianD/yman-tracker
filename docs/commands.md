@@ -156,7 +156,8 @@ consent.
 ### `attach` / `detach`
 
 Each source must be an existing regular file. `--name` applies to a single file
-only, and must not contain a path separator. An existing attachment of the same
+only, and must not contain a path separator. The `by` recorded in `m.yml` is
+the actor (see `comment`). An existing attachment of the same
 name needs `--force`. Files over 5 MiB produce a warning, never a refusal. An
 attachment listed in `m.yml` whose file is already gone can still be detached —
 the entry is simply dropped.
@@ -165,8 +166,9 @@ the entry is simply dropped.
 
 Text comes from `-m`, or from `$EDITOR` with `-e` (a temp file, initially
 empty), or — when neither is given and stdin is not a terminal — from stdin.
-Empty after trimming is an error. The author is `git config user.name`, falling
-back to `unknown`.
+Empty after trimming is an error. The author is `$YMAN_ACTOR` (trimmed,
+non-empty), else `git config user.name`, else `unknown`. This is the display
+name written into `d.md` only; the git committer is whatever git resolves.
 
 ## 5. Refresh
 

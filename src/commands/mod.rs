@@ -27,6 +27,23 @@ pub fn quote_title(title: &str) -> String {
     title.replace('"', "'")
 }
 
+/// Who a comment or attachment is recorded as coming from: `$YMAN_ACTOR`,
+/// else `git config user.name`, else `unknown`. Only the display name in
+/// `d.md` and `m.yml`; the git committer stays whoever git says it is, so an
+/// agent working under a person's account is still attributable both ways.
+pub fn actor(ctx: &Context) -> Result<String> {
+    if let Some(a) = std::env::var_os("YMAN_ACTOR") {
+        let a = a.to_string_lossy().trim().to_string();
+        if !a.is_empty() {
+            return Ok(a);
+        }
+    }
+    Ok(ctx
+        .get_cfg("user.name")?
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "unknown".to_string()))
+}
+
 pub fn dispatch(ctx: &mut Context, cmd: Cmd) -> Result<()> {
     match cmd {
         Cmd::Init(a) => init::run(ctx, a),
