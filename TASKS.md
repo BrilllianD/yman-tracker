@@ -293,18 +293,6 @@ Agents drive `yman` through a shell, one call at a time, and pay per byte
 they read back. The entries below cut calls and bytes without moving any
 human default, table layout or pinned string. All are additive and opt-in.
 
-### `add` and `set` take the body without an editor
-
-The only way to change a body is `edit`, which needs a terminal.
-
-- Where: `AddArgs --body-file`, `SetArgs --body` / `--body-file` in
-  `src/cli.rs`; a `read_text_source` helper in `src/commands/mod.rs` (`-` is
-  stdin); `src/commands/set.rs` writes `t.md` on a body change without
-  renaming; `docs/commands.md` §2 and §4, `docs/errors.md`, `README.md`.
-- Done when: `yman set 14 --body "x"` prints `14: body updated` and commits
-  `task(14): set body`, a repeat prints `no changes`, and a missing file
-  fails with `cannot read <path>: <why>`.
-
 ### `edit` refuses the `vi` fallback without a terminal
 
 With neither `$VISUAL` nor `$EDITOR` set, `edit` spawns `vi` even when stdin

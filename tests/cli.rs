@@ -2628,3 +2628,124 @@ fn show_limits_the_discussion() {
     );
     assert_eq!(big, full, "a limit above the count changes nothing");
 }
+
+/// A body can come from a file or stdin at creation time.
+#[test]
+fn add_body_from_file_and_stdin() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let src = fx.a.join("body.md");
+    fx.write(&src, "From a file.\n\nSecond paragraph.\n");
+
+    fx.yman(&fx.a)
+        .args(["add", "Filed", "--body-file", src.to_str().unwrap()])
+        .assert()
+        .success();
+    let md = fx.read(&fx.task_dir(&fx.a, "1").join("t.md"));
+    assert_eq!(md, "# Filed\n\nFrom a file.\n\nSecond paragraph.\n");
+
+    fx.yman(&fx.a)
+        .args(["add", "Piped", "--body-file", "-"])
+        .write_stdin("from stdin\n")
+        .assert()
+        .success();
+    let md = fx.read(&fx.task_dir(&fx.a, "2").join("t.md"));
+    assert_eq!(md, "# Piped\n\nfrom stdin\n");
+
+    // `-m` and `--body-file` exclude each other at the parser.
+    let out = fx
+        .yman(&fx.a)
+        .args(["add", "Both", "-m", "x", "--body-file", "-"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2));
+}
+
+/// `set --body` rewrites t.md in place: no rename, `no changes` on a repeat,
+/// and an empty string clears the body.
+#[test]
+fn set_body_updates_t_md_without_renaming() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Fix login", "-m", "old body"])
+        .assert()
+        .success();
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["set", "1", "--body", "new body\n"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out).trim(), "1: body updated");
+    let subject = fx.git(&fx.a, &["log", "-1", "--format=%s", "refs/yman/local"]);
+    assert_eq!(subject.trim(), "task(1): set body");
+    assert_eq!(fx.task_rel(&fx.a, "1"), "5.1.fix-login");
+    let md = fx.read(&fx.task_dir(&fx.a, "1").join("t.md"));
+    assert_eq!(md, "# Fix login\n\nnew body\n");
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["set", "1", "--body", "new body"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out).trim(), "no changes");
+
+    let src = fx.a.join("body.md");
+    fx.write(&src, "filed body\n");
+    let out = fx
+        .yman(&fx.a)
+        .args([
+            "set",
+            "1",
+            "--body-file",
+            src.to_str().unwrap(),
+            "-m",
+            "rewrote",
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert!(
+        text.contains("1: body updated") && text.contains("1: commented"),
+        "{text}"
+    );
+    let subject = fx.git(&fx.a, &["log", "-1", "--format=%s", "refs/yman/local"]);
+    assert_eq!(subject.trim(), "task(1): set body comment");
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["set", "1", "--body", ""])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out).trim(), "1: body updated");
+    assert_eq!(
+        fx.read(&fx.task_dir(&fx.a, "1").join("t.md")),
+        "# Fix login\n"
+    );
+}
+
+/// An unreadable `--body-file` fails before anything is written.
+#[test]
+fn set_body_file_missing_is_an_error() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let before = fx.git(&fx.a, &["rev-list", "--count", "refs/yman/local"]);
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["set", "1", "--body-file", "nope.md", "--priority", "1"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let err = stderr(&out);
+    assert!(err.starts_with("error: cannot read nope.md: "), "{err}");
+    let after = fx.git(&fx.a, &["rev-list", "--count", "refs/yman/local"]);
+    assert_eq!(before, after);
+    assert_eq!(fx.task_rel(&fx.a, "1"), "5.1.fix-login");
+}

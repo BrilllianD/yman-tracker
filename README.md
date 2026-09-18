@@ -196,10 +196,11 @@ written against.
 ### Creating and reading
 
 ```sh
-yman add <title> [-p 0-9] [-s <status>] [-t <tag>]... [-m <body>] [-e]
+yman add <title> [-p 0-9] [-s <status>] [-t <tag>]... [-m <body> | --body-file <path> | -e]
          [-a <who>] [--link <url>]... [--relate <id>]...
 ```
-Creates a task and commits it. `-t`, `--link` and `--relate` repeat. `-e` opens `$EDITOR` on the new
+Creates a task and commits it. `-t`, `--link` and `--relate` repeat.
+`--body-file -` reads the body from stdin. `-e` opens `$EDITOR` on the new
 `t.md` first — whatever title you type there wins, and the folder is named after
 it.
 
@@ -210,8 +211,9 @@ yman ls [-s <status>]... [-t <tag>]... [-a] [--assignee <who>] [-p 0-9]
 Lists tasks sorted by priority, then status order, then id. Tasks in a closed
 status are hidden unless you pass `-a` or name that status with `-s`. `-t`
 requires *all* the tags given. `--assignee -` means unassigned, `-q` is a
-case-insensitive search over title and body, `-n` caps the rows after sorting. Column headers appear only when stdout is a
-terminal, so `yman ls | grep` stays predictable. `--json` prints one object per
+case-insensitive search over title and body, `-n` caps the rows after sorting.
+Column headers appear only when stdout is a terminal, so `yman ls | grep` stays
+predictable. `--json` prints one object per
 task, plus `{dir, error}` for anything broken.
 
 ```
@@ -237,7 +239,7 @@ yman set <id> [--status S] [--priority 0-9] [--title T]
               [--tag X]... [--untag X]...
               [--link URL]... [--unlink URL]...
               [--relate ID]... [--unrelate ID]...
-              [-m <comment>]
+              [--body <text> | --body-file <path>] [-m <comment>]
 yman start <id>...          # = set --status <start status>
 yman done  <id>...          # = set --status <done status>
 yman move <id>... <status>  # = set --status <status>
@@ -253,7 +255,8 @@ List fields keep their insertion order. Adding a value that is already there is
 not a change and commits nothing; removing one that was never there is quietly
 accepted. A `set` that changes nothing prints `no changes` and leaves the
 history alone. `-m` appends a comment in the same commit, so
-`yman done 14 -m "fixed in 3f2a"` closes and explains in one step. The verbs
+`yman done 14 -m "fixed in 3f2a"` closes and explains in one step. `--body`
+rewrites the description without an editor; `--body ""` clears it. The verbs
 take several ids — `yman done 14 15 16` — and commit each task on its own,
 stopping at the first error.
 

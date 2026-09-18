@@ -12,6 +12,10 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
     if title.is_empty() {
         bail!("title must not be empty");
     }
+    let body = match a.body_file {
+        Some(src) => super::read_text_source(&src)?,
+        None => a.message.unwrap_or_default(),
+    };
 
     let status = match a.status {
         Some(s) => {
@@ -60,7 +64,7 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
         parent,
         dir,
         title,
-        body: a.message.unwrap_or_default(),
+        body,
         meta,
     };
     t.write_md()?;

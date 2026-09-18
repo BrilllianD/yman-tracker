@@ -88,6 +88,23 @@ pub fn run(ctx: &mut Context, a: SetArgs) -> Result<()> {
         &mut changes,
     );
 
+    let new_body = match (a.body, a.body_file) {
+        (Some(b), _) => Some(b),
+        (None, Some(src)) => Some(super::read_text_source(&src)?),
+        (None, None) => None,
+    };
+    let mut body_changed = false;
+    if let Some(body) = new_body
+        && body.trim_matches('\n') != t.body.trim_matches('\n')
+    {
+        changes.push(Change {
+            token: "body".to_string(),
+            line: "body updated".to_string(),
+        });
+        t.body = body;
+        body_changed = true;
+    }
+
     // A comment is a change in its own right: `set 3 -m note` is `comment 3
     // -m note` through the one mutation path, so `done 3 -m note` is one
     // commit rather than two.
@@ -158,7 +175,9 @@ pub fn run(ctx: &mut Context, a: SetArgs) -> Result<()> {
     }
     t.touch();
     t.write_meta()?;
-    if title_changed {
+    // The body lives in t.md next to the title, but only the title names
+    // the folder, so a body change never renames.
+    if title_changed || body_changed {
         t.write_md()?;
     }
     ctx.wt.ok(&["add", "--", &new_rel])?;
@@ -228,6 +247,8 @@ fn each(
                 status: status.clone(),
                 priority,
                 message: message.clone(),
+                body: None,
+                body_file: None,
                 title: None,
                 assignee: None,
                 no_assignee: false,

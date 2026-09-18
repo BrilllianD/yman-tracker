@@ -137,6 +137,9 @@ pub struct AddArgs {
     /// Body text
     #[arg(short = 'm', long, value_name = "TEXT")]
     pub message: Option<String>,
+    /// Body read from a file, `-` for stdin
+    #[arg(long = "body-file", value_name = "PATH", conflicts_with_all = ["message", "edit"])]
+    pub body_file: Option<String>,
     /// Open the new t.md in $EDITOR
     #[arg(short = 'e', long)]
     pub edit: bool,
@@ -225,6 +228,7 @@ pub struct MoveArgs {
         .args([
             "status", "priority", "title", "assignee", "no_assignee",
             "tag", "untag", "link", "unlink", "relate", "unrelate", "message",
+            "body", "body_file",
         ])
 ))]
 pub struct SetArgs {
@@ -256,6 +260,12 @@ pub struct SetArgs {
     /// Append a comment in the same commit
     #[arg(short = 'm', long, value_name = "TEXT")]
     pub message: Option<String>,
+    /// Replace the body; an empty string clears it
+    #[arg(long, value_name = "TEXT", conflicts_with = "body_file")]
+    pub body: Option<String>,
+    /// Replace the body with a file's contents, `-` for stdin
+    #[arg(long = "body-file", value_name = "PATH")]
+    pub body_file: Option<String>,
 }
 
 #[derive(Args, Debug)]

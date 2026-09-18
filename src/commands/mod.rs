@@ -21,6 +21,23 @@ use crate::cli::Cmd;
 use crate::repo::Context;
 use anyhow::Result;
 
+/// Body text for `add --body-file` and `set --body-file`: a path, or `-` for
+/// stdin. Errors name the source, since "No such file" alone is useless in a
+/// script's log.
+pub fn read_text_source(path: &str) -> Result<String> {
+    use std::io::Read;
+    let mut buf = String::new();
+    let res = if path == "-" {
+        std::io::stdin().read_to_string(&mut buf).map(|_| ())
+    } else {
+        std::fs::File::open(path).and_then(|mut f| f.read_to_string(&mut buf).map(|_| ()))
+    };
+    match res {
+        Ok(()) => Ok(buf),
+        Err(e) => anyhow::bail!("cannot read {path}: {e}"),
+    }
+}
+
 /// Titles go into commit subjects verbatim except for double quotes, which
 /// would fight with the quoting in the message template.
 pub fn quote_title(title: &str) -> String {
