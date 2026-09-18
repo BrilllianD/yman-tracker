@@ -523,11 +523,21 @@ the error; fix the file and the task comes back. Nothing else is affected.
 cargo test                                  # unit tests + the two-clone suite
 cargo clippy --all-targets -- -D warnings
 sh scripts/spike-symref.sh                  # the git invariant this rests on
+sh scripts/synthetic-project.sh             # a 1000-task repository, driven (~3 min)
 ```
 
 The integration suite builds a bare remote and two clones in a temp directory
 and drives both through init, add, sync, id collisions, conflicts and hooks.
 Nothing touches the network or your real git configuration.
+
+`scripts/synthetic-project.sh` covers what a suite of short-lived fixtures
+cannot: it builds four clones and a thousand tasks over a couple of thousand
+commits, churns them, closes them, crosses them in and out of the archive
+directories, and then reports what `add`, `ls` and `log` cost on the result.
+The repository is regenerated rather than committed — it lands in
+`target/synthetic`, is kept so you can `cd` in and poke at it, and is replaced
+by the next `--force` run. Run it before a release; it is deliberately not part
+of CI.
 
 Layout:
 
@@ -541,6 +551,7 @@ Layout:
 | `src/refresh.rs` | the fast-forward policy |
 | `src/commands/` | one module per subcommand |
 | `scripts/spike-symref.sh` | proves committing in the worktree moves `refs/yman/local` |
+| `scripts/synthetic-project.sh` | builds a large repository and measures what commands cost on it |
 | `docs/` | the normative specification |
 
 `docs/` holds the normative, as-built specification — [storage.md](docs/storage.md)
