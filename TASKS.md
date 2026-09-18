@@ -4,7 +4,7 @@ Backlog for `yman`. Derived from the as-built specification in `docs/`, the
 "Limits and future work" section of `README.md`, and the current state of the
 tree at `314ae88`.
 
-Baseline as of 2026-09-17: `cargo test` is green (41 unit, 54 integration),
+Baseline as of 2026-09-18: `cargo test` is green (59 unit, 67 integration),
 `docs/` and `README.md` describe the shipped behaviour, and every subcommand
 listed in `src/cli.rs` is implemented.
 
@@ -284,6 +284,150 @@ The crate is at `0.1.0` with no changelog and no tagged release.
   decision on whether the crate is published to crates.io. The binary is `yman`
   while the package is `yman-tracker`; if publishing, check the name is free
   before committing to it.
+
+---
+
+## Agents and scripts
+
+Agents drive `yman` through a shell, one call at a time, and pay per byte
+they read back. The entries below cut calls and bytes without moving any
+human default, table layout or pinned string. All are additive and opt-in.
+
+### `add` takes `--assignee`, `--link` and `--relate`
+
+Creating a task and then assigning or relating it is two calls and two
+commits today.
+
+- Where: `AddArgs` in `src/cli.rs`, `src/commands/add.rs`, `docs/commands.md`
+  §4, `README.md`.
+- Done when: `yman add "T" -a me --link URL --relate 3` writes all three into
+  `m.yml` in one commit, values are deduplicated like tags, and `tests/cli.rs`
+  covers it.
+
+### `comment` and `attach` take the author from `YMAN_ACTOR`
+
+The author on a `d.md` entry and an attachment is `git config user.name`,
+which is the human, even when an agent is doing the work.
+
+- Where: a shared `actor()` in `src/commands/mod.rs` replacing the lookups in
+  `src/commands/comment.rs` and `src/commands/attach.rs`; the test fixture
+  must remove the variable; `docs/commands.md` §4, `README.md`.
+- Done when: `$YMAN_ACTOR` (trimmed, non-empty) wins over `user.name`, the
+  git committer is untouched, and a test asserts both.
+
+### `set` and the state verbs append a comment with `-m`
+
+Closing a task with a note is `done` plus `comment`: two calls, two commits.
+
+- Where: `SetArgs` (`-m` joins the `changes` group), a `VerbArgs` shared by
+  `start`/`done`/`cancel`/`reopen`, `MoveArgs`, `PrioArgs`; `src/commands/set.rs`
+  appends through `discussion::append_entry` with the actor; `docs/commands.md`
+  §2 (`{pairs}` gains the bare token `comment`) and §4; `docs/errors.md`.
+- Done when: `yman done 3 -m "fixed"` is one commit whose subject ends in
+  `comment`, stdout has `3: commented`, and `-m ""` fails with `empty comment`.
+
+### State verbs take several ids
+
+`yman done 1 2 3` is three calls today.
+
+- Where: `VerbArgs.ids`, `MoveArgs`, `PrioArgs` in `src/cli.rs` (ids first,
+  status or priority last: `yman move 1 2 doing`); `src/commands/set.rs`
+  loops one commit per task; `docs/commands.md` §4, `README.md`.
+- Done when: three ids produce three commits, the first failure stops the
+  loop with earlier tasks already committed, and this is documented and tested.
+  `edit`, `show`, `path` and `rm` stay single-id.
+
+### `ls` filters and limits
+
+`ls` prints the whole backlog; an agent looking for its own next task reads
+every row.
+
+- Where: `LsArgs` in `src/cli.rs` (`-q/--grep`, `--assignee`, `-p/--priority`,
+  `-n/--limit`), the filter chain in `src/commands/ls.rs`; `docs/commands.md`
+  §3, `README.md`.
+- Done when: the four flags compose, `--assignee -` means unassigned, the
+  limit applies after sorting, `print_table` and `print_json` are untouched,
+  and a test covers all four.
+
+### `show -n` caps the discussion
+
+A task with forty comments costs forty comments on every `show`.
+
+- Where: a new `ShowArgs` in `src/cli.rs`, `src/commands/show.rs`;
+  `docs/commands.md` §3.
+- Done when: `-n N` keeps the last N entries under a
+  `discussion (last N of M):` header, `-n 0` omits the section, and the
+  default output is byte-identical.
+
+### `add` and `set` take the body without an editor
+
+The only way to change a body is `edit`, which needs a terminal.
+
+- Where: `AddArgs --body-file`, `SetArgs --body` / `--body-file` in
+  `src/cli.rs`; a `read_text_source` helper in `src/commands/mod.rs` (`-` is
+  stdin); `src/commands/set.rs` writes `t.md` on a body change without
+  renaming; `docs/commands.md` §2 and §4, `docs/errors.md`, `README.md`.
+- Done when: `yman set 14 --body "x"` prints `14: body updated` and commits
+  `task(14): set body`, a repeat prints `no changes`, and a missing file
+  fails with `cannot read <path>: <why>`.
+
+### `edit` refuses the `vi` fallback without a terminal
+
+With neither `$VISUAL` nor `$EDITOR` set, `edit` spawns `vi` even when stdin
+is a pipe. In an agent's shell that hangs until a timeout.
+
+- Where: `open_editor` in `src/commands/edit.rs`; `docs/errors.md`,
+  `docs/commands.md` §4.
+- Done when: the fallback bails with
+  `no terminal for vi; set $EDITOR, or use -m / --body-file` before spawning,
+  an explicit `EDITOR` still works, and a test removes both variables.
+
+### Exit code 4 for an unknown task id
+
+`task 99 not found` exits 1 like every other error, so a script cannot tell
+a typo from a broken repository without parsing stderr.
+
+- Where: a `NotFound` marker in `src/errors.rs` next to `MergePending`,
+  raised from `task::find`; `docs/errors.md`, `README.md` exit tables.
+- Done when: every command that looks up an id exits 4 on a missing one,
+  `broken` and `duplicate` still exit 1, and the message is unchanged.
+
+### Describe every flag; add `yman guide`
+
+`yman set --help` shows bare flags, and the only documentation is a 19 KB
+README.
+
+- Where: doc comments on every bare field in `src/cli.rs`, a short
+  `after_help` on the top-level command; new `docs/agents.md` (60 lines at
+  most) printed by `src/commands/guide.rs` via `include_str!`; `src/main.rs`
+  handles `guide` before `repo::discover()`; `docs/commands.md` §1 and §3,
+  `README.md`.
+- Done when: `yman guide` works outside any repository and prints the file
+  byte for byte, `--help` points at it, and every flag has a one-line
+  description.
+
+### Move the JSON writer into `src/json.rs`
+
+`ls --json` escapes and assembles its output inline in `src/commands/ls.rs`.
+A second JSON producer would copy that code.
+
+- Where: new `src/json.rs` with `string`/`opt_string`/`strings`/`array` and
+  an ordered object builder; `print_json` in `src/commands/ls.rs` rebuilt on
+  it; `CLAUDE.md` dependencies note.
+- Done when: `ls --json` output is byte-identical, and unit tests cover
+  escaping, key order and empty collections. No `serde_json`.
+
+### `--json` for `show` and `status`; `links` and `related` in `ls --json`
+
+Scripts that want a task's links or the sync state have to parse text.
+
+- Where: `src/commands/show.rs`, `src/commands/status.rs` (a shared report
+  struct so the text path stays byte-identical), `Cmd::Status` grows args;
+  `docs/commands.md` §3 shapes, `README.md`.
+- Done when: `show --json` is one object including attachments and the
+  discussion (honouring `-n`), `status --json` reports refs, ahead/behind,
+  merge state and counts, and `ls --json` gains `links` and `related` after
+  `assignee`.
 
 ---
 
