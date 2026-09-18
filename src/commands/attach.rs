@@ -65,7 +65,17 @@ pub fn run(ctx: &mut Context, a: AttachArgs) -> Result<()> {
 
     t.touch();
     t.write_meta()?;
-    ctx.wt.ok(&["add", "--", &t.rel()])?;
+    let rel = t.rel();
+    ctx.wt.ok(&["add", "--", &rel])?;
+    // `.yman/.gitignore` carries the editor-junk patterns `init` writes, and a
+    // plain `git add <dir>` skips an ignored path without saying so: the entry
+    // landed in `m.yml`, the file never reached a commit, and every other clone
+    // saw a dangling attachment after `sync`. The user named this file, so the
+    // ignore rule does not apply to it — stage each one by force.
+    for name in &names {
+        let file = format!("{rel}/{}/{name}", task::FILES_DIR);
+        ctx.wt.ok(&["add", "-f", "--", &file])?;
+    }
     ctx.wt
         .commit(&format!("task({}): attach {}", t.id(), names.join(", ")))?;
     Ok(())
