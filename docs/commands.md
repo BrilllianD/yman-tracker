@@ -62,8 +62,14 @@ lexically otherwise.
 
 Default filtering hides tasks in any **terminal** status — `statuses.terminal`,
 or the done status when that key is unset; `-a` includes them, and naming one
-with `-s` includes it too. `-t` requires **all** the tags
-given. Column headers are printed only when stdout is a terminal. Trailing empty
+with `-s` includes it too. `-t` requires **all** the tags given.
+`--assignee WHO` keeps one assignee (`-` keeps the unassigned), `-p N` one
+priority, and `-q TEXT` the tasks whose title or body contains the text,
+compared lowercase; all of these AND together with the status and tag
+filters. `-n N` keeps the first N rows **after** sorting. None of the filters
+touches git or reads anything `ls` did not already read. Broken folders are
+listed regardless of filters. Column headers are printed only when stdout is
+a terminal. Trailing empty
 columns are omitted, and zero counts render blank rather than `0`.
 
 `--json` emits one object per task —

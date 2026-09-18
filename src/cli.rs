@@ -162,6 +162,18 @@ pub struct LsArgs {
     /// Include tasks in the final status
     #[arg(short = 'a', long)]
     pub all: bool,
+    /// Only tasks whose title or body contains TEXT (case-insensitive)
+    #[arg(short = 'q', long = "grep", value_name = "TEXT")]
+    pub grep: Option<String>,
+    /// Only tasks assigned to WHO; `-` means unassigned
+    #[arg(long, value_name = "WHO")]
+    pub assignee: Option<String>,
+    /// Only tasks at this priority
+    #[arg(short = 'p', long, value_name = "N", value_parser = clap::value_parser!(u8).range(0..=9))]
+    pub priority: Option<u8>,
+    /// Print at most N tasks, after sorting
+    #[arg(short = 'n', long = "limit", value_name = "N")]
+    pub limit: Option<usize>,
     /// Machine-readable output
     #[arg(long)]
     pub json: bool,

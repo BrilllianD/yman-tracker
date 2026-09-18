@@ -293,18 +293,6 @@ Agents drive `yman` through a shell, one call at a time, and pay per byte
 they read back. The entries below cut calls and bytes without moving any
 human default, table layout or pinned string. All are additive and opt-in.
 
-### `ls` filters and limits
-
-`ls` prints the whole backlog; an agent looking for its own next task reads
-every row.
-
-- Where: `LsArgs` in `src/cli.rs` (`-q/--grep`, `--assignee`, `-p/--priority`,
-  `-n/--limit`), the filter chain in `src/commands/ls.rs`; `docs/commands.md`
-  §3, `README.md`.
-- Done when: the four flags compose, `--assignee -` means unassigned, the
-  limit applies after sorting, `print_table` and `print_json` are untouched,
-  and a test covers all four.
-
 ### `show -n` caps the discussion
 
 A task with forty comments costs forty comments on every `show`.

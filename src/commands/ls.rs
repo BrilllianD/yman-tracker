@@ -14,6 +14,7 @@ pub fn run(ctx: &mut Context, a: LsArgs) -> Result<()> {
         }
     }
 
+    let needle = a.grep.as_deref().map(str::to_lowercase);
     let mut tasks: Vec<Task> = Vec::new();
     let mut broken: Vec<(String, String)> = Vec::new();
 
@@ -28,7 +29,18 @@ pub fn run(ctx: &mut Context, a: LsArgs) -> Result<()> {
                     a.statuses.contains(&t.meta.status)
                 };
                 let keep_tags = a.tags.iter().all(|want| t.meta.tags.contains(want));
-                if keep_status && keep_tags {
+                let keep_assignee = match a.assignee.as_deref() {
+                    None => true,
+                    Some("-") => t.meta.assignee.is_none(),
+                    Some(who) => t.meta.assignee.as_deref() == Some(who),
+                };
+                let keep_priority = a.priority.is_none_or(|p| p == t.priority());
+                // Plain substring, lowercased on both sides: no regex crate,
+                // and an agent's query is a word or two, not a pattern.
+                let keep_text = needle.as_deref().is_none_or(|n| {
+                    t.title.to_lowercase().contains(n) || t.body.to_lowercase().contains(n)
+                });
+                if keep_status && keep_tags && keep_assignee && keep_priority && keep_text {
                     tasks.push(t);
                 }
             }
@@ -45,6 +57,9 @@ pub fn run(ctx: &mut Context, a: LsArgs) -> Result<()> {
             })
             .then_with(|| task::cmp_id(x.id(), y.id()))
     });
+    if let Some(n) = a.limit {
+        tasks.truncate(n);
+    }
 
     if a.json {
         print_json(&tasks, &broken);

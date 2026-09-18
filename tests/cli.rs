@@ -2532,3 +2532,51 @@ fn move_and_prio_take_ids_then_value() {
     assert!(out.status.success(), "{}", stderr(&out));
     assert_eq!(stdout(&out).trim(), "1: status doing -> todo");
 }
+
+/// The `ls` filters compose, `--assignee -` is "nobody", and the limit
+/// applies after sorting so `-n 1` is the top of the backlog.
+#[test]
+fn ls_filters_by_text_assignee_priority_and_limit() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args([
+            "add",
+            "Fix login",
+            "-p",
+            "2",
+            "-a",
+            "claude",
+            "-m",
+            "The OAuth flow breaks",
+        ])
+        .assert()
+        .success();
+    fx.yman(&fx.a)
+        .args(["add", "Write docs", "-p", "5"])
+        .assert()
+        .success();
+    fx.yman(&fx.a)
+        .args(["add", "Login page copy", "-p", "5", "-a", "ivan"])
+        .assert()
+        .success();
+
+    let ls = |args: &[&str]| -> Vec<String> {
+        let mut full = vec!["ls"];
+        full.extend_from_slice(args);
+        stdout(&fx.yman(&fx.a).args(&full).output().unwrap())
+            .lines()
+            .map(|l| l.split_whitespace().nth(1).unwrap().to_string())
+            .collect()
+    };
+
+    assert_eq!(ls(&["-q", "LOGIN"]), ["1", "3"], "title match, any case");
+    assert_eq!(ls(&["-q", "oauth"]), ["1"], "body match");
+    assert_eq!(ls(&["--assignee", "claude"]), ["1"]);
+    assert_eq!(ls(&["--assignee", "-"]), ["2"]);
+    assert_eq!(ls(&["-p", "5"]), ["2", "3"]);
+    assert_eq!(ls(&["-n", "1"]), ["1"], "after sorting: priority 2 first");
+    assert_eq!(ls(&["-n", "0"]), Vec::<String>::new());
+    assert_eq!(ls(&["-q", "login", "-p", "5", "--assignee", "ivan"]), ["3"]);
+    assert_eq!(ls(&["-q", "nothing here"]), Vec::<String>::new());
+}
