@@ -6,6 +6,7 @@ mod errors;
 mod git;
 mod hooks;
 mod ids;
+mod json;
 mod refresh;
 mod repo;
 mod task;

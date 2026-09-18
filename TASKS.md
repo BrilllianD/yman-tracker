@@ -293,17 +293,6 @@ Agents drive `yman` through a shell, one call at a time, and pay per byte
 they read back. The entries below cut calls and bytes without moving any
 human default, table layout or pinned string. All are additive and opt-in.
 
-### Move the JSON writer into `src/json.rs`
-
-`ls --json` escapes and assembles its output inline in `src/commands/ls.rs`.
-A second JSON producer would copy that code.
-
-- Where: new `src/json.rs` with `string`/`opt_string`/`strings`/`array` and
-  an ordered object builder; `print_json` in `src/commands/ls.rs` rebuilt on
-  it; `CLAUDE.md` dependencies note.
-- Done when: `ls --json` output is byte-identical, and unit tests cover
-  escaping, key order and empty collections. No `serde_json`.
-
 ### `--json` for `show` and `status`; `links` and `related` in `ls --json`
 
 Scripts that want a task's links or the sync state have to parse text.
