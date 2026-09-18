@@ -314,10 +314,12 @@ agree with what origin now holds.
 that is behind moves, because the other side's id is already published.
 
 - Candidates are ids of tasks **created locally since the merge base** that also
-  exist in `ls-tree -d -r REMOTE`. Created means the task's `t.md` appeared
-  (`diff --diff-filter=A -M base LOCAL`): adding a comment or an attachment to
-  an existing task adds a file under its folder but does not mint an id, and
-  `-M` keeps a folder that merely moved from reading as a new one.
+  exist on the remote. All three sets are read from folder names in
+  `ls-tree -d -r` — of the base, of `LOCAL` and of `REMOTE` — and an id created
+  locally is one `LOCAL` has that the base does not. Nothing here consults
+  git's rename detection: adding a comment or an attachment to an existing task
+  does not mint an id, and neither does a retitle or a close, both of which move
+  the folder while the id stays in its name.
 - The replacement comes from the same scheme, avoiding everything on disk, on
   the remote, and everything ever assigned on either ref. For `author`, the
   original prefix is kept.

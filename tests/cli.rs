@@ -2041,6 +2041,49 @@ fn commenting_on_both_sides_does_not_renumber() {
         "{shown}"
     );
 }
+/// Retitling is not creating. A retitle is a `git mv` plus a rewritten first
+/// line of a short file, and git scored that rename below its 50% threshold,
+/// so the pair read as a delete plus an add: the task looked newly created,
+/// its own published id counted as "taken on origin", and sync renumbered it.
+#[test]
+fn retitling_does_not_renumber() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+
+    // B retitles offline; the folder moves and `t.md`'s first line changes.
+    fx.yman(&fx.b)
+        .args(["set", "1", "--title", "Repair the login flow"])
+        .assert()
+        .success();
+    // Meanwhile origin moves, so B's sync has to merge rather than fast-forward.
+    fx.yman(&fx.a)
+        .args(["add", "Ship the release"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stdout(&out).contains("renumbered 0"), "{}", stdout(&out));
+    assert!(
+        !stdout(&out).contains("(id taken on origin)"),
+        "{}",
+        stdout(&out)
+    );
+    assert!(fx.has_task(&fx.b, "1"), "task 1 was renumbered away");
+    assert_eq!(fx.title(&fx.b, "1"), "Repair the login flow");
+    assert_eq!(fx.task_rel(&fx.b, "1"), "5.1.repair-the-login-flow");
+    // The task A added in the meantime keeps the id it was published under.
+    assert_eq!(fx.title(&fx.b, "2"), "Ship the release");
+
+    // And the retitle survives the round trip back to A.
+    fx.yman(&fx.a).arg("sync").assert().success();
+    assert_eq!(fx.title(&fx.a, "1"), "Repair the login flow");
+}
+
 /// Closing a task moves its folder into the status directory, in the same
 /// commit as the status change.
 #[test]
