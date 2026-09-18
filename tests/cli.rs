@@ -2399,3 +2399,53 @@ fn comment_and_attach_record_the_actor() {
     let d = fx.read(&fx.task_dir(&fx.a, "1").join("d.md"));
     assert!(d.contains(" — Test A\n"), "{d}");
 }
+
+/// `done -m` closes and explains in one commit; a bare `set -m` is a valid
+/// change on its own; an empty message is refused like `comment`.
+#[test]
+fn done_with_message_comments_in_one_commit() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let before = fx.git(&fx.a, &["rev-list", "--count", "refs/yman/local"]);
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["done", "1", "-m", "fixed in 3f2a"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("1: status todo -> done"), "{text}");
+    assert!(text.contains("1: commented"), "{text}");
+
+    let after = fx.git(&fx.a, &["rev-list", "--count", "refs/yman/local"]);
+    assert_eq!(
+        after.trim().parse::<u32>().unwrap(),
+        before.trim().parse::<u32>().unwrap() + 1
+    );
+    let subject = fx.git(&fx.a, &["log", "-1", "--format=%s", "refs/yman/local"]);
+    assert_eq!(subject.trim(), "task(1): set status=todo->done comment");
+    let d = fx.read(&fx.task_dir(&fx.a, "1").join("d.md"));
+    assert!(d.contains("fixed in 3f2a"), "{d}");
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["set", "1", "-m", "second note"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out).trim(), "1: commented");
+    let subject = fx.git(&fx.a, &["log", "-1", "--format=%s", "refs/yman/local"]);
+    assert_eq!(subject.trim(), "task(1): set comment");
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["prio", "1", "3", "-m", "  "])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert_eq!(stderr(&out).trim(), "error: empty comment");
+    // The priority was not applied either: the bail happens before any write.
+    assert_eq!(fx.task_rel(&fx.a, "1"), "5.1.fix-login");
+}

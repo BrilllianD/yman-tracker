@@ -30,15 +30,15 @@ pub enum Cmd {
     /// Change fields of a task
     Set(SetArgs),
     /// Move a task to the start status
-    Start(IdArgs),
+    Start(VerbArgs),
     /// Move a task to the done status
-    Done(IdArgs),
+    Done(VerbArgs),
     /// Move a task to any status
     Move(MoveArgs),
     /// Move a task to the cancel status
-    Cancel(IdArgs),
+    Cancel(VerbArgs),
     /// Move a closed task back to the default status
-    Reopen(IdArgs),
+    Reopen(VerbArgs),
     /// Change a task's priority
     Prio(PrioArgs),
     /// Delete a task
@@ -173,12 +173,25 @@ pub struct IdArgs {
     pub id: String,
 }
 
+/// `start`, `done`, `cancel`, `reopen`.
+#[derive(Args, Debug)]
+pub struct VerbArgs {
+    /// Task id
+    pub id: String,
+    /// Append a comment in the same commit
+    #[arg(short = 'm', long, value_name = "TEXT")]
+    pub message: Option<String>,
+}
+
 #[derive(Args, Debug)]
 pub struct MoveArgs {
     /// Task id
     pub id: String,
     /// Status to move it to
     pub status: String,
+    /// Append a comment in the same commit
+    #[arg(short = 'm', long, value_name = "TEXT")]
+    pub message: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -188,7 +201,7 @@ pub struct MoveArgs {
         .multiple(true)
         .args([
             "status", "priority", "title", "assignee", "no_assignee",
-            "tag", "untag", "link", "unlink", "relate", "unrelate",
+            "tag", "untag", "link", "unlink", "relate", "unrelate", "message",
         ])
 ))]
 pub struct SetArgs {
@@ -217,14 +230,21 @@ pub struct SetArgs {
     pub relate: Vec<String>,
     #[arg(long = "unrelate", value_name = "ID", action = ArgAction::Append)]
     pub unrelate: Vec<String>,
+    /// Append a comment in the same commit
+    #[arg(short = 'm', long, value_name = "TEXT")]
+    pub message: Option<String>,
 }
 
 #[derive(Args, Debug)]
 pub struct PrioArgs {
+    /// Task id
     pub id: String,
     /// New priority, 0 (highest) to 9
     #[arg(value_parser = clap::value_parser!(u8).range(0..=9))]
     pub priority: u8,
+    /// Append a comment in the same commit
+    #[arg(short = 'm', long, value_name = "TEXT")]
+    pub message: Option<String>,
 }
 
 #[derive(Args, Debug)]

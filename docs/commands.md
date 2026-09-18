@@ -42,9 +42,10 @@ interfere. GPG signing is deliberately left to the user's configuration.
 | `sync` merge | `yman: merge origin refs/tasks/main` |
 
 `{title}` has `"` replaced by `'`. `{pairs}` is space-joined, e.g.
-`status=todo->doing priority=5->2 title tags=+ui,-auth` — a changed title
-contributes the bare word `title`, a move with no field change contributes
-`folder`, and list fields contribute `+added,-removed`.
+`status=todo->doing priority=5->2 title tags=+ui,-auth comment` — a changed
+title contributes the bare word `title`, a move with no field change
+contributes `folder`, list fields contribute `+added,-removed`, and `-m`
+contributes the bare word `comment`.
 
 `Git::commit` treats "nothing to commit" as success: re-applying an identical
 change inside the same second stages nothing, and the tree already says what the
@@ -119,12 +120,16 @@ applied in memory first, then:
    `note: task folder is now <rel>` on stderr — stdout stays data, but someone
    who had `cd`'d into the folder needs to hear that it moved.
 2. `updated` is touched; `m.yml` is rewritten; `t.md` too when the title moved.
-3. One commit, one printed line per change (`14: status todo -> doing`).
+   With `-m`, the text is appended to `d.md` exactly as `comment` would, with
+   the same actor.
+3. One commit, one printed line per change (`14: status todo -> doing`,
+   `14: commented`).
 
 List fields (`--tag/--untag`, `--link/--unlink`, `--relate/--unrelate`) are set
 semantics with insertion order preserved: adding a value already present is not
 a change, and removing one that was never there is quietly accepted. When
-nothing at all changed, `set` prints `no changes` and commits nothing.
+nothing at all changed, `set` prints `no changes` and commits nothing. `-m`
+always counts as a change; an empty message is the `empty comment` error.
 
 `start` and `done` resolve to `statuses.start` and `statuses.done`, falling back
 to `list[1]` and `list.last()` when those are unset.
@@ -143,6 +148,8 @@ The remaining verbs are `set --status` with the status looked up for you:
 | `move <id> <status>` | the one you name | unknown status, as for `set` |
 | `cancel <id>` | `statuses.cancel` | the key is unset |
 | `reopen <id>` | `statuses.default` | the task is not in a terminal status |
+
+Every verb, and `prio`, takes `-m <text>` like `set`.
 
 `cancel` has no fallback on purpose: picking one of several closed statuses by
 position is the guesswork the named roles exist to remove.

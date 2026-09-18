@@ -1,9 +1,10 @@
 use crate::cli::SetArgs;
+use crate::discussion;
 use crate::repo::Context;
 use crate::task;
 use anyhow::{Result, bail};
 
-use super::quote_title;
+use super::{actor, quote_title};
 
 /// One applied change: how it reads in the commit subject, and how it reads
 /// on the user's terminal.
@@ -87,6 +88,23 @@ pub fn run(ctx: &mut Context, a: SetArgs) -> Result<()> {
         &mut changes,
     );
 
+    // A comment is a change in its own right: `set 3 -m note` is `comment 3
+    // -m note` through the one mutation path, so `done 3 -m note` is one
+    // commit rather than two.
+    let comment = match a.message {
+        Some(m) => {
+            if m.trim().is_empty() {
+                bail!("empty comment");
+            }
+            changes.push(Change {
+                token: "comment".to_string(),
+                line: "commented".to_string(),
+            });
+            Some(m)
+        }
+        None => None,
+    };
+
     if title_changed {
         t.folder.slug = task::slugify(&t.title, ctx.config().slug.max_bytes);
     }
@@ -130,6 +148,14 @@ pub fn run(ctx: &mut Context, a: SetArgs) -> Result<()> {
         }
     }
 
+    if let Some(text) = comment {
+        discussion::append_entry(
+            &t.dir.join(task::DISCUSSION_FILE),
+            task::now(),
+            &actor(ctx)?,
+            text.trim(),
+        )?;
+    }
     t.touch();
     t.write_meta()?;
     if title_changed {
@@ -184,13 +210,20 @@ fn apply_set(
     });
 }
 
-fn one(ctx: &mut Context, id: &str, status: Option<String>, priority: Option<u8>) -> Result<()> {
+fn one(
+    ctx: &mut Context,
+    id: &str,
+    status: Option<String>,
+    priority: Option<u8>,
+    message: Option<String>,
+) -> Result<()> {
     run(
         ctx,
         SetArgs {
             id: id.to_string(),
             status,
             priority,
+            message,
             title: None,
             assignee: None,
             no_assignee: false,
@@ -204,32 +237,37 @@ fn one(ctx: &mut Context, id: &str, status: Option<String>, priority: Option<u8>
     )
 }
 
-pub fn run_start(ctx: &mut Context, id: &str) -> Result<()> {
+pub fn run_start(ctx: &mut Context, id: &str, message: Option<String>) -> Result<()> {
     let status = ctx.config().start_status().to_string();
-    one(ctx, id, Some(status), None)
+    one(ctx, id, Some(status), None, message)
 }
 
-pub fn run_done(ctx: &mut Context, id: &str) -> Result<()> {
+pub fn run_done(ctx: &mut Context, id: &str, message: Option<String>) -> Result<()> {
     let status = ctx.config().done_status().to_string();
-    one(ctx, id, Some(status), None)
+    one(ctx, id, Some(status), None, message)
 }
 
 /// `move` is a positional spelling of `set --status`; an unknown status is
 /// rejected by `run` with the wording every other command uses.
-pub fn run_move(ctx: &mut Context, id: &str, status: String) -> Result<()> {
-    one(ctx, id, Some(status), None)
+pub fn run_move(
+    ctx: &mut Context,
+    id: &str,
+    status: String,
+    message: Option<String>,
+) -> Result<()> {
+    one(ctx, id, Some(status), None, message)
 }
 
-pub fn run_cancel(ctx: &mut Context, id: &str) -> Result<()> {
+pub fn run_cancel(ctx: &mut Context, id: &str, message: Option<String>) -> Result<()> {
     // No fallback: guessing which of several closed statuses means "gave up"
     // is exactly the positional cleverness the roles exist to remove.
     let Some(status) = ctx.config().cancel_status().map(str::to_string) else {
         bail!("no cancel status configured; set statuses.cancel in .yman/config.toml");
     };
-    one(ctx, id, Some(status), None)
+    one(ctx, id, Some(status), None, message)
 }
 
-pub fn run_reopen(ctx: &mut Context, id: &str) -> Result<()> {
+pub fn run_reopen(ctx: &mut Context, id: &str, message: Option<String>) -> Result<()> {
     let t = task::find(&ctx.ydir, id)?;
     if !ctx.config().is_terminal(&t.meta.status) {
         bail!(
@@ -239,9 +277,9 @@ pub fn run_reopen(ctx: &mut Context, id: &str) -> Result<()> {
         );
     }
     let status = ctx.config().statuses.default.clone();
-    one(ctx, id, Some(status), None)
+    one(ctx, id, Some(status), None, message)
 }
 
-pub fn run_prio(ctx: &mut Context, id: &str, priority: u8) -> Result<()> {
-    one(ctx, id, None, Some(priority))
+pub fn run_prio(ctx: &mut Context, id: &str, priority: u8, message: Option<String>) -> Result<()> {
+    one(ctx, id, None, Some(priority), message)
 }

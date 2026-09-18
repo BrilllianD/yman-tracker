@@ -235,12 +235,14 @@ yman set <id> [--status S] [--priority 0-9] [--title T]
               [--tag X]... [--untag X]...
               [--link URL]... [--unlink URL]...
               [--relate ID]... [--unrelate ID]...
+              [-m <comment>]
 yman start <id>          # = set --status <start status>
 yman done  <id>          # = set --status <done status>
 yman move <id> <status>  # = set --status <status>
 yman cancel <id>         # = set --status <cancel status>   (version 2)
 yman reopen <id>         # a closed task back to the default status
 yman prio  <id> <0-9>    # = set --priority
+                         # every one of these also takes -m <comment>
 yman edit  <id>          # $VISUAL, else $EDITOR, else vi
 yman rm    <id> [-f]
 ```
@@ -248,7 +250,8 @@ yman rm    <id> [-f]
 List fields keep their insertion order. Adding a value that is already there is
 not a change and commits nothing; removing one that was never there is quietly
 accepted. A `set` that changes nothing prints `no changes` and leaves the
-history alone.
+history alone. `-m` appends a comment in the same commit, so
+`yman done 14 -m "fixed in 3f2a"` closes and explains in one step.
 
 `yman rm` asks for confirmation on a terminal and refuses outright without `-f`
 when there is no terminal to ask at.

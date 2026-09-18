@@ -73,7 +73,7 @@ commit.
 | attachment source unusable | `cannot attach <path>: <why>` / `… not a regular file` |
 | attachment name with a separator | `attachment name "<name>" must not contain a path separator` |
 | `add` onto an existing folder | `folder already exists: <dir>` |
-| empty comment | `empty comment` |
+| empty comment (`comment`, or `-m` on `set` and the verbs) | `empty comment` |
 | `cancel` with no cancel status | `no cancel status configured; set statuses.cancel in .yman/config.toml` |
 | `reopen` on an open task | `task <id> is not closed (status "<s>"); closed statuses: <terminal joined by ", ">` |
 | `rm` with no terminal and no `-f` | `refusing to remove without -f` |

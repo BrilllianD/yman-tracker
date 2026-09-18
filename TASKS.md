@@ -293,17 +293,6 @@ Agents drive `yman` through a shell, one call at a time, and pay per byte
 they read back. The entries below cut calls and bytes without moving any
 human default, table layout or pinned string. All are additive and opt-in.
 
-### `set` and the state verbs append a comment with `-m`
-
-Closing a task with a note is `done` plus `comment`: two calls, two commits.
-
-- Where: `SetArgs` (`-m` joins the `changes` group), a `VerbArgs` shared by
-  `start`/`done`/`cancel`/`reopen`, `MoveArgs`, `PrioArgs`; `src/commands/set.rs`
-  appends through `discussion::append_entry` with the actor; `docs/commands.md`
-  §2 (`{pairs}` gains the bare token `comment`) and §4; `docs/errors.md`.
-- Done when: `yman done 3 -m "fixed"` is one commit whose subject ends in
-  `comment`, stdout has `3: commented`, and `-m ""` fails with `empty comment`.
-
 ### State verbs take several ids
 
 `yman done 1 2 3` is three calls today.
