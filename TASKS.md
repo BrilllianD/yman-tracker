@@ -32,20 +32,6 @@ conflict that the user resolves by hand, even though `status`, `priority`,
   that, or whether it is opt-in — and record the decision in `docs/storage.md`
   before writing code.
 
-### Force-add attachments that match `.yman/.gitignore`
-
-`init` writes `*.swp`, `*~`, `.#*` and `*.orig` to `.yman/.gitignore`, and
-`attach` stages with `git add -- <task dir>`, which silently skips ignored
-paths. Attaching `notes.orig` therefore records the entry in `m.yml`, never
-commits the file, and every other clone sees a dangling attachment after
-`sync`.
-
-- Where: `src/commands/attach.rs`, `tests/cli.rs`
-- Done when: each attached file is staged with `git add -f -- <task>/f/<name>`
-  (or such names are rejected with a pinned message), and a two-clone test
-  attaches a `*.orig` file and finds it in `git -C .yman ls-files` on both
-  sides.
-
 ### Preserve unknown `m.yml` keys on rewrite
 
 The reader consumes and drops any key it does not know, and `docs/storage.md`

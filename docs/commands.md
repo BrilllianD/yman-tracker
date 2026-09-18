@@ -233,7 +233,9 @@ only, and must not contain a path separator. The `by` recorded in `m.yml` is
 the actor (see `comment`). An existing attachment of the same
 name needs `--force`. Files over 5 MiB produce a warning, never a refusal. An
 attachment listed in `m.yml` whose file is already gone can still be detached —
-the entry is simply dropped.
+the entry is simply dropped. Each copied file is staged with `git add -f`, so a
+name matching `.yman/.gitignore` (`*.swp`, `*~`, `.#*`, `*.orig`) is committed
+like any other: naming a file to attach overrides the ignore rule.
 
 ### `comment`
 

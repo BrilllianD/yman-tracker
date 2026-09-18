@@ -419,6 +419,70 @@ fn attach_detach() {
     );
 }
 
+/// `init` writes `*.swp`, `*~`, `.#*` and `*.orig` to `.yman/.gitignore`, and a
+/// plain `git add <dir>` skips an ignored path in silence. Attaching a merge
+/// leftover therefore recorded the entry in `m.yml`, never committed the file,
+/// and left every other clone with a dangling attachment after `sync`.
+#[test]
+fn attach_stages_a_gitignored_file() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+
+    // One of each shape `init` ignores: a merge leftover and an editor backup.
+    let orig = fx.tmp.path().join("notes.orig");
+    fx.write(&orig, "the other side of the merge");
+    let backup = fx.tmp.path().join("draft~");
+    fx.write(&backup, "an editor left this");
+
+    fx.yman(&fx.a)
+        .args([
+            "attach",
+            "1",
+            orig.to_str().unwrap(),
+            backup.to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    let tracked = fx.git(&fx.a, &["-C", ".yman", "ls-files"]);
+    assert!(
+        tracked.contains("5.1.fix-login/f/notes.orig"),
+        "attachment was not committed: {tracked}"
+    );
+    assert!(
+        tracked.contains("5.1.fix-login/f/draft~"),
+        "attachment was not committed: {tracked}"
+    );
+    // Nothing left behind: the copy is committed, not sitting untracked.
+    assert_eq!(fx.git(&fx.a, &["-C", ".yman", "status", "--porcelain"]), "");
+
+    // The point of all this: the other clone actually receives the bytes.
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    assert_eq!(
+        fx.read(&fx.b.join(".yman/5.1.fix-login/f/notes.orig")),
+        "the other side of the merge"
+    );
+    let tracked = fx.git(&fx.b, &["-C", ".yman", "ls-files"]);
+    assert!(
+        tracked.contains("5.1.fix-login/f/notes.orig"),
+        "attachment did not reach the second clone: {tracked}"
+    );
+
+    // And detach still removes what force-add put in.
+    fx.yman(&fx.a)
+        .args(["detach", "1", "notes.orig"])
+        .assert()
+        .success();
+    assert!(
+        !fx.git(&fx.a, &["-C", ".yman", "ls-files"])
+            .contains("notes.orig"),
+        "detached file is still tracked"
+    );
+    assert_eq!(fx.git(&fx.a, &["-C", ".yman", "status", "--porcelain"]), "");
+}
+
 #[test]
 fn comment_appends() {
     let fx = Fx::new();
