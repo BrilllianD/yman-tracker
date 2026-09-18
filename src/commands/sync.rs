@@ -329,47 +329,44 @@ fn report_split_closes(ctx: &Context) -> Result<()> {
     Ok(())
 }
 
-/// Two people offline with the same id scheme will mint the same id. Ours
-/// moves, because theirs is already published.
-fn renumber_collisions(ctx: &mut Context, base: &str) -> Result<usize> {
-    // A candidate is a task *created* here since the base, and a created task
-    // is one whose `t.md` appeared. Any added file used to qualify, so two
-    // people commenting on the same existing task diverged, and the one who
-    // pushed second had their task renumbered out from under them. `-M` keeps
-    // a folder that merely moved from reading as a fresh addition.
-    let local_added = ctx
-        .wt
-        .out(&["diff", "--name-only", "--diff-filter=A", "-M", base, LOCAL])?;
-    let mut local_ids: Vec<String> = Vec::new();
-    for line in local_added.lines() {
-        if let Some((rel, f)) = task::task_path_of(line)
-            && line == format!("{rel}/{}", task::MD_FILE)
-            && !local_ids.contains(&f.id)
-        {
-            local_ids.push(f.id);
-        }
-    }
-
-    // `-r` as well as `-d`: on the remote a closed task is a tree one level
-    // down, and without it only the status directory itself would be listed.
-    let remote_tree = ctx
-        .wt
-        .out(&["ls-tree", "-d", "-r", "--name-only", REMOTE])?;
-    let mut remote_ids: HashMap<String, String> = HashMap::new();
-    for name in remote_tree.lines() {
+/// Every task id in `rev`'s tree, read from the folder names alone.
+fn tree_ids(ctx: &Context, rev: &str) -> Result<HashSet<String>> {
+    // `-r` as well as `-d`: a closed task is a tree one level down, and
+    // without it only the status directory itself would be listed.
+    let tree = ctx.wt.out(&["ls-tree", "-d", "-r", "--name-only", rev])?;
+    let mut ids: HashSet<String> = HashSet::new();
+    for name in tree.lines() {
         let name = name.trim();
         // `ls-tree` yields the folder itself, with no file under it, so ask
         // about a path one segment longer than what `task_path_of` needs.
         if let Some((rel, f)) = task::task_path_of(&format!("{name}/{}", task::META_FILE))
             && rel == name
         {
-            remote_ids.insert(f.id, name.to_string());
+            ids.insert(f.id);
         }
     }
+    Ok(ids)
+}
 
-    let mut colliding: Vec<String> = local_ids
+/// Two people offline with the same id scheme will mint the same id. Ours
+/// moves, because theirs is already published.
+fn renumber_collisions(ctx: &mut Context, base: &str) -> Result<usize> {
+    // A candidate is a task *created* here since the base: an id that the
+    // local side has and the base did not. Reading that off the trees is the
+    // whole point. The earlier version asked `git diff --diff-filter=A -M`
+    // which `t.md` files had appeared, and that answer depends on git's
+    // rename scoring: a retitle is a `git mv` plus a rewritten first line of a
+    // short file, which scores well under the default 50% threshold, so the
+    // pair read as a delete plus an add and the task looked new. Its own id
+    // was then "taken on origin" — by itself — and sync renumbered it. The id
+    // is in the folder name at both ends, so comparing id sets settles it
+    // without consulting the rename detector at all.
+    let base_ids = tree_ids(ctx, base)?;
+    let remote_ids = tree_ids(ctx, REMOTE)?;
+
+    let mut colliding: Vec<String> = tree_ids(ctx, LOCAL)?
         .into_iter()
-        .filter(|id| remote_ids.contains_key(id))
+        .filter(|id| !base_ids.contains(id) && remote_ids.contains(id))
         .collect();
     if colliding.is_empty() {
         return Ok(0);
@@ -377,7 +374,7 @@ fn renumber_collisions(ctx: &mut Context, base: &str) -> Result<usize> {
     colliding.sort_by(|a, b| task::cmp_id(a, b));
 
     let mut taken: HashSet<String> = ids::fs_ids(&ctx.ydir)?;
-    taken.extend(remote_ids.keys().cloned());
+    taken.extend(remote_ids.iter().cloned());
     taken.extend(ids::ever_assigned(ctx, &[LOCAL, REMOTE])?);
 
     let scheme = ctx.config().ids.scheme;

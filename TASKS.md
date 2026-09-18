@@ -74,29 +74,17 @@ mis-identified.
   fails `add` with a pinned message, and the accepted grammar is written
   down next to the id schemes.
 
-### A retitle can change a task's id on the next sync
-
-`sync` decides a task was created locally by looking for an added
-`{folder}/t.md` in `git diff --name-only --diff-filter=A -M <base> LOCAL`
-(`src/commands/sync.rs:340-351`). But a retitle is a `git mv` plus a rewritten
-first line of a short file, and git scores that rename as low as 10% — under
-its default 50% threshold — so the pair reads as a delete plus an add. The task
-then looks newly created, its own id counts as "taken on origin", and sync
-renumbers it. Retitle offline, sync against a moved remote, and the id silently
-changes. `scripts/synthetic-project.sh` reproduces it on every run.
-
-- Where: `src/commands/sync.rs`, `tests/cli.rs`
-- Done when: a retitled task keeps its id through a divergent sync, and a test
-  pins it. The id is in the folder name at both ends, so the fix need not lean
-  on git's rename scoring at all.
-
 ### Renumbering leaves `related` references dangling on other clones
 
 `rewrite_related` (`src/commands/sync.rs:422-456`) walks the renumbering
 clone's own tree — the pre-merge one. A reference minted on another clone, or
 arriving in the same merge, keeps the old id and ends up pointing at nothing.
-The synthetic run left 140 of 142 references dangling, because the entry above
-made renumbering common.
+The synthetic run used to leave 140 of 142 references dangling, but that was
+downstream of a retitle renumbering the task; with that fixed the same run
+leaves 0 of 142 dangling and no longer reproduces this at all. The limitation
+in `rewrite_related` is unchanged — it needs a genuine offline id collision on
+a task another clone already references — so reproducing it now means writing
+that case by hand.
 
 - Where: `src/commands/sync.rs`, `docs/commands.md` §6, `tests/cli.rs`
 - Done when: references on both sides of the merge are rewritten, and the scope
