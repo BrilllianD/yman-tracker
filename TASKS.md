@@ -293,17 +293,6 @@ Agents drive `yman` through a shell, one call at a time, and pay per byte
 they read back. The entries below cut calls and bytes without moving any
 human default, table layout or pinned string. All are additive and opt-in.
 
-### State verbs take several ids
-
-`yman done 1 2 3` is three calls today.
-
-- Where: `VerbArgs.ids`, `MoveArgs`, `PrioArgs` in `src/cli.rs` (ids first,
-  status or priority last: `yman move 1 2 doing`); `src/commands/set.rs`
-  loops one commit per task; `docs/commands.md` §4, `README.md`.
-- Done when: three ids produce three commits, the first failure stops the
-  loop with earlier tasks already committed, and this is documented and tested.
-  `edit`, `show`, `path` and `rm` stay single-id.
-
 ### `ls` filters and limits
 
 `ls` prints the whole backlog; an agent looking for its own next task reads

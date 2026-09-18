@@ -210,76 +210,96 @@ fn apply_set(
     });
 }
 
-fn one(
+/// One `set` per id, one commit each, in the order given. The first failure
+/// stops the loop; tasks before it are already committed, which is the
+/// honest outcome — each is a complete change on its own.
+fn each(
     ctx: &mut Context,
-    id: &str,
+    ids: &[String],
     status: Option<String>,
     priority: Option<u8>,
     message: Option<String>,
 ) -> Result<()> {
-    run(
-        ctx,
-        SetArgs {
-            id: id.to_string(),
-            status,
-            priority,
-            message,
-            title: None,
-            assignee: None,
-            no_assignee: false,
-            tag: vec![],
-            untag: vec![],
-            link: vec![],
-            unlink: vec![],
-            relate: vec![],
-            unrelate: vec![],
-        },
-    )
+    for id in ids {
+        run(
+            ctx,
+            SetArgs {
+                id: id.clone(),
+                status: status.clone(),
+                priority,
+                message: message.clone(),
+                title: None,
+                assignee: None,
+                no_assignee: false,
+                tag: vec![],
+                untag: vec![],
+                link: vec![],
+                unlink: vec![],
+                relate: vec![],
+                unrelate: vec![],
+            },
+        )?;
+    }
+    Ok(())
 }
 
-pub fn run_start(ctx: &mut Context, id: &str, message: Option<String>) -> Result<()> {
+pub fn run_start(ctx: &mut Context, ids: &[String], message: Option<String>) -> Result<()> {
     let status = ctx.config().start_status().to_string();
-    one(ctx, id, Some(status), None, message)
+    each(ctx, ids, Some(status), None, message)
 }
 
-pub fn run_done(ctx: &mut Context, id: &str, message: Option<String>) -> Result<()> {
+pub fn run_done(ctx: &mut Context, ids: &[String], message: Option<String>) -> Result<()> {
     let status = ctx.config().done_status().to_string();
-    one(ctx, id, Some(status), None, message)
+    each(ctx, ids, Some(status), None, message)
 }
 
 /// `move` is a positional spelling of `set --status`; an unknown status is
 /// rejected by `run` with the wording every other command uses.
 pub fn run_move(
     ctx: &mut Context,
-    id: &str,
+    ids: &[String],
     status: String,
     message: Option<String>,
 ) -> Result<()> {
-    one(ctx, id, Some(status), None, message)
+    each(ctx, ids, Some(status), None, message)
 }
 
-pub fn run_cancel(ctx: &mut Context, id: &str, message: Option<String>) -> Result<()> {
+pub fn run_cancel(ctx: &mut Context, ids: &[String], message: Option<String>) -> Result<()> {
     // No fallback: guessing which of several closed statuses means "gave up"
     // is exactly the positional cleverness the roles exist to remove.
     let Some(status) = ctx.config().cancel_status().map(str::to_string) else {
         bail!("no cancel status configured; set statuses.cancel in .yman/config.toml");
     };
-    one(ctx, id, Some(status), None, message)
+    each(ctx, ids, Some(status), None, message)
 }
 
-pub fn run_reopen(ctx: &mut Context, id: &str, message: Option<String>) -> Result<()> {
-    let t = task::find(&ctx.ydir, id)?;
-    if !ctx.config().is_terminal(&t.meta.status) {
-        bail!(
-            "task {id} is not closed (status \"{}\"); closed statuses: {}",
-            t.meta.status,
-            ctx.config().terminal_joined()
-        );
-    }
+pub fn run_reopen(ctx: &mut Context, ids: &[String], message: Option<String>) -> Result<()> {
     let status = ctx.config().statuses.default.clone();
-    one(ctx, id, Some(status), None, message)
+    for id in ids {
+        let t = task::find(&ctx.ydir, id)?;
+        if !ctx.config().is_terminal(&t.meta.status) {
+            bail!(
+                "task {id} is not closed (status \"{}\"); closed statuses: {}",
+                t.meta.status,
+                ctx.config().terminal_joined()
+            );
+        }
+        each(
+            ctx,
+            std::slice::from_ref(id),
+            Some(status.clone()),
+            None,
+            message.clone(),
+        )?;
+    }
+    Ok(())
 }
 
-pub fn run_prio(ctx: &mut Context, id: &str, priority: u8, message: Option<String>) -> Result<()> {
-    one(ctx, id, None, Some(priority), message)
+pub fn run_prio(
+    ctx: &mut Context,
+    ids: &[String],
+    priority: u8,
+    message: Option<String>,
+) -> Result<()> {
+    each(ctx, ids, None, Some(priority), message)
 }

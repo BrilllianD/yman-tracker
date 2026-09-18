@@ -145,11 +145,15 @@ The remaining verbs are `set --status` with the status looked up for you:
 
 | Command | Status | When it refuses |
 |---|---|---|
-| `move <id> <status>` | the one you name | unknown status, as for `set` |
-| `cancel <id>` | `statuses.cancel` | the key is unset |
-| `reopen <id>` | `statuses.default` | the task is not in a terminal status |
+| `move <id>... <status>` | the one you name | unknown status, as for `set` |
+| `cancel <id>...` | `statuses.cancel` | the key is unset |
+| `reopen <id>...` | `statuses.default` | the task is not in a terminal status |
 
-Every verb, and `prio`, takes `-m <text>` like `set`.
+Every verb, and `prio <id>... <0-9>`, takes several ids and `-m <text>` like
+`set`. Ids are processed in the order given, one commit each, printing the
+same lines `set` would. The first failure stops the run with that error; the
+tasks before it are already committed. `set`, `edit`, `show`, `path` and `rm`
+take exactly one id.
 
 `cancel` has no fallback on purpose: picking one of several closed statuses by
 position is the guesswork the named roles exist to remove.

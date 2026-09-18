@@ -176,8 +176,9 @@ pub struct IdArgs {
 /// `start`, `done`, `cancel`, `reopen`.
 #[derive(Args, Debug)]
 pub struct VerbArgs {
-    /// Task id
-    pub id: String,
+    /// Task ids
+    #[arg(required = true, value_name = "ID")]
+    pub ids: Vec<String>,
     /// Append a comment in the same commit
     #[arg(short = 'm', long, value_name = "TEXT")]
     pub message: Option<String>,
@@ -185,9 +186,10 @@ pub struct VerbArgs {
 
 #[derive(Args, Debug)]
 pub struct MoveArgs {
-    /// Task id
-    pub id: String,
-    /// Status to move it to
+    /// Task ids
+    #[arg(required = true, value_name = "ID")]
+    pub ids: Vec<String>,
+    /// Status to move them to
     pub status: String,
     /// Append a comment in the same commit
     #[arg(short = 'm', long, value_name = "TEXT")]
@@ -237,8 +239,9 @@ pub struct SetArgs {
 
 #[derive(Args, Debug)]
 pub struct PrioArgs {
-    /// Task id
-    pub id: String,
+    /// Task ids
+    #[arg(required = true, value_name = "ID")]
+    pub ids: Vec<String>,
     /// New priority, 0 (highest) to 9
     #[arg(value_parser = clap::value_parser!(u8).range(0..=9))]
     pub priority: u8,

@@ -2449,3 +2449,86 @@ fn done_with_message_comments_in_one_commit() {
     // The priority was not applied either: the bail happens before any write.
     assert_eq!(fx.task_rel(&fx.a, "1"), "5.1.fix-login");
 }
+
+/// The verbs take several ids: one commit per task, the first failure stops
+/// the run with the earlier tasks already committed.
+#[test]
+fn done_accepts_several_ids() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    for title in ["One", "Two", "Three"] {
+        fx.yman(&fx.a).args(["add", title]).assert().success();
+    }
+    let before = fx.git(&fx.a, &["rev-list", "--count", "refs/yman/local"]);
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["done", "1", "2", "3", "-m", "batch"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    for id in ["1", "2", "3"] {
+        assert!(
+            text.contains(&format!("{id}: status todo -> done")),
+            "{text}"
+        );
+        assert!(text.contains(&format!("{id}: commented")), "{text}");
+    }
+    let after = fx.git(&fx.a, &["rev-list", "--count", "refs/yman/local"]);
+    assert_eq!(
+        after.trim().parse::<u32>().unwrap(),
+        before.trim().parse::<u32>().unwrap() + 3
+    );
+    let listed = stdout(&fx.yman(&fx.a).arg("ls").output().unwrap());
+    assert_eq!(listed.trim(), "", "closed tasks are hidden: {listed}");
+
+    // A missing id in the middle: the ones before it are done, the ones
+    // after are untouched.
+    fx.yman(&fx.a).args(["reopen", "1", "2"]).assert().success();
+    let out = fx
+        .yman(&fx.a)
+        .args(["done", "1", "99", "2"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert_eq!(stderr(&out).trim(), "error: task 99 not found");
+    assert_eq!(stdout(&out).trim(), "1: status todo -> done");
+    assert_eq!(fx.status(&fx.a, "1"), "done");
+    assert_eq!(fx.status(&fx.a, "2"), "todo");
+}
+
+/// `move` and `prio` keep their value last, so the single-id form reads as
+/// it always did and the list form is unambiguous to the parser.
+#[test]
+fn move_and_prio_take_ids_then_value() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    for title in ["One", "Two"] {
+        fx.yman(&fx.a).args(["add", title]).assert().success();
+    }
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["move", "1", "2", "doing"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(fx.status(&fx.a, "1"), "doing");
+    assert_eq!(fx.status(&fx.a, "2"), "doing");
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["prio", "1", "2", "3"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("1: priority 5 -> 3"), "{text}");
+    assert!(text.contains("2: priority 5 -> 3"), "{text}");
+
+    // Single-id spelling unchanged.
+    let out = fx.yman(&fx.a).args(["move", "1", "todo"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out).trim(), "1: status doing -> todo");
+}
