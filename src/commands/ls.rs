@@ -1,4 +1,5 @@
 use crate::cli::LsArgs;
+use crate::json;
 use crate::repo::Context;
 use crate::task::{self, Entry, Task, format_ts};
 use anyhow::{Result, bail};
@@ -14,6 +15,7 @@ pub fn run(ctx: &mut Context, a: LsArgs) -> Result<()> {
         }
     }
 
+    let needle = a.grep.as_deref().map(str::to_lowercase);
     let mut tasks: Vec<Task> = Vec::new();
     let mut broken: Vec<(String, String)> = Vec::new();
 
@@ -28,7 +30,18 @@ pub fn run(ctx: &mut Context, a: LsArgs) -> Result<()> {
                     a.statuses.contains(&t.meta.status)
                 };
                 let keep_tags = a.tags.iter().all(|want| t.meta.tags.contains(want));
-                if keep_status && keep_tags {
+                let keep_assignee = match a.assignee.as_deref() {
+                    None => true,
+                    Some("-") => t.meta.assignee.is_none(),
+                    Some(who) => t.meta.assignee.as_deref() == Some(who),
+                };
+                let keep_priority = a.priority.is_none_or(|p| p == t.priority());
+                // Plain substring, lowercased on both sides: no regex crate,
+                // and an agent's query is a word or two, not a pattern.
+                let keep_text = needle.as_deref().is_none_or(|n| {
+                    t.title.to_lowercase().contains(n) || t.body.to_lowercase().contains(n)
+                });
+                if keep_status && keep_tags && keep_assignee && keep_priority && keep_text {
                     tasks.push(t);
                 }
             }
@@ -45,6 +58,9 @@ pub fn run(ctx: &mut Context, a: LsArgs) -> Result<()> {
             })
             .then_with(|| task::cmp_id(x.id(), y.id()))
     });
+    if let Some(n) = a.limit {
+        tasks.truncate(n);
+    }
 
     if a.json {
         print_json(&tasks, &broken);
@@ -134,52 +150,31 @@ fn count(n: usize) -> String {
 fn print_json(tasks: &[Task], broken: &[(String, String)]) {
     let mut items: Vec<String> = Vec::new();
     for t in tasks {
-        items.push(format!(
-            "{{\"id\":{},\"priority\":{},\"status\":{},\"title\":{},\"tags\":[{}],\
-             \"assignee\":{},\"created\":{},\"updated\":{},\"attachments\":{},\
-             \"comments\":{},\"dir\":{}}}",
-            js(t.id()),
-            t.priority(),
-            js(&t.meta.status),
-            js(&t.title),
-            t.meta
-                .tags
-                .iter()
-                .map(|s| js(s))
-                .collect::<Vec<_>>()
-                .join(","),
-            match &t.meta.assignee {
-                Some(a) => js(a),
-                None => "null".to_string(),
-            },
-            js(&format_ts(&t.meta.created)),
-            js(&format_ts(&t.meta.updated)),
-            t.attachment_count(),
-            t.comment_count(),
-            js(&t.rel()),
-        ));
+        items.push(
+            json::Object::new()
+                .str("id", t.id())
+                .raw("priority", t.priority().to_string())
+                .str("status", &t.meta.status)
+                .str("title", &t.title)
+                .raw("tags", json::strings(&t.meta.tags))
+                .opt("assignee", t.meta.assignee.as_deref())
+                .raw("links", json::strings(&t.meta.links))
+                .raw("related", json::strings(&t.meta.related))
+                .str("created", &format_ts(&t.meta.created))
+                .str("updated", &format_ts(&t.meta.updated))
+                .raw("attachments", t.attachment_count().to_string())
+                .raw("comments", t.comment_count().to_string())
+                .str("dir", &t.rel())
+                .finish(),
+        );
     }
     for (name, error) in broken {
-        items.push(format!("{{\"dir\":{},\"error\":{}}}", js(name), js(error)));
+        items.push(
+            json::Object::new()
+                .str("dir", name)
+                .str("error", error)
+                .finish(),
+        );
     }
-    println!("[{}]", items.join(","));
-}
-
-/// Minimal JSON string escaping; no serde_json in the dependency list.
-fn js(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 2);
-    out.push('"');
-    for c in s.chars() {
-        match c {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-            c => out.push(c),
-        }
-    }
-    out.push('"');
-    out
+    println!("{}", json::array(items));
 }

@@ -31,10 +31,7 @@ pub fn run(ctx: &mut Context, a: CommentArgs) -> Result<()> {
         bail!("empty comment");
     }
 
-    let author = ctx
-        .get_cfg("user.name")?
-        .filter(|s| !s.trim().is_empty())
-        .unwrap_or_else(|| "unknown".to_string());
+    let author = super::actor(ctx)?;
     discussion::append_entry(
         &t.dir.join(task::DISCUSSION_FILE),
         task::now(),

@@ -6,13 +6,14 @@ mod errors;
 mod git;
 mod hooks;
 mod ids;
+mod json;
 mod refresh;
 mod repo;
 mod task;
 mod yml;
 
 use clap::Parser;
-use cli::Cli;
+use cli::{Cli, Cmd};
 
 fn main() {
     let cli = Cli::parse();
@@ -26,6 +27,12 @@ fn main() {
 }
 
 fn run(cli: Cli) -> anyhow::Result<()> {
+    // Documentation, not a command on a repository: it must work from a
+    // fresh shell in any directory, so it is answered before discovery.
+    if matches!(cli.cmd, Cmd::Guide) {
+        return commands::guide::run();
+    }
+
     let mut ctx = repo::discover()?;
 
     if !cli.cmd.skips_preflight() {

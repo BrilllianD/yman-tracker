@@ -196,20 +196,26 @@ written against.
 ### Creating and reading
 
 ```sh
-yman add <title> [-p 0-9] [-s <status>] [-t <tag>]... [-m <body>] [-e]
+yman add <title> [-p 0-9] [-s <status>] [-t <tag>]... [-m <body> | --body-file <path> | -e]
+         [-a <who>] [--link <url>]... [--relate <id>]...
 ```
-Creates a task and commits it. `-t` repeats. `-e` opens `$EDITOR` on the new
+Creates a task and commits it. `-t`, `--link` and `--relate` repeat.
+`--body-file -` reads the body from stdin. `-e` opens `$EDITOR` on the new
 `t.md` first — whatever title you type there wins, and the folder is named after
 it.
 
 ```sh
-yman ls [-s <status>]... [-t <tag>]... [-a] [--json]
+yman ls [-s <status>]... [-t <tag>]... [-a] [--assignee <who>] [-p 0-9]
+        [-q <text>] [-n <N>] [--json]
 ```
 Lists tasks sorted by priority, then status order, then id. Tasks in a closed
 status are hidden unless you pass `-a` or name that status with `-s`. `-t`
-requires *all* the tags given. Column headers appear only when stdout is a
-terminal, so `yman ls | grep` stays predictable. `--json` prints one object per
-task, plus `{dir, error}` for anything broken.
+requires *all* the tags given. `--assignee -` means unassigned, `-q` is a
+case-insensitive search over title and body, `-n` caps the rows after sorting.
+Column headers appear only when stdout is a terminal, so `yman ls | grep` stays
+predictable. `--json` prints one object per
+task — including its `links` and `related` ids — plus `{dir, error}` for
+anything broken.
 
 ```
 P  ID  STATUS  TITLE       TAGS      F  C
@@ -220,7 +226,7 @@ P  ID  STATUS  TITLE       TAGS      F  C
 `F` is the attachment count, `C` the comment count; both blank at zero.
 
 ```sh
-yman show <id>     # everything about one task, including the discussion
+yman show <id> [-n N] [--json]   # everything about one task; -n keeps the last N comments
 yman path <id>     # just the absolute path:  cd $(yman path 14)
 yman log [<id>] [-n N]
 ```
@@ -234,20 +240,26 @@ yman set <id> [--status S] [--priority 0-9] [--title T]
               [--tag X]... [--untag X]...
               [--link URL]... [--unlink URL]...
               [--relate ID]... [--unrelate ID]...
-yman start <id>          # = set --status <start status>
-yman done  <id>          # = set --status <done status>
-yman move <id> <status>  # = set --status <status>
-yman cancel <id>         # = set --status <cancel status>   (version 2)
-yman reopen <id>         # a closed task back to the default status
-yman prio  <id> <0-9>    # = set --priority
-yman edit  <id>          # $VISUAL, else $EDITOR, else vi
+              [--body <text> | --body-file <path>] [-m <comment>]
+yman start <id>...          # = set --status <start status>
+yman done  <id>...          # = set --status <done status>
+yman move <id>... <status>  # = set --status <status>
+yman cancel <id>...         # = set --status <cancel status>   (version 2)
+yman reopen <id>...         # a closed task back to the default status
+yman prio  <id>... <0-9>    # = set --priority
+                            # every one of these also takes -m <comment>
+yman edit  <id>          # $VISUAL, else $EDITOR, else vi (only on a terminal)
 yman rm    <id> [-f]
 ```
 
 List fields keep their insertion order. Adding a value that is already there is
 not a change and commits nothing; removing one that was never there is quietly
 accepted. A `set` that changes nothing prints `no changes` and leaves the
-history alone.
+history alone. `-m` appends a comment in the same commit, so
+`yman done 14 -m "fixed in 3f2a"` closes and explains in one step. `--body`
+rewrites the description without an editor; `--body ""` clears it. The verbs
+take several ids — `yman done 14 15 16` — and commit each task on its own,
+stopping at the first error.
 
 `yman rm` asks for confirmation on a terminal and refuses outright without `-f`
 when there is no terminal to ask at.
@@ -268,11 +280,12 @@ neither `-m` nor `-e`, `yman comment` reads the comment from stdin — so
 ### Plumbing
 
 ```sh
-yman status              # where everything stands; never changes anything
+yman status [--json]     # where everything stands; never changes anything
 yman refresh [--quiet]   # fast-forward onto already-fetched task commits
 yman sync [--continue] [--abort] [--no-push]
 yman hooks install|remove|status
 yman git [--] <args>...  # raw git, run inside .yman
+yman guide               # the short manual for scripts and agents; works anywhere
 ```
 
 ```console
@@ -283,6 +296,10 @@ worktree: clean
 tasks:   todo 4, doing 1, done 7
 ```
 
+`yman status --json` reports the same facts — refs, ahead/behind, the merge
+state and the per-status counts — as one object, for a script that would
+otherwise parse those four lines.
+
 ### Exit codes
 
 | Code | Meaning |
@@ -291,9 +308,19 @@ tasks:   todo 4, doing 1, done 7
 | `1` | error — the message says what happened |
 | `2` | usage error, from the argument parser |
 | `3` | a sync merge is waiting to be resolved |
+| `4` | no task has that id |
 
 Errors go to stderr prefixed `error: `, warnings `warning: `, notes `note: `.
 Everything a script would want to read goes to stdout.
+
+### Scripts and agents
+
+`yman guide` prints [docs/agents.md](docs/agents.md), a one-page manual for a
+reader that pays per token: which calls to make, what `ls` columns mean, the
+exit codes, and how to recover from a stuck sync. It starts with a block to
+paste into a project's `CLAUDE.md`. The short version: filter with `ls -n`,
+read with `show -n`, close with `done <id> -m`, never open an editor, and set
+`YMAN_ACTOR` so the work is attributed to the agent.
 
 ---
 
@@ -382,6 +409,16 @@ else the initials of your `user.name`.
 |---|---|---|
 | `yman.refresh` | `lazy` (default), `manual` | `yman init --refresh` |
 | `yman.author` | any prefix | `yman init --author` |
+
+Two environment variables, easy to confuse:
+
+| Variable | Used for |
+|---|---|
+| `YMAN_AUTHOR` | fallback id prefix for the `author` scheme, after `yman.author` |
+| `YMAN_ACTOR` | display name on comments and attachments, before `user.name` |
+
+`YMAN_ACTOR` is meant for an agent or a script working under a person's git
+account. The git committer is never changed by it.
 
 ---
 

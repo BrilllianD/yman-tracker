@@ -21,6 +21,10 @@ Mutating commands, for the purposes of step 2: `add`, `edit`, `set`, `start`,
 `done`, `move`, `cancel`, `reopen`, `prio`, `rm`, `attach`, `detach`, `comment`. `sync` is excluded because
 it handles `MERGE_HEAD` itself.
 
+`guide` runs none of the three. It is documentation compiled into the binary
+and is answered before the repository is looked for, so it works from any
+directory.
+
 ## 2. Commit messages
 
 Every mutation commits immediately, with `--no-verify` so the user's own hooks
@@ -42,9 +46,11 @@ interfere. GPG signing is deliberately left to the user's configuration.
 | `sync` merge | `yman: merge origin refs/tasks/main` |
 
 `{title}` has `"` replaced by `'`. `{pairs}` is space-joined, e.g.
-`status=todo->doing priority=5->2 title tags=+ui,-auth` — a changed title
-contributes the bare word `title`, a move with no field change contributes
-`folder`, and list fields contribute `+added,-removed`.
+`status=todo->doing priority=5->2 title tags=+ui,-auth comment` — a changed
+title contributes the bare word `title`, a move with no field change
+contributes `folder`, list fields contribute `+added,-removed`, a changed
+body contributes the bare word `body`, and `-m` contributes the bare word
+`comment`.
 
 `Git::commit` treats "nothing to commit" as success: re-applying an identical
 change inside the same second stages nothing, and the tree already says what the
@@ -61,20 +67,58 @@ lexically otherwise.
 
 Default filtering hides tasks in any **terminal** status — `statuses.terminal`,
 or the done status when that key is unset; `-a` includes them, and naming one
-with `-s` includes it too. `-t` requires **all** the tags
-given. Column headers are printed only when stdout is a terminal. Trailing empty
+with `-s` includes it too. `-t` requires **all** the tags given.
+`--assignee WHO` keeps one assignee (`-` keeps the unassigned), `-p N` one
+priority, and `-q TEXT` the tasks whose title or body contains the text,
+compared lowercase; all of these AND together with the status and tag
+filters. `-n N` keeps the first N rows **after** sorting. None of the filters
+touches git or reads anything `ls` did not already read. Broken folders are
+listed regardless of filters. Column headers are printed only when stdout is
+a terminal. Trailing empty
 columns are omitted, and zero counts render blank rather than `0`.
 
 `--json` emits one object per task —
-`{id, priority, status, title, tags, assignee, created, updated, attachments, comments, dir}` —
+`{id, priority, status, title, tags, assignee, links, related, created, updated, attachments, comments, dir}` —
 and `{dir, error}` for broken folders. `dir` is relative to `.yman` and names the
-status directory for a closed task (`done/5.1.fix-login`). The escaping is hand-rolled; there is no
-`serde_json` dependency.
+status directory for a closed task (`done/5.1.fix-login`). `attachments` and
+`comments` are counts here, not lists. The writer is `src/json.rs`: the escaping
+is hand-rolled and there is no `serde_json` dependency.
 
 ### `show`
 
 Prints the header block, then the body, then `attachments` and `discussion`.
 Empty sections are omitted entirely, including `links` and `related`.
+
+`-n N` keeps only the last N discussion entries (a chunk `d.md` could not
+parse counts as one) under the header `discussion (last N of M):`; `-n 0`
+drops the section. When N is not smaller than the number of entries the
+output is identical to the default, header included.
+
+`--json` emits one object —
+`{id, priority, status, title, tags, assignee, links, related, created, updated,
+dir, body, attachments, discussion, discussion_total}`. `attachments` is
+`[{name, added, by}]` and `discussion` is `[{ts, author, text}]`, with an
+unparsable chunk appearing as `{raw}`; `discussion_total` is the count before
+`-n` trimmed anything. Unlike the text form nothing is omitted: an empty
+section is an empty array and an absent assignee is `null`, so a script never
+has to branch on a missing key. `dir` is relative to `.yman`, as in `ls --json`,
+where the text form prints an absolute path.
+
+### `status`
+
+Reports and never changes anything: the local ref and its short head, the
+remote ref with `ahead`/`behind` when it has been fetched, the refresh policy,
+whether the hooks are installed, the number of uncommitted changes under
+`.yman`, an unresolved merge with its unmerged files, and the task counts per
+configured status.
+
+`--json` emits one object —
+`{local: {ref, head}, remote: {ref, fetched, head, ahead, behind}, refresh,
+hooks, worktree: {dirty}, merge: {in_progress, unmerged}, tasks: {by_status,
+other, broken}}`. Before the first fetch `fetched` is `false`, `head` is `null`
+and both counters are `0`. The per-status counts are nested under `by_status`
+so a status named `other` or `broken` cannot collide with the two totals beside
+it.
 
 ### `path`
 
@@ -89,21 +133,33 @@ from the current one, then limits the log to those paths — so a task that
 changed priority or title, or moved into a status directory, keeps its full
 history.
 
+### `guide`
+
+Prints [agents.md](agents.md) — the short manual for scripts and agents — to
+stdout, byte for byte, via `include_str!`. Needs no repository. Every other
+`--help` ends by pointing at it.
+
 ## 4. Writing
 
 ### `add`
 
 Mints an id (see [storage.md §8](storage.md#8-id-schemes)), validates the status
-against the config, dedupes tags while keeping their order, then writes `t.md`
-and `m.yml` with `created == updated`. With `-e`, the editor opens before the
+against the config, dedupes tags, `--link`s and `--relate`d ids while keeping
+their order, then writes `t.md` and `m.yml` with `created == updated`.
+`-a/--assignee` is trimmed; blank means unassigned. The body comes from `-m`,
+or from `--body-file PATH` (`-` reads stdin); the two exclude each other and
+`-e`. With `-e`, the editor opens before the
 first commit, so a title typed there renames the folder by plain rename — the
 placeholder never enters git history.
 
 ### `edit`
 
 Opens `$VISUAL`, else `$EDITOR`, else `vi`, split on whitespace so
-`EDITOR="code --wait"` works. A non-zero editor exit aborts and leaves the file
-alone. If the file no longer parses, the command fails but **does not revert the
+`EDITOR="code --wait"` works. The `vi` fallback is taken only when stdin is a
+terminal; otherwise the command fails at once with
+`no terminal for vi; set $EDITOR, or use -m / --body-file` rather than leaving
+a `vi` waiting on a pipe. The same rule covers `add -e` and `comment -e`. A
+non-zero editor exit aborts and leaves the file alone. If the file no longer parses, the command fails but **does not revert the
 user's text**; the next `sync` snapshots it. When nothing changed, it prints
 `no changes` and commits nothing. A changed title re-slugs the folder with
 `git mv`.
@@ -117,13 +173,25 @@ applied in memory first, then:
    folder with `git mv`. Crossing the boundary also prints
    `note: task folder is now <rel>` on stderr — stdout stays data, but someone
    who had `cd`'d into the folder needs to hear that it moved.
-2. `updated` is touched; `m.yml` is rewritten; `t.md` too when the title moved.
-3. One commit, one printed line per change (`14: status todo -> doing`).
+2. `updated` is touched; `m.yml` is rewritten; `t.md` too when the title or
+   the body moved. With `-m`, the text is appended to `d.md` exactly as
+   `comment` would, with the same actor.
+3. One commit, one printed line per change (`14: status todo -> doing`,
+   `14: commented`).
 
 List fields (`--tag/--untag`, `--link/--unlink`, `--relate/--unrelate`) are set
 semantics with insertion order preserved: adding a value already present is not
 a change, and removing one that was never there is quietly accepted. When
-nothing at all changed, `set` prints `no changes` and commits nothing.
+nothing at all changed, `set` prints `no changes` and commits nothing. `-m`
+always counts as a change; an empty message is the `empty comment` error.
+
+`--body TEXT` and `--body-file PATH` (`-` for stdin) replace the body of
+`t.md`; they exclude each other. The comparison ignores leading and trailing
+newlines, as `t.md` is rendered that way, so re-applying the same text is
+`no changes`. `--body ""` clears the body. The line is `<id>: body updated`
+and the token `body`; a body change alone never renames the folder. A source
+that cannot be read fails with `cannot read <path>: <why>` before anything is
+written.
 
 `start` and `done` resolve to `statuses.start` and `statuses.done`, falling back
 to `list[1]` and `list.last()` when those are unset.
@@ -139,9 +207,15 @@ The remaining verbs are `set --status` with the status looked up for you:
 
 | Command | Status | When it refuses |
 |---|---|---|
-| `move <id> <status>` | the one you name | unknown status, as for `set` |
-| `cancel <id>` | `statuses.cancel` | the key is unset |
-| `reopen <id>` | `statuses.default` | the task is not in a terminal status |
+| `move <id>... <status>` | the one you name | unknown status, as for `set` |
+| `cancel <id>...` | `statuses.cancel` | the key is unset |
+| `reopen <id>...` | `statuses.default` | the task is not in a terminal status |
+
+Every verb, and `prio <id>... <0-9>`, takes several ids and `-m <text>` like
+`set`. Ids are processed in the order given, one commit each, printing the
+same lines `set` would. The first failure stops the run with that error; the
+tasks before it are already committed. `set`, `edit`, `show`, `path` and `rm`
+take exactly one id.
 
 `cancel` has no fallback on purpose: picking one of several closed statuses by
 position is the guesswork the named roles exist to remove.
@@ -155,7 +229,8 @@ consent.
 ### `attach` / `detach`
 
 Each source must be an existing regular file. `--name` applies to a single file
-only, and must not contain a path separator. An existing attachment of the same
+only, and must not contain a path separator. The `by` recorded in `m.yml` is
+the actor (see `comment`). An existing attachment of the same
 name needs `--force`. Files over 5 MiB produce a warning, never a refusal. An
 attachment listed in `m.yml` whose file is already gone can still be detached —
 the entry is simply dropped.
@@ -164,8 +239,9 @@ the entry is simply dropped.
 
 Text comes from `-m`, or from `$EDITOR` with `-e` (a temp file, initially
 empty), or — when neither is given and stdin is not a terminal — from stdin.
-Empty after trimming is an error. The author is `git config user.name`, falling
-back to `unknown`.
+Empty after trimming is an error. The author is `$YMAN_ACTOR` (trimmed,
+non-empty), else `git config user.name`, else `unknown`. This is the display
+name written into `d.md` only; the git committer is whatever git resolves.
 
 ## 5. Refresh
 

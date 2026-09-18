@@ -73,6 +73,7 @@ impl Fx {
             .env("VISUAL", "")
             .env("TERM", "dumb")
             .env_remove("YMAN_AUTHOR")
+            .env_remove("YMAN_ACTOR")
             .env_remove("GIT_DIR")
             .env_remove("GIT_WORK_TREE");
     }
@@ -88,6 +89,7 @@ impl Fx {
             .env("VISUAL", "")
             .env("TERM", "dumb")
             .env_remove("YMAN_AUTHOR")
+            .env_remove("YMAN_ACTOR")
             .env_remove("GIT_DIR")
             .env_remove("GIT_WORK_TREE");
         cmd

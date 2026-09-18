@@ -369,7 +369,7 @@ pub fn find(ydir: &Path, id: &str) -> Result<Task> {
         }
     }
     match hits.len() {
-        0 => bail!("task {id} not found"),
+        0 => Err(crate::errors::NotFound::new(format!("task {id} not found")).into()),
         1 => {
             let hit = hits.pop().expect("length checked");
             let rel = hit.rel();

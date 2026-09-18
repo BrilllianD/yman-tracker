@@ -10,7 +10,7 @@ that touches refs, the worktree, or the on-disk layout.
 ## Commands
 
 ```sh
-cargo test                                  # 33 unit + 52 integration
+cargo test                                  # 64 unit + 84 integration
 cargo clippy --all-targets -- -D warnings   # must be clean; CI-equivalent gate
 cargo fmt                                   # run before committing
 sh scripts/spike-symref.sh                  # re-proves the git invariant below
@@ -48,7 +48,8 @@ cargo test --test cli <name>                # one integration scenario
 
 The dependency list is deliberately short and should stay that way. There is no
 `regex` (folder names, `t.md` titles and `d.md` headers are parsed by hand), no
-`serde_json` (`ls --json` escapes its own output) and no YAML crate (`m.yml`
+`serde_json` (every `--json` output is written by `src/json.rs`, which escapes
+and assembles it by hand) and no YAML crate (`m.yml`
 goes through `src/yml.rs`, whose writer is byte-compatible with the
 `serde_yaml` output it replaced). Adding a crate needs a reason beyond
 convenience.

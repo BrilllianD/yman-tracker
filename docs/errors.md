@@ -22,15 +22,21 @@ there is no colour anywhere.
 | `1` | error | any `anyhow` error reaching `main` |
 | `2` | usage error | the argument parser, before anything runs |
 | `3` | a sync merge is unresolved | the `MergePending` marker error |
+| `4` | no task has the given id | the `NotFound` marker error, from `task::find` |
 
 Messages that carry code 3, beyond the preflight and merge ones: a
 `sync --continue` that would leave two folders for one id reports
 `duplicate task id <id>: <relA>, <relB>; delete one folder, then: yman sync --continue`.
 
-Code 3 travels as a distinct error type (`src/errors.rs`) and is recognised in
-`main` by downcasting. Returning the same text as a plain `anyhow` error would
-silently degrade it to code 1, which scripts cannot distinguish from a genuine
-failure.
+Code 4 is only `task <id> not found`. A folder that exists but is broken or
+duplicated is a repository problem, not a missing task, and stays at code 1.
+A verb given several ids exits 4 at the first missing one, with the tasks
+before it already committed.
+
+Codes 3 and 4 travel as distinct error types (`src/errors.rs`) and are
+recognised in `main` by downcasting. Returning the same text as a plain
+`anyhow` error would silently degrade it to code 1, which scripts cannot
+distinguish from a genuine failure.
 
 Every error prints as `error: {message}`, using anyhow's `{:#}` so the whole
 context chain is shown.
@@ -73,12 +79,14 @@ commit.
 | attachment source unusable | `cannot attach <path>: <why>` / `… not a regular file` |
 | attachment name with a separator | `attachment name "<name>" must not contain a path separator` |
 | `add` onto an existing folder | `folder already exists: <dir>` |
-| empty comment | `empty comment` |
+| empty comment (`comment`, or `-m` on `set` and the verbs) | `empty comment` |
+| `--body-file` cannot be read | `cannot read <path>: <why>` — `<why>` is the OS error text |
 | `cancel` with no cancel status | `no cancel status configured; set statuses.cancel in .yman/config.toml` |
 | `reopen` on an open task | `task <id> is not closed (status "<s>"); closed statuses: <terminal joined by ", ">` |
 | `rm` with no terminal and no `-f` | `refusing to remove without -f` |
 | editor failed | `editor exited with status N; file left as is` (or `editor was killed by a signal; …`) |
 | no editor resolvable | `no editor configured; set $EDITOR` |
+| neither `$VISUAL` nor `$EDITOR` set, stdin not a terminal | `no terminal for vi; set $EDITOR, or use -m / --body-file` |
 | `rm` prompt declined | `aborted` |
 | `t.md` unparsable | `t.md must start with "# Title"` |
 | `t.md` unparsable after an edit | `t.md invalid after edit: <why>; fix the file then run: yman edit <id>` |

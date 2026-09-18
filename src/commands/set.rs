@@ -1,9 +1,10 @@
 use crate::cli::SetArgs;
+use crate::discussion;
 use crate::repo::Context;
 use crate::task;
 use anyhow::{Result, bail};
 
-use super::quote_title;
+use super::{actor, quote_title};
 
 /// One applied change: how it reads in the commit subject, and how it reads
 /// on the user's terminal.
@@ -87,6 +88,40 @@ pub fn run(ctx: &mut Context, a: SetArgs) -> Result<()> {
         &mut changes,
     );
 
+    let new_body = match (a.body, a.body_file) {
+        (Some(b), _) => Some(b),
+        (None, Some(src)) => Some(super::read_text_source(&src)?),
+        (None, None) => None,
+    };
+    let mut body_changed = false;
+    if let Some(body) = new_body
+        && body.trim_matches('\n') != t.body.trim_matches('\n')
+    {
+        changes.push(Change {
+            token: "body".to_string(),
+            line: "body updated".to_string(),
+        });
+        t.body = body;
+        body_changed = true;
+    }
+
+    // A comment is a change in its own right: `set 3 -m note` is `comment 3
+    // -m note` through the one mutation path, so `done 3 -m note` is one
+    // commit rather than two.
+    let comment = match a.message {
+        Some(m) => {
+            if m.trim().is_empty() {
+                bail!("empty comment");
+            }
+            changes.push(Change {
+                token: "comment".to_string(),
+                line: "commented".to_string(),
+            });
+            Some(m)
+        }
+        None => None,
+    };
+
     if title_changed {
         t.folder.slug = task::slugify(&t.title, ctx.config().slug.max_bytes);
     }
@@ -130,9 +165,19 @@ pub fn run(ctx: &mut Context, a: SetArgs) -> Result<()> {
         }
     }
 
+    if let Some(text) = comment {
+        discussion::append_entry(
+            &t.dir.join(task::DISCUSSION_FILE),
+            task::now(),
+            &actor(ctx)?,
+            text.trim(),
+        )?;
+    }
     t.touch();
     t.write_meta()?;
-    if title_changed {
+    // The body lives in t.md next to the title, but only the title names
+    // the folder, so a body change never renames.
+    if title_changed || body_changed {
         t.write_md()?;
     }
     ctx.wt.ok(&["add", "--", &new_rel])?;
@@ -184,64 +229,98 @@ fn apply_set(
     });
 }
 
-fn one(ctx: &mut Context, id: &str, status: Option<String>, priority: Option<u8>) -> Result<()> {
-    run(
-        ctx,
-        SetArgs {
-            id: id.to_string(),
-            status,
-            priority,
-            title: None,
-            assignee: None,
-            no_assignee: false,
-            tag: vec![],
-            untag: vec![],
-            link: vec![],
-            unlink: vec![],
-            relate: vec![],
-            unrelate: vec![],
-        },
-    )
+/// One `set` per id, one commit each, in the order given. The first failure
+/// stops the loop; tasks before it are already committed, which is the
+/// honest outcome — each is a complete change on its own.
+fn each(
+    ctx: &mut Context,
+    ids: &[String],
+    status: Option<String>,
+    priority: Option<u8>,
+    message: Option<String>,
+) -> Result<()> {
+    for id in ids {
+        run(
+            ctx,
+            SetArgs {
+                id: id.clone(),
+                status: status.clone(),
+                priority,
+                message: message.clone(),
+                body: None,
+                body_file: None,
+                title: None,
+                assignee: None,
+                no_assignee: false,
+                tag: vec![],
+                untag: vec![],
+                link: vec![],
+                unlink: vec![],
+                relate: vec![],
+                unrelate: vec![],
+            },
+        )?;
+    }
+    Ok(())
 }
 
-pub fn run_start(ctx: &mut Context, id: &str) -> Result<()> {
+pub fn run_start(ctx: &mut Context, ids: &[String], message: Option<String>) -> Result<()> {
     let status = ctx.config().start_status().to_string();
-    one(ctx, id, Some(status), None)
+    each(ctx, ids, Some(status), None, message)
 }
 
-pub fn run_done(ctx: &mut Context, id: &str) -> Result<()> {
+pub fn run_done(ctx: &mut Context, ids: &[String], message: Option<String>) -> Result<()> {
     let status = ctx.config().done_status().to_string();
-    one(ctx, id, Some(status), None)
+    each(ctx, ids, Some(status), None, message)
 }
 
 /// `move` is a positional spelling of `set --status`; an unknown status is
 /// rejected by `run` with the wording every other command uses.
-pub fn run_move(ctx: &mut Context, id: &str, status: String) -> Result<()> {
-    one(ctx, id, Some(status), None)
+pub fn run_move(
+    ctx: &mut Context,
+    ids: &[String],
+    status: String,
+    message: Option<String>,
+) -> Result<()> {
+    each(ctx, ids, Some(status), None, message)
 }
 
-pub fn run_cancel(ctx: &mut Context, id: &str) -> Result<()> {
+pub fn run_cancel(ctx: &mut Context, ids: &[String], message: Option<String>) -> Result<()> {
     // No fallback: guessing which of several closed statuses means "gave up"
     // is exactly the positional cleverness the roles exist to remove.
     let Some(status) = ctx.config().cancel_status().map(str::to_string) else {
         bail!("no cancel status configured; set statuses.cancel in .yman/config.toml");
     };
-    one(ctx, id, Some(status), None)
+    each(ctx, ids, Some(status), None, message)
 }
 
-pub fn run_reopen(ctx: &mut Context, id: &str) -> Result<()> {
-    let t = task::find(&ctx.ydir, id)?;
-    if !ctx.config().is_terminal(&t.meta.status) {
-        bail!(
-            "task {id} is not closed (status \"{}\"); closed statuses: {}",
-            t.meta.status,
-            ctx.config().terminal_joined()
-        );
-    }
+pub fn run_reopen(ctx: &mut Context, ids: &[String], message: Option<String>) -> Result<()> {
     let status = ctx.config().statuses.default.clone();
-    one(ctx, id, Some(status), None)
+    for id in ids {
+        let t = task::find(&ctx.ydir, id)?;
+        if !ctx.config().is_terminal(&t.meta.status) {
+            bail!(
+                "task {id} is not closed (status \"{}\"); closed statuses: {}",
+                t.meta.status,
+                ctx.config().terminal_joined()
+            );
+        }
+        each(
+            ctx,
+            std::slice::from_ref(id),
+            Some(status.clone()),
+            None,
+            message.clone(),
+        )?;
+    }
+    Ok(())
 }
 
-pub fn run_prio(ctx: &mut Context, id: &str, priority: u8) -> Result<()> {
-    one(ctx, id, None, Some(priority))
+pub fn run_prio(
+    ctx: &mut Context,
+    ids: &[String],
+    priority: u8,
+    message: Option<String>,
+) -> Result<()> {
+    each(ctx, ids, None, Some(priority), message)
 }

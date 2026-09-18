@@ -4,7 +4,7 @@ Backlog for `yman`. Derived from the as-built specification in `docs/`, the
 "Limits and future work" section of `README.md`, and the current state of the
 tree at `314ae88`.
 
-Baseline as of 2026-09-17: `cargo test` is green (41 unit, 54 integration),
+Baseline as of 2026-09-18: `cargo test` is green (59 unit, 81 integration),
 `docs/` and `README.md` describe the shipped behaviour, and every subcommand
 listed in `src/cli.rs` is implemented.
 
@@ -284,6 +284,14 @@ The crate is at `0.1.0` with no changelog and no tagged release.
   decision on whether the crate is published to crates.io. The binary is `yman`
   while the package is `yman-tracker`; if publishing, check the name is free
   before committing to it.
+
+---
+
+## Agents and scripts
+
+Agents drive `yman` through a shell, one call at a time, and pay per byte
+they read back. The entries below cut calls and bytes without moving any
+human default, table layout or pinned string. All are additive and opt-in.
 
 ---
 

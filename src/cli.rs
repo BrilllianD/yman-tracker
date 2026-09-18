@@ -8,7 +8,13 @@ use clap::{ArgAction, ArgGroup, Args, Parser, Subcommand, ValueEnum};
     name = "yman",
     version,
     about = "Task tracker that lives next to the code and syncs through the project's own git remote",
-    disable_help_subcommand = true
+    disable_help_subcommand = true,
+    after_help = "\
+stdout is data; errors, warnings and notes go to stderr.
+Exit codes: 0 ok, 1 error, 2 usage, 3 sync merge unresolved, 4 no such task.
+start/done/move/cancel/reopen/prio take several ids and -m <comment>.
+Bodies without an editor: add --body-file <path|->, set --body <text>.
+Scripts and agents:  yman guide"
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -24,21 +30,21 @@ pub enum Cmd {
     /// List tasks
     Ls(LsArgs),
     /// Show one task in full
-    Show(IdArgs),
+    Show(ShowArgs),
     /// Open a task's t.md in $EDITOR
     Edit(IdArgs),
     /// Change fields of a task
     Set(SetArgs),
     /// Move a task to the start status
-    Start(IdArgs),
+    Start(VerbArgs),
     /// Move a task to the done status
-    Done(IdArgs),
+    Done(VerbArgs),
     /// Move a task to any status
     Move(MoveArgs),
     /// Move a task to the cancel status
-    Cancel(IdArgs),
+    Cancel(VerbArgs),
     /// Move a closed task back to the default status
-    Reopen(IdArgs),
+    Reopen(VerbArgs),
     /// Change a task's priority
     Prio(PrioArgs),
     /// Delete a task
@@ -54,7 +60,7 @@ pub enum Cmd {
     /// Show the task history log
     Log(LogArgs),
     /// Report the state of .yman and its remote
-    Status,
+    Status(StatusArgs),
     /// Fast-forward .yman onto the already-fetched remote state
     Refresh(RefreshArgs),
     /// Manage the git hooks that refresh .yman automatically
@@ -63,6 +69,8 @@ pub enum Cmd {
     Sync(SyncArgs),
     /// Run a raw git command inside .yman
     Git(GitArgs),
+    /// Print the short manual for scripts and agents (works anywhere)
+    Guide,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
@@ -137,9 +145,21 @@ pub struct AddArgs {
     /// Body text
     #[arg(short = 'm', long, value_name = "TEXT")]
     pub message: Option<String>,
+    /// Body read from a file, `-` for stdin
+    #[arg(long = "body-file", value_name = "PATH", conflicts_with_all = ["message", "edit"])]
+    pub body_file: Option<String>,
     /// Open the new t.md in $EDITOR
     #[arg(short = 'e', long)]
     pub edit: bool,
+    /// Assignee
+    #[arg(short = 'a', long, value_name = "WHO")]
+    pub assignee: Option<String>,
+    /// Link (repeatable)
+    #[arg(long = "link", value_name = "URL", action = ArgAction::Append)]
+    pub links: Vec<String>,
+    /// Related task id (repeatable)
+    #[arg(long = "relate", value_name = "ID", action = ArgAction::Append)]
+    pub related: Vec<String>,
 }
 
 #[derive(Args, Debug)]
@@ -153,7 +173,19 @@ pub struct LsArgs {
     /// Include tasks in the final status
     #[arg(short = 'a', long)]
     pub all: bool,
-    /// Machine-readable output
+    /// Only tasks whose title or body contains TEXT (case-insensitive)
+    #[arg(short = 'q', long = "grep", value_name = "TEXT")]
+    pub grep: Option<String>,
+    /// Only tasks assigned to WHO; `-` means unassigned
+    #[arg(long, value_name = "WHO")]
+    pub assignee: Option<String>,
+    /// Only tasks at this priority
+    #[arg(short = 'p', long, value_name = "N", value_parser = clap::value_parser!(u8).range(0..=9))]
+    pub priority: Option<u8>,
+    /// Print at most N tasks, after sorting
+    #[arg(short = 'n', long = "limit", value_name = "N")]
+    pub limit: Option<usize>,
+    /// Print JSON instead of the table
     #[arg(long)]
     pub json: bool,
 }
@@ -165,11 +197,38 @@ pub struct IdArgs {
 }
 
 #[derive(Args, Debug)]
-pub struct MoveArgs {
+pub struct ShowArgs {
     /// Task id
     pub id: String,
-    /// Status to move it to
+    /// Print only the last N discussion entries (0 hides the discussion)
+    #[arg(short = 'n', long = "comments", value_name = "N")]
+    pub comments: Option<usize>,
+    /// Print JSON instead of the text block
+    #[arg(long)]
+    pub json: bool,
+}
+
+/// `start`, `done`, `cancel`, `reopen`.
+#[derive(Args, Debug)]
+pub struct VerbArgs {
+    /// Task ids
+    #[arg(required = true, value_name = "ID")]
+    pub ids: Vec<String>,
+    /// Append a comment in the same commit
+    #[arg(short = 'm', long, value_name = "TEXT")]
+    pub message: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct MoveArgs {
+    /// Task ids
+    #[arg(required = true, value_name = "ID")]
+    pub ids: Vec<String>,
+    /// Status to move them to
     pub status: String,
+    /// Append a comment in the same commit
+    #[arg(short = 'm', long, value_name = "TEXT")]
+    pub message: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -179,47 +238,73 @@ pub struct MoveArgs {
         .multiple(true)
         .args([
             "status", "priority", "title", "assignee", "no_assignee",
-            "tag", "untag", "link", "unlink", "relate", "unrelate",
+            "tag", "untag", "link", "unlink", "relate", "unrelate", "message",
+            "body", "body_file",
         ])
 ))]
 pub struct SetArgs {
     /// Task id
     pub id: String,
+    /// New status
     #[arg(long, value_name = "STATUS")]
     pub status: Option<String>,
+    /// New priority, 0 (highest) to 9
     #[arg(long, value_name = "N", value_parser = clap::value_parser!(u8).range(0..=9))]
     pub priority: Option<u8>,
+    /// New title (renames the folder)
     #[arg(long, value_name = "TITLE")]
     pub title: Option<String>,
-    #[arg(long, value_name = "WHO", conflicts_with = "no_assignee")]
+    /// Assignee
+    #[arg(short = 'a', long, value_name = "WHO", conflicts_with = "no_assignee")]
     pub assignee: Option<String>,
     /// Clear the assignee
     #[arg(long = "no-assignee")]
     pub no_assignee: bool,
+    /// Add a tag (repeatable)
     #[arg(long = "tag", value_name = "TAG", action = ArgAction::Append)]
     pub tag: Vec<String>,
+    /// Remove a tag (repeatable)
     #[arg(long = "untag", value_name = "TAG", action = ArgAction::Append)]
     pub untag: Vec<String>,
+    /// Add a link (repeatable)
     #[arg(long = "link", value_name = "URL", action = ArgAction::Append)]
     pub link: Vec<String>,
+    /// Remove a link (repeatable)
     #[arg(long = "unlink", value_name = "URL", action = ArgAction::Append)]
     pub unlink: Vec<String>,
+    /// Add a related task id (repeatable)
     #[arg(long = "relate", value_name = "ID", action = ArgAction::Append)]
     pub relate: Vec<String>,
+    /// Remove a related task id (repeatable)
     #[arg(long = "unrelate", value_name = "ID", action = ArgAction::Append)]
     pub unrelate: Vec<String>,
+    /// Append a comment in the same commit
+    #[arg(short = 'm', long, value_name = "TEXT")]
+    pub message: Option<String>,
+    /// Replace the body; an empty string clears it
+    #[arg(long, value_name = "TEXT", conflicts_with = "body_file")]
+    pub body: Option<String>,
+    /// Replace the body with a file's contents, `-` for stdin
+    #[arg(long = "body-file", value_name = "PATH")]
+    pub body_file: Option<String>,
 }
 
 #[derive(Args, Debug)]
 pub struct PrioArgs {
-    pub id: String,
+    /// Task ids
+    #[arg(required = true, value_name = "ID")]
+    pub ids: Vec<String>,
     /// New priority, 0 (highest) to 9
     #[arg(value_parser = clap::value_parser!(u8).range(0..=9))]
     pub priority: u8,
+    /// Append a comment in the same commit
+    #[arg(short = 'm', long, value_name = "TEXT")]
+    pub message: Option<String>,
 }
 
 #[derive(Args, Debug)]
 pub struct RmArgs {
+    /// Task id
     pub id: String,
     /// Do not ask for confirmation
     #[arg(short = 'f', long)]
@@ -228,6 +313,7 @@ pub struct RmArgs {
 
 #[derive(Args, Debug)]
 pub struct AttachArgs {
+    /// Task id
     pub id: String,
     /// Files to attach
     #[arg(required = true)]
@@ -242,6 +328,7 @@ pub struct AttachArgs {
 
 #[derive(Args, Debug)]
 pub struct DetachArgs {
+    /// Task id
     pub id: String,
     /// Attachment name
     pub name: String,
@@ -249,6 +336,7 @@ pub struct DetachArgs {
 
 #[derive(Args, Debug)]
 pub struct CommentArgs {
+    /// Task id
     pub id: String,
     /// Comment text
     #[arg(short = 'm', long, value_name = "TEXT")]
@@ -288,6 +376,13 @@ pub enum HooksAction {
     Remove,
     /// Report whether the hooks are in place
     Status,
+}
+
+#[derive(Args, Debug)]
+pub struct StatusArgs {
+    /// Print JSON instead of the text report
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]
@@ -339,14 +434,19 @@ impl Cmd {
             Cmd::Init(_)
                 | Cmd::Sync(_)
                 | Cmd::Refresh(_)
-                | Cmd::Status
+                | Cmd::Status(_)
                 | Cmd::Hooks(_)
                 | Cmd::Git(_)
+                | Cmd::Guide
         )
     }
 
-    /// Commands that do not need `.yman` to exist yet.
+    /// Commands that do not need `.yman` to exist yet. `guide` is listed for
+    /// completeness; `main` answers it before looking for a repository at all.
     pub fn skips_preflight(&self) -> bool {
-        matches!(self, Cmd::Init(_) | Cmd::Hooks(_) | Cmd::Git(_))
+        matches!(
+            self,
+            Cmd::Init(_) | Cmd::Hooks(_) | Cmd::Git(_) | Cmd::Guide
+        )
     }
 }

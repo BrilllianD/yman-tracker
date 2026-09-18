@@ -171,7 +171,7 @@ fn add_ls_show() {
 
     // Unknown ids and statuses fail with the documented wording.
     let out = fx.yman(&fx.a).args(["show", "99"]).output().unwrap();
-    assert!(!out.status.success());
+    assert_eq!(out.status.code(), Some(4));
     assert_eq!(stderr(&out).trim(), "error: task 99 not found");
 
     let out = fx
@@ -1187,6 +1187,13 @@ fn status_reports_merge_in_progress() {
         "{text}"
     );
     assert!(text.contains("5.1.fix-login/m.yml"), "{text}");
+
+    let json = stdout(&fx.yman(&fx.b).args(["status", "--json"]).output().unwrap());
+    assert!(json.contains("\"in_progress\":true"), "{json}");
+    assert!(
+        json.contains("\"unmerged\":[\"5.1.fix-login/m.yml\"]"),
+        "{json}"
+    );
 }
 
 #[test]
@@ -2295,4 +2302,729 @@ fn reopen_returns_a_closed_task_to_the_default_status() {
     );
     assert_eq!(fx.task_rel(&fx.a, "1"), "5.1.fix-login");
     assert!(!fx.a.join(".yman/cancelled").exists());
+}
+
+/// One `add` can carry everything `set` would otherwise add in a second
+/// commit; the values are deduplicated like tags.
+#[test]
+fn add_sets_assignee_links_and_related_in_one_call() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Other"]).assert().success();
+    let before = fx.git(&fx.a, &["rev-list", "--count", "refs/yman/local"]);
+
+    let out = fx
+        .yman(&fx.a)
+        .args([
+            "add",
+            "Fix login",
+            "-a",
+            "claude",
+            "--link",
+            "https://example.invalid/issues/12",
+            "--link",
+            "https://example.invalid/issues/12",
+            "--relate",
+            "1",
+            "--relate",
+            "1",
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+
+    let meta = fx.read(&fx.task_dir(&fx.a, "2").join("m.yml"));
+    assert!(meta.contains("assignee: claude"), "{meta}");
+    assert_eq!(
+        meta.matches("https://example.invalid/issues/12").count(),
+        1,
+        "{meta}"
+    );
+    let related: Vec<&str> = meta
+        .split("related:\n")
+        .nth(1)
+        .unwrap_or("")
+        .lines()
+        .take_while(|l| l.starts_with("- "))
+        .collect();
+    assert_eq!(related.len(), 1, "{meta}");
+    assert!(related[0].contains('1'), "{meta}");
+
+    let shown = stdout(&fx.yman(&fx.a).args(["show", "2"]).output().unwrap());
+    assert!(shown.contains("assignee: claude"), "{shown}");
+    assert!(
+        shown.contains("links:    https://example.invalid/issues/12"),
+        "{shown}"
+    );
+    assert!(shown.contains("related:  1"), "{shown}");
+
+    let json = stdout(&fx.yman(&fx.a).args(["ls", "--json"]).output().unwrap());
+    assert!(json.contains("\"assignee\":\"claude\""), "{json}");
+
+    // Only one commit was made for the whole thing.
+    let after = fx.git(&fx.a, &["rev-list", "--count", "refs/yman/local"]);
+    assert_eq!(
+        after.trim().parse::<u32>().unwrap(),
+        before.trim().parse::<u32>().unwrap() + 1
+    );
+}
+
+/// `YMAN_ACTOR` names who a comment or attachment came from without touching
+/// who git says committed it.
+#[test]
+fn comment_and_attach_record_the_actor() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let file = fx.a.join("notes.txt");
+    fx.write(&file, "hello\n");
+
+    fx.yman(&fx.a)
+        .env("YMAN_ACTOR", "  claude  ")
+        .args(["comment", "1", "-m", "on it"])
+        .assert()
+        .success();
+    fx.yman(&fx.a)
+        .env("YMAN_ACTOR", "claude")
+        .args(["attach", "1", file.to_str().unwrap()])
+        .assert()
+        .success();
+
+    let d = fx.read(&fx.task_dir(&fx.a, "1").join("d.md"));
+    assert!(d.contains(" — claude\n"), "{d}");
+    let m = fx.read(&fx.task_dir(&fx.a, "1").join("m.yml"));
+    assert!(m.contains("by: claude"), "{m}");
+    let committer = fx.git(&fx.a, &["log", "-1", "--format=%an", "refs/yman/local"]);
+    assert_eq!(committer.trim(), "Test A");
+
+    // Blank is the same as unset: back to user.name.
+    fx.yman(&fx.a)
+        .env("YMAN_ACTOR", "   ")
+        .args(["comment", "1", "-m", "again"])
+        .assert()
+        .success();
+    let d = fx.read(&fx.task_dir(&fx.a, "1").join("d.md"));
+    assert!(d.contains(" — Test A\n"), "{d}");
+}
+
+/// `done -m` closes and explains in one commit; a bare `set -m` is a valid
+/// change on its own; an empty message is refused like `comment`.
+#[test]
+fn done_with_message_comments_in_one_commit() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let before = fx.git(&fx.a, &["rev-list", "--count", "refs/yman/local"]);
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["done", "1", "-m", "fixed in 3f2a"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("1: status todo -> done"), "{text}");
+    assert!(text.contains("1: commented"), "{text}");
+
+    let after = fx.git(&fx.a, &["rev-list", "--count", "refs/yman/local"]);
+    assert_eq!(
+        after.trim().parse::<u32>().unwrap(),
+        before.trim().parse::<u32>().unwrap() + 1
+    );
+    let subject = fx.git(&fx.a, &["log", "-1", "--format=%s", "refs/yman/local"]);
+    assert_eq!(subject.trim(), "task(1): set status=todo->done comment");
+    let d = fx.read(&fx.task_dir(&fx.a, "1").join("d.md"));
+    assert!(d.contains("fixed in 3f2a"), "{d}");
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["set", "1", "-m", "second note"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out).trim(), "1: commented");
+    let subject = fx.git(&fx.a, &["log", "-1", "--format=%s", "refs/yman/local"]);
+    assert_eq!(subject.trim(), "task(1): set comment");
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["prio", "1", "3", "-m", "  "])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert_eq!(stderr(&out).trim(), "error: empty comment");
+    // The priority was not applied either: the bail happens before any write.
+    assert_eq!(fx.task_rel(&fx.a, "1"), "5.1.fix-login");
+}
+
+/// The verbs take several ids: one commit per task, the first failure stops
+/// the run with the earlier tasks already committed.
+#[test]
+fn done_accepts_several_ids() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    for title in ["One", "Two", "Three"] {
+        fx.yman(&fx.a).args(["add", title]).assert().success();
+    }
+    let before = fx.git(&fx.a, &["rev-list", "--count", "refs/yman/local"]);
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["done", "1", "2", "3", "-m", "batch"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    for id in ["1", "2", "3"] {
+        assert!(
+            text.contains(&format!("{id}: status todo -> done")),
+            "{text}"
+        );
+        assert!(text.contains(&format!("{id}: commented")), "{text}");
+    }
+    let after = fx.git(&fx.a, &["rev-list", "--count", "refs/yman/local"]);
+    assert_eq!(
+        after.trim().parse::<u32>().unwrap(),
+        before.trim().parse::<u32>().unwrap() + 3
+    );
+    let listed = stdout(&fx.yman(&fx.a).arg("ls").output().unwrap());
+    assert_eq!(listed.trim(), "", "closed tasks are hidden: {listed}");
+
+    // A missing id in the middle: the ones before it are done, the ones
+    // after are untouched.
+    fx.yman(&fx.a).args(["reopen", "1", "2"]).assert().success();
+    let out = fx
+        .yman(&fx.a)
+        .args(["done", "1", "99", "2"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(4));
+    assert_eq!(stderr(&out).trim(), "error: task 99 not found");
+    assert_eq!(stdout(&out).trim(), "1: status todo -> done");
+    assert_eq!(fx.status(&fx.a, "1"), "done");
+    assert_eq!(fx.status(&fx.a, "2"), "todo");
+}
+
+/// `move` and `prio` keep their value last, so the single-id form reads as
+/// it always did and the list form is unambiguous to the parser.
+#[test]
+fn move_and_prio_take_ids_then_value() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    for title in ["One", "Two"] {
+        fx.yman(&fx.a).args(["add", title]).assert().success();
+    }
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["move", "1", "2", "doing"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(fx.status(&fx.a, "1"), "doing");
+    assert_eq!(fx.status(&fx.a, "2"), "doing");
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["prio", "1", "2", "3"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("1: priority 5 -> 3"), "{text}");
+    assert!(text.contains("2: priority 5 -> 3"), "{text}");
+
+    // Single-id spelling unchanged.
+    let out = fx.yman(&fx.a).args(["move", "1", "todo"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out).trim(), "1: status doing -> todo");
+}
+
+/// The `ls` filters compose, `--assignee -` is "nobody", and the limit
+/// applies after sorting so `-n 1` is the top of the backlog.
+#[test]
+fn ls_filters_by_text_assignee_priority_and_limit() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args([
+            "add",
+            "Fix login",
+            "-p",
+            "2",
+            "-a",
+            "claude",
+            "-m",
+            "The OAuth flow breaks",
+        ])
+        .assert()
+        .success();
+    fx.yman(&fx.a)
+        .args(["add", "Write docs", "-p", "5"])
+        .assert()
+        .success();
+    fx.yman(&fx.a)
+        .args(["add", "Login page copy", "-p", "5", "-a", "ivan"])
+        .assert()
+        .success();
+
+    let ls = |args: &[&str]| -> Vec<String> {
+        let mut full = vec!["ls"];
+        full.extend_from_slice(args);
+        stdout(&fx.yman(&fx.a).args(&full).output().unwrap())
+            .lines()
+            .map(|l| l.split_whitespace().nth(1).unwrap().to_string())
+            .collect()
+    };
+
+    assert_eq!(ls(&["-q", "LOGIN"]), ["1", "3"], "title match, any case");
+    assert_eq!(ls(&["-q", "oauth"]), ["1"], "body match");
+    assert_eq!(ls(&["--assignee", "claude"]), ["1"]);
+    assert_eq!(ls(&["--assignee", "-"]), ["2"]);
+    assert_eq!(ls(&["-p", "5"]), ["2", "3"]);
+    assert_eq!(ls(&["-n", "1"]), ["1"], "after sorting: priority 2 first");
+    assert_eq!(ls(&["-n", "0"]), Vec::<String>::new());
+    assert_eq!(ls(&["-q", "login", "-p", "5", "--assignee", "ivan"]), ["3"]);
+    assert_eq!(ls(&["-q", "nothing here"]), Vec::<String>::new());
+}
+
+/// `show -n` keeps the newest entries and says how many it dropped; the
+/// default output does not change.
+#[test]
+fn show_limits_the_discussion() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    for n in 1..=3 {
+        fx.yman(&fx.a)
+            .args(["comment", "1", "-m", &format!("note {n}")])
+            .assert()
+            .success();
+    }
+
+    let full = stdout(&fx.yman(&fx.a).args(["show", "1"]).output().unwrap());
+    assert!(full.contains("\ndiscussion:\n"), "{full}");
+    assert!(full.contains("note 1") && full.contains("note 3"), "{full}");
+
+    let last2 = stdout(
+        &fx.yman(&fx.a)
+            .args(["show", "1", "-n", "2"])
+            .output()
+            .unwrap(),
+    );
+    assert!(last2.contains("\ndiscussion (last 2 of 3):\n"), "{last2}");
+    assert!(!last2.contains("note 1"), "{last2}");
+    assert!(
+        last2.contains("note 2") && last2.contains("note 3"),
+        "{last2}"
+    );
+
+    let none = stdout(
+        &fx.yman(&fx.a)
+            .args(["show", "1", "-n", "0"])
+            .output()
+            .unwrap(),
+    );
+    assert!(!none.contains("discussion"), "{none}");
+
+    let big = stdout(
+        &fx.yman(&fx.a)
+            .args(["show", "1", "-n", "9"])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(big, full, "a limit above the count changes nothing");
+}
+
+/// A body can come from a file or stdin at creation time.
+#[test]
+fn add_body_from_file_and_stdin() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let src = fx.a.join("body.md");
+    fx.write(&src, "From a file.\n\nSecond paragraph.\n");
+
+    fx.yman(&fx.a)
+        .args(["add", "Filed", "--body-file", src.to_str().unwrap()])
+        .assert()
+        .success();
+    let md = fx.read(&fx.task_dir(&fx.a, "1").join("t.md"));
+    assert_eq!(md, "# Filed\n\nFrom a file.\n\nSecond paragraph.\n");
+
+    fx.yman(&fx.a)
+        .args(["add", "Piped", "--body-file", "-"])
+        .write_stdin("from stdin\n")
+        .assert()
+        .success();
+    let md = fx.read(&fx.task_dir(&fx.a, "2").join("t.md"));
+    assert_eq!(md, "# Piped\n\nfrom stdin\n");
+
+    // `-m` and `--body-file` exclude each other at the parser.
+    let out = fx
+        .yman(&fx.a)
+        .args(["add", "Both", "-m", "x", "--body-file", "-"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2));
+}
+
+/// `set --body` rewrites t.md in place: no rename, `no changes` on a repeat,
+/// and an empty string clears the body.
+#[test]
+fn set_body_updates_t_md_without_renaming() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Fix login", "-m", "old body"])
+        .assert()
+        .success();
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["set", "1", "--body", "new body\n"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out).trim(), "1: body updated");
+    let subject = fx.git(&fx.a, &["log", "-1", "--format=%s", "refs/yman/local"]);
+    assert_eq!(subject.trim(), "task(1): set body");
+    assert_eq!(fx.task_rel(&fx.a, "1"), "5.1.fix-login");
+    let md = fx.read(&fx.task_dir(&fx.a, "1").join("t.md"));
+    assert_eq!(md, "# Fix login\n\nnew body\n");
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["set", "1", "--body", "new body"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out).trim(), "no changes");
+
+    let src = fx.a.join("body.md");
+    fx.write(&src, "filed body\n");
+    let out = fx
+        .yman(&fx.a)
+        .args([
+            "set",
+            "1",
+            "--body-file",
+            src.to_str().unwrap(),
+            "-m",
+            "rewrote",
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert!(
+        text.contains("1: body updated") && text.contains("1: commented"),
+        "{text}"
+    );
+    let subject = fx.git(&fx.a, &["log", "-1", "--format=%s", "refs/yman/local"]);
+    assert_eq!(subject.trim(), "task(1): set body comment");
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["set", "1", "--body", ""])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out).trim(), "1: body updated");
+    assert_eq!(
+        fx.read(&fx.task_dir(&fx.a, "1").join("t.md")),
+        "# Fix login\n"
+    );
+}
+
+/// An unreadable `--body-file` fails before anything is written.
+#[test]
+fn set_body_file_missing_is_an_error() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let before = fx.git(&fx.a, &["rev-list", "--count", "refs/yman/local"]);
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["set", "1", "--body-file", "nope.md", "--priority", "1"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let err = stderr(&out);
+    assert!(err.starts_with("error: cannot read nope.md: "), "{err}");
+    let after = fx.git(&fx.a, &["rev-list", "--count", "refs/yman/local"]);
+    assert_eq!(before, after);
+    assert_eq!(fx.task_rel(&fx.a, "1"), "5.1.fix-login");
+}
+
+/// With no editor configured and no terminal, `edit` refuses instead of
+/// leaving `vi` waiting on a pipe. An explicit `$EDITOR` is still honoured.
+#[test]
+fn edit_without_editor_or_tty_fails_fast() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+
+    for args in [
+        vec!["edit", "1"],
+        vec!["comment", "1", "-e"],
+        vec!["add", "Another", "-e"],
+    ] {
+        let out = fx
+            .yman(&fx.a)
+            .env_remove("EDITOR")
+            .env_remove("VISUAL")
+            .args(&args)
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(1), "{args:?}");
+        assert_eq!(
+            stderr(&out).trim(),
+            "error: no terminal for vi; set $EDITOR, or use -m / --body-file",
+            "{args:?}"
+        );
+    }
+    assert!(!fx.has_task(&fx.a, "2"), "add -e must not create anything");
+
+    // The fixture's EDITOR=true still works on a pipe.
+    let out = fx.yman(&fx.a).args(["edit", "1"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out).trim(), "no changes");
+}
+
+/// Every command that looks an id up exits 4 on a missing one; a folder that
+/// exists but is broken is a repository problem and stays at 1.
+#[test]
+fn missing_id_exits_4_broken_folder_exits_1() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+
+    for args in [
+        vec!["set", "99", "--priority", "1"],
+        vec!["path", "99"],
+        vec!["comment", "99", "-m", "x"],
+        vec!["rm", "99", "-f"],
+    ] {
+        let out = fx.yman(&fx.a).args(&args).output().unwrap();
+        assert_eq!(out.status.code(), Some(4), "{args:?}");
+        assert_eq!(stderr(&out).trim(), "error: task 99 not found", "{args:?}");
+    }
+
+    fx.write(&fx.task_dir(&fx.a, "1").join("m.yml"), "status: [\n");
+    let out = fx.yman(&fx.a).args(["show", "1"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).starts_with("error: task 1 is broken: "),
+        "{}",
+        stderr(&out)
+    );
+}
+
+/// `--help` describes every flag and ends by pointing at the guide.
+#[test]
+fn help_documents_flags_and_points_at_guide() {
+    let fx = Fx::new();
+    let top = stdout(&fx.yman(&fx.a).arg("--help").output().unwrap());
+    assert!(top.contains("Scripts and agents:  yman guide"), "{top}");
+    assert!(top.contains("4 no such task"), "{top}");
+
+    let set = stdout(&fx.yman(&fx.a).args(["set", "--help"]).output().unwrap());
+    for (flag, doc) in [
+        ("--status <STATUS>", "New status"),
+        ("--title <TITLE>", "New title"),
+        ("--unrelate <ID>", "Remove a related task id"),
+        ("--body-file <PATH>", "Replace the body with a file"),
+    ] {
+        let line = set.lines().find(|l| l.trim_start().starts_with(flag));
+        assert!(
+            line.is_some_and(|l| l.contains(doc)),
+            "{flag}: {line:?}\n{set}"
+        );
+    }
+    let ls = stdout(&fx.yman(&fx.a).args(["ls", "--help"]).output().unwrap());
+    assert!(ls.contains("Print JSON instead of the table"), "{ls}");
+}
+
+/// `guide` prints docs/agents.md byte for byte, from a directory that is
+/// not a git repository at all.
+#[test]
+fn guide_needs_no_repository() {
+    let fx = Fx::new();
+    let nowhere = tempfile::tempdir().unwrap();
+    let out = fx.yman(nowhere.path()).arg("guide").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let expected =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/agents.md")).unwrap();
+    assert_eq!(stdout(&out), expected);
+    assert_eq!(stderr(&out), "");
+    assert!(expected.lines().count() <= 60, "agents.md must stay short");
+}
+
+/// `show --json` is one object: the header fields, the body, the attachments
+/// and the discussion, with `-n` trimming the discussion but not the count.
+#[test]
+fn show_json_carries_the_whole_task() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Other"]).assert().success();
+    fx.yman(&fx.a)
+        .args([
+            "add",
+            "Fix login",
+            "-m",
+            "Body text",
+            "-a",
+            "claude",
+            "-t",
+            "ui",
+            "--link",
+            "https://example.test/1",
+            "--relate",
+            "1",
+        ])
+        .assert()
+        .success();
+    let src = fx.tmp.path().join("screenshot.png");
+    fx.write(&src, "not really a png");
+    fx.yman(&fx.a)
+        .args(["attach", "2", src.to_str().unwrap()])
+        .assert()
+        .success();
+    for n in 1..=2 {
+        fx.yman(&fx.a)
+            .args(["comment", "2", "-m", &format!("note {n}")])
+            .assert()
+            .success();
+    }
+
+    let text = stdout(
+        &fx.yman(&fx.a)
+            .args(["show", "2", "--json"])
+            .output()
+            .unwrap(),
+    );
+    assert!(
+        text.starts_with('{') && text.trim_end().ends_with('}'),
+        "{text}"
+    );
+    assert!(text.contains("\"id\":\"2\""), "{text}");
+    assert!(text.contains("\"title\":\"Fix login\""), "{text}");
+    assert!(text.contains("\"assignee\":\"claude\""), "{text}");
+    assert!(text.contains("\"tags\":[\"ui\"]"), "{text}");
+    assert!(
+        text.contains("\"links\":[\"https://example.test/1\"]"),
+        "{text}"
+    );
+    assert!(text.contains("\"related\":[\"1\"]"), "{text}");
+    assert!(text.contains("\"body\":\"Body text\""), "{text}");
+    assert!(text.contains("\"dir\":\"5.2.fix-login\""), "{text}");
+    assert!(text.contains("\"name\":\"screenshot.png\""), "{text}");
+    assert!(text.contains("\"text\":\"note 1\""), "{text}");
+    assert!(text.contains("\"discussion_total\":2"), "{text}");
+
+    // A task with nothing on it still has every key, as an empty array.
+    let bare = stdout(
+        &fx.yman(&fx.a)
+            .args(["show", "1", "--json"])
+            .output()
+            .unwrap(),
+    );
+    assert!(bare.contains("\"assignee\":null"), "{bare}");
+    assert!(bare.contains("\"tags\":[]"), "{bare}");
+    assert!(bare.contains("\"links\":[]"), "{bare}");
+    assert!(bare.contains("\"attachments\":[]"), "{bare}");
+    assert!(bare.contains("\"discussion\":[]"), "{bare}");
+    assert!(bare.contains("\"discussion_total\":0"), "{bare}");
+
+    // `-n` trims the entries; the total still says how many there were.
+    let last = stdout(
+        &fx.yman(&fx.a)
+            .args(["show", "2", "--json", "-n", "1"])
+            .output()
+            .unwrap(),
+    );
+    assert!(!last.contains("note 1"), "{last}");
+    assert!(last.contains("\"text\":\"note 2\""), "{last}");
+    assert!(last.contains("\"discussion_total\":2"), "{last}");
+
+    // An unknown id is still exit 4, and says nothing on stdout.
+    let out = fx
+        .yman(&fx.a)
+        .args(["show", "404", "--json"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(4));
+    assert_eq!(stdout(&out), "");
+}
+
+/// `ls --json` carries the links and the related ids, so a script does not
+/// need a `show` per row.
+#[test]
+fn ls_json_carries_links_and_related() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Other"]).assert().success();
+    fx.yman(&fx.a)
+        .args([
+            "add",
+            "Fix login",
+            "--link",
+            "https://example.test/1",
+            "--relate",
+            "1",
+        ])
+        .assert()
+        .success();
+
+    let text = stdout(&fx.yman(&fx.a).args(["ls", "--json"]).output().unwrap());
+    assert!(
+        text.contains("\"assignee\":null,\"links\":[\"https://example.test/1\"],\"related\":[\"1\"],\"created\":"),
+        "{text}"
+    );
+    assert!(text.contains("\"links\":[],\"related\":[],"), "{text}");
+}
+
+/// `status --json` reports the same facts as the text form, before and after
+/// the remote ref exists.
+#[test]
+fn status_json_reports_refs_and_counts() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+
+    // `init` publishes the ref but does not fetch it back.
+    fx.git(&fx.a, &["update-ref", "-d", "refs/yman/remote"]);
+    let text = stdout(&fx.yman(&fx.a).args(["status", "--json"]).output().unwrap());
+    assert!(
+        text.contains("\"remote\":{\"ref\":\"refs/tasks/main\",\"fetched\":false,\"head\":null,\"ahead\":0,\"behind\":0}"),
+        "{text}"
+    );
+    assert!(text.contains("\"refresh\":\"lazy\""), "{text}");
+    assert!(text.contains("\"hooks\":false"), "{text}");
+    assert!(text.contains("\"worktree\":{\"dirty\":0}"), "{text}");
+    assert!(
+        text.contains("\"merge\":{\"in_progress\":false,\"unmerged\":[]}"),
+        "{text}"
+    );
+    assert!(
+        text.contains(
+            "\"tasks\":{\"by_status\":{\"todo\":0,\"doing\":0,\"done\":0},\"other\":0,\"broken\":0}"
+        ),
+        "{text}"
+    );
+
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.git(&fx.a, &["fetch", "origin"]);
+    let text = stdout(&fx.yman(&fx.a).args(["status", "--json"]).output().unwrap());
+    assert!(text.contains("\"fetched\":true"), "{text}");
+    assert!(text.contains("\"ahead\":1,\"behind\":0"), "{text}");
+    assert!(text.contains("\"todo\":1"), "{text}");
+
+    // A dirty worktree is counted, not described.
+    fx.write(
+        &fx.a.join(".yman/5.1.fix-login/t.md"),
+        "# Fix login\n\nedit\n",
+    );
+    let text = stdout(&fx.yman(&fx.a).args(["status", "--json"]).output().unwrap());
+    assert!(text.contains("\"worktree\":{\"dirty\":1}"), "{text}");
 }
