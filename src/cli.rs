@@ -24,7 +24,7 @@ pub enum Cmd {
     /// List tasks
     Ls(LsArgs),
     /// Show one task in full
-    Show(IdArgs),
+    Show(ShowArgs),
     /// Open a task's t.md in $EDITOR
     Edit(IdArgs),
     /// Change fields of a task
@@ -183,6 +183,15 @@ pub struct LsArgs {
 pub struct IdArgs {
     /// Task id
     pub id: String,
+}
+
+#[derive(Args, Debug)]
+pub struct ShowArgs {
+    /// Task id
+    pub id: String,
+    /// Print only the last N discussion entries (0 hides the discussion)
+    #[arg(short = 'n', long = "comments", value_name = "N")]
+    pub comments: Option<usize>,
 }
 
 /// `start`, `done`, `cancel`, `reopen`.

@@ -83,6 +83,11 @@ status directory for a closed task (`done/5.1.fix-login`). The escaping is hand-
 Prints the header block, then the body, then `attachments` and `discussion`.
 Empty sections are omitted entirely, including `links` and `related`.
 
+`-n N` keeps only the last N discussion entries (a chunk `d.md` could not
+parse counts as one) under the header `discussion (last N of M):`; `-n 0`
+drops the section. When N is not smaller than the number of entries the
+output is identical to the default, header included.
+
 ### `path`
 
 Prints the absolute folder path and nothing else, so `cd $(yman path 14)` works.

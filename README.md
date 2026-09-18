@@ -223,7 +223,7 @@ P  ID  STATUS  TITLE       TAGS      F  C
 `F` is the attachment count, `C` the comment count; both blank at zero.
 
 ```sh
-yman show <id>     # everything about one task, including the discussion
+yman show <id> [-n N]   # everything about one task; -n keeps the last N comments
 yman path <id>     # just the absolute path:  cd $(yman path 14)
 yman log [<id>] [-n N]
 ```

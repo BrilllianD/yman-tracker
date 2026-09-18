@@ -2580,3 +2580,51 @@ fn ls_filters_by_text_assignee_priority_and_limit() {
     assert_eq!(ls(&["-q", "login", "-p", "5", "--assignee", "ivan"]), ["3"]);
     assert_eq!(ls(&["-q", "nothing here"]), Vec::<String>::new());
 }
+
+/// `show -n` keeps the newest entries and says how many it dropped; the
+/// default output does not change.
+#[test]
+fn show_limits_the_discussion() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    for n in 1..=3 {
+        fx.yman(&fx.a)
+            .args(["comment", "1", "-m", &format!("note {n}")])
+            .assert()
+            .success();
+    }
+
+    let full = stdout(&fx.yman(&fx.a).args(["show", "1"]).output().unwrap());
+    assert!(full.contains("\ndiscussion:\n"), "{full}");
+    assert!(full.contains("note 1") && full.contains("note 3"), "{full}");
+
+    let last2 = stdout(
+        &fx.yman(&fx.a)
+            .args(["show", "1", "-n", "2"])
+            .output()
+            .unwrap(),
+    );
+    assert!(last2.contains("\ndiscussion (last 2 of 3):\n"), "{last2}");
+    assert!(!last2.contains("note 1"), "{last2}");
+    assert!(
+        last2.contains("note 2") && last2.contains("note 3"),
+        "{last2}"
+    );
+
+    let none = stdout(
+        &fx.yman(&fx.a)
+            .args(["show", "1", "-n", "0"])
+            .output()
+            .unwrap(),
+    );
+    assert!(!none.contains("discussion"), "{none}");
+
+    let big = stdout(
+        &fx.yman(&fx.a)
+            .args(["show", "1", "-n", "9"])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(big, full, "a limit above the count changes nothing");
+}

@@ -1,10 +1,11 @@
+use crate::cli::ShowArgs;
 use crate::discussion;
 use crate::repo::Context;
 use crate::task::{self, format_ts};
 use anyhow::Result;
 
-pub fn run(ctx: &mut Context, id: &str) -> Result<()> {
-    let t = task::find(&ctx.ydir, id)?;
+pub fn run(ctx: &mut Context, a: ShowArgs) -> Result<()> {
+    let t = task::find(&ctx.ydir, &a.id)?;
 
     println!("{}  {}", t.id(), t.title);
     println!(
@@ -50,9 +51,20 @@ pub fn run(ctx: &mut Context, id: &str) -> Result<()> {
 
     let dpath = t.dir.join(task::DISCUSSION_FILE);
     if let Ok(text) = std::fs::read_to_string(&dpath) {
-        let entries = discussion::parse(&text);
+        let mut entries = discussion::parse(&text);
+        let total = entries.len();
+        // Only the trimmed case changes the header, so the default output
+        // stays byte-identical. Raw chunks count as entries.
+        let trimmed = a.comments.is_some_and(|n| n < total);
+        if trimmed {
+            entries.drain(..total - a.comments.unwrap_or(0));
+        }
         if !entries.is_empty() {
-            println!("\ndiscussion:");
+            if trimmed {
+                println!("\ndiscussion (last {} of {total}):", entries.len());
+            } else {
+                println!("\ndiscussion:");
+            }
             for e in entries {
                 match e {
                     discussion::Entry::Comment { ts, author, text } => {

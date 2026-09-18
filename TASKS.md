@@ -293,16 +293,6 @@ Agents drive `yman` through a shell, one call at a time, and pay per byte
 they read back. The entries below cut calls and bytes without moving any
 human default, table layout or pinned string. All are additive and opt-in.
 
-### `show -n` caps the discussion
-
-A task with forty comments costs forty comments on every `show`.
-
-- Where: a new `ShowArgs` in `src/cli.rs`, `src/commands/show.rs`;
-  `docs/commands.md` §3.
-- Done when: `-n N` keeps the last N entries under a
-  `discussion (last N of M):` header, `-n 0` omits the section, and the
-  default output is byte-identical.
-
 ### `add` and `set` take the body without an editor
 
 The only way to change a body is `edit`, which needs a terminal.
