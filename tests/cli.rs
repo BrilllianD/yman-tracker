@@ -2296,3 +2296,68 @@ fn reopen_returns_a_closed_task_to_the_default_status() {
     assert_eq!(fx.task_rel(&fx.a, "1"), "5.1.fix-login");
     assert!(!fx.a.join(".yman/cancelled").exists());
 }
+
+/// One `add` can carry everything `set` would otherwise add in a second
+/// commit; the values are deduplicated like tags.
+#[test]
+fn add_sets_assignee_links_and_related_in_one_call() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Other"]).assert().success();
+    let before = fx.git(&fx.a, &["rev-list", "--count", "refs/yman/local"]);
+
+    let out = fx
+        .yman(&fx.a)
+        .args([
+            "add",
+            "Fix login",
+            "-a",
+            "claude",
+            "--link",
+            "https://example.invalid/issues/12",
+            "--link",
+            "https://example.invalid/issues/12",
+            "--relate",
+            "1",
+            "--relate",
+            "1",
+        ])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+
+    let meta = fx.read(&fx.task_dir(&fx.a, "2").join("m.yml"));
+    assert!(meta.contains("assignee: claude"), "{meta}");
+    assert_eq!(
+        meta.matches("https://example.invalid/issues/12").count(),
+        1,
+        "{meta}"
+    );
+    let related: Vec<&str> = meta
+        .split("related:\n")
+        .nth(1)
+        .unwrap_or("")
+        .lines()
+        .take_while(|l| l.starts_with("- "))
+        .collect();
+    assert_eq!(related.len(), 1, "{meta}");
+    assert!(related[0].contains('1'), "{meta}");
+
+    let shown = stdout(&fx.yman(&fx.a).args(["show", "2"]).output().unwrap());
+    assert!(shown.contains("assignee: claude"), "{shown}");
+    assert!(
+        shown.contains("links:    https://example.invalid/issues/12"),
+        "{shown}"
+    );
+    assert!(shown.contains("related:  1"), "{shown}");
+
+    let json = stdout(&fx.yman(&fx.a).args(["ls", "--json"]).output().unwrap());
+    assert!(json.contains("\"assignee\":\"claude\""), "{json}");
+
+    // Only one commit was made for the whole thing.
+    let after = fx.git(&fx.a, &["rev-list", "--count", "refs/yman/local"]);
+    assert_eq!(
+        after.trim().parse::<u32>().unwrap(),
+        before.trim().parse::<u32>().unwrap() + 1
+    );
+}

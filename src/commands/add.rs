@@ -27,12 +27,11 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
     };
     let priority = a.priority.unwrap_or(ctx.config().priorities.default);
 
-    let mut tags: Vec<String> = Vec::new();
-    for t in a.tags {
-        if !tags.contains(&t) {
-            tags.push(t);
-        }
-    }
+    let tags = dedupe(a.tags);
+    let assignee = a
+        .assignee
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
 
     let id = ids::new_id(ctx)?;
     let folder = FolderName {
@@ -52,13 +51,17 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
     }
 
     std::fs::create_dir_all(&dir)?;
+    let mut meta = Meta::new(status, tags);
+    meta.assignee = assignee;
+    meta.links = dedupe(a.links);
+    meta.related = dedupe(a.related);
     let mut t = Task {
         folder,
         parent,
         dir,
         title,
         body: a.message.unwrap_or_default(),
-        meta: Meta::new(status, tags),
+        meta,
     };
     t.write_md()?;
     t.write_meta()?;
@@ -88,4 +91,16 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
         .commit(&format!("task({id}): add \"{}\"", quote_title(&t.title)))?;
     println!("added {id}  {}", t.rel());
     Ok(())
+}
+
+/// First occurrence wins, order kept — the same rule `set` applies to its
+/// list fields.
+fn dedupe(values: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for v in values {
+        if !out.contains(&v) {
+            out.push(v);
+        }
+    }
+    out
 }

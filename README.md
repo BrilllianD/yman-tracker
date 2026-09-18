@@ -197,8 +197,9 @@ written against.
 
 ```sh
 yman add <title> [-p 0-9] [-s <status>] [-t <tag>]... [-m <body>] [-e]
+         [-a <who>] [--link <url>]... [--relate <id>]...
 ```
-Creates a task and commits it. `-t` repeats. `-e` opens `$EDITOR` on the new
+Creates a task and commits it. `-t`, `--link` and `--relate` repeat. `-e` opens `$EDITOR` on the new
 `t.md` first — whatever title you type there wins, and the folder is named after
 it.
 

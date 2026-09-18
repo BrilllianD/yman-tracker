@@ -140,6 +140,15 @@ pub struct AddArgs {
     /// Open the new t.md in $EDITOR
     #[arg(short = 'e', long)]
     pub edit: bool,
+    /// Assignee
+    #[arg(short = 'a', long, value_name = "WHO")]
+    pub assignee: Option<String>,
+    /// Link (repeatable)
+    #[arg(long = "link", value_name = "URL", action = ArgAction::Append)]
+    pub links: Vec<String>,
+    /// Related task id (repeatable)
+    #[arg(long = "relate", value_name = "ID", action = ArgAction::Append)]
+    pub related: Vec<String>,
 }
 
 #[derive(Args, Debug)]

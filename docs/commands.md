@@ -94,8 +94,9 @@ history.
 ### `add`
 
 Mints an id (see [storage.md §8](storage.md#8-id-schemes)), validates the status
-against the config, dedupes tags while keeping their order, then writes `t.md`
-and `m.yml` with `created == updated`. With `-e`, the editor opens before the
+against the config, dedupes tags, `--link`s and `--relate`d ids while keeping
+their order, then writes `t.md` and `m.yml` with `created == updated`.
+`-a/--assignee` is trimmed; blank means unassigned. With `-e`, the editor opens before the
 first commit, so a title typed there renames the folder by plain rename — the
 placeholder never enters git history.
 

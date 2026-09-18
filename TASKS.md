@@ -293,17 +293,6 @@ Agents drive `yman` through a shell, one call at a time, and pay per byte
 they read back. The entries below cut calls and bytes without moving any
 human default, table layout or pinned string. All are additive and opt-in.
 
-### `add` takes `--assignee`, `--link` and `--relate`
-
-Creating a task and then assigning or relating it is two calls and two
-commits today.
-
-- Where: `AddArgs` in `src/cli.rs`, `src/commands/add.rs`, `docs/commands.md`
-  §4, `README.md`.
-- Done when: `yman add "T" -a me --link URL --relate 3` writes all three into
-  `m.yml` in one commit, values are deduplicated like tags, and `tests/cli.rs`
-  covers it.
-
 ### `comment` and `attach` take the author from `YMAN_ACTOR`
 
 The author on a `d.md` entry and an attachment is `git config user.name`,
