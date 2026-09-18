@@ -4,7 +4,7 @@ Backlog for `yman`. Derived from the as-built specification in `docs/`, the
 "Limits and future work" section of `README.md`, and the current state of the
 tree at `314ae88`.
 
-Baseline as of 2026-09-18: `cargo test` is green (59 unit, 67 integration),
+Baseline as of 2026-09-18: `cargo test` is green (59 unit, 81 integration),
 `docs/` and `README.md` describe the shipped behaviour, and every subcommand
 listed in `src/cli.rs` is implemented.
 
@@ -292,20 +292,6 @@ The crate is at `0.1.0` with no changelog and no tagged release.
 Agents drive `yman` through a shell, one call at a time, and pay per byte
 they read back. The entries below cut calls and bytes without moving any
 human default, table layout or pinned string. All are additive and opt-in.
-
-### Describe every flag; add `yman guide`
-
-`yman set --help` shows bare flags, and the only documentation is a 19 KB
-README.
-
-- Where: doc comments on every bare field in `src/cli.rs`, a short
-  `after_help` on the top-level command; new `docs/agents.md` (60 lines at
-  most) printed by `src/commands/guide.rs` via `include_str!`; `src/main.rs`
-  handles `guide` before `repo::discover()`; `docs/commands.md` §1 and §3,
-  `README.md`.
-- Done when: `yman guide` works outside any repository and prints the file
-  byte for byte, `--help` points at it, and every flag has a one-line
-  description.
 
 ### Move the JSON writer into `src/json.rs`
 

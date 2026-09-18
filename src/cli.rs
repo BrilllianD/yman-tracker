@@ -8,7 +8,13 @@ use clap::{ArgAction, ArgGroup, Args, Parser, Subcommand, ValueEnum};
     name = "yman",
     version,
     about = "Task tracker that lives next to the code and syncs through the project's own git remote",
-    disable_help_subcommand = true
+    disable_help_subcommand = true,
+    after_help = "\
+stdout is data; errors, warnings and notes go to stderr.
+Exit codes: 0 ok, 1 error, 2 usage, 3 sync merge unresolved, 4 no such task.
+start/done/move/cancel/reopen/prio take several ids and -m <comment>.
+Bodies without an editor: add --body-file <path|->, set --body <text>.
+Scripts and agents:  yman guide"
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -63,6 +69,8 @@ pub enum Cmd {
     Sync(SyncArgs),
     /// Run a raw git command inside .yman
     Git(GitArgs),
+    /// Print the short manual for scripts and agents (works anywhere)
+    Guide,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
@@ -177,7 +185,7 @@ pub struct LsArgs {
     /// Print at most N tasks, after sorting
     #[arg(short = 'n', long = "limit", value_name = "N")]
     pub limit: Option<usize>,
-    /// Machine-readable output
+    /// Print JSON instead of the table
     #[arg(long)]
     pub json: bool,
 }
@@ -234,27 +242,37 @@ pub struct MoveArgs {
 pub struct SetArgs {
     /// Task id
     pub id: String,
+    /// New status
     #[arg(long, value_name = "STATUS")]
     pub status: Option<String>,
+    /// New priority, 0 (highest) to 9
     #[arg(long, value_name = "N", value_parser = clap::value_parser!(u8).range(0..=9))]
     pub priority: Option<u8>,
+    /// New title (renames the folder)
     #[arg(long, value_name = "TITLE")]
     pub title: Option<String>,
-    #[arg(long, value_name = "WHO", conflicts_with = "no_assignee")]
+    /// Assignee
+    #[arg(short = 'a', long, value_name = "WHO", conflicts_with = "no_assignee")]
     pub assignee: Option<String>,
     /// Clear the assignee
     #[arg(long = "no-assignee")]
     pub no_assignee: bool,
+    /// Add a tag (repeatable)
     #[arg(long = "tag", value_name = "TAG", action = ArgAction::Append)]
     pub tag: Vec<String>,
+    /// Remove a tag (repeatable)
     #[arg(long = "untag", value_name = "TAG", action = ArgAction::Append)]
     pub untag: Vec<String>,
+    /// Add a link (repeatable)
     #[arg(long = "link", value_name = "URL", action = ArgAction::Append)]
     pub link: Vec<String>,
+    /// Remove a link (repeatable)
     #[arg(long = "unlink", value_name = "URL", action = ArgAction::Append)]
     pub unlink: Vec<String>,
+    /// Add a related task id (repeatable)
     #[arg(long = "relate", value_name = "ID", action = ArgAction::Append)]
     pub relate: Vec<String>,
+    /// Remove a related task id (repeatable)
     #[arg(long = "unrelate", value_name = "ID", action = ArgAction::Append)]
     pub unrelate: Vec<String>,
     /// Append a comment in the same commit
@@ -283,6 +301,7 @@ pub struct PrioArgs {
 
 #[derive(Args, Debug)]
 pub struct RmArgs {
+    /// Task id
     pub id: String,
     /// Do not ask for confirmation
     #[arg(short = 'f', long)]
@@ -291,6 +310,7 @@ pub struct RmArgs {
 
 #[derive(Args, Debug)]
 pub struct AttachArgs {
+    /// Task id
     pub id: String,
     /// Files to attach
     #[arg(required = true)]
@@ -305,6 +325,7 @@ pub struct AttachArgs {
 
 #[derive(Args, Debug)]
 pub struct DetachArgs {
+    /// Task id
     pub id: String,
     /// Attachment name
     pub name: String,
@@ -312,6 +333,7 @@ pub struct DetachArgs {
 
 #[derive(Args, Debug)]
 pub struct CommentArgs {
+    /// Task id
     pub id: String,
     /// Comment text
     #[arg(short = 'm', long, value_name = "TEXT")]
@@ -405,11 +427,16 @@ impl Cmd {
                 | Cmd::Status
                 | Cmd::Hooks(_)
                 | Cmd::Git(_)
+                | Cmd::Guide
         )
     }
 
-    /// Commands that do not need `.yman` to exist yet.
+    /// Commands that do not need `.yman` to exist yet. `guide` is listed for
+    /// completeness; `main` answers it before looking for a repository at all.
     pub fn skips_preflight(&self) -> bool {
-        matches!(self, Cmd::Init(_) | Cmd::Hooks(_) | Cmd::Git(_))
+        matches!(
+            self,
+            Cmd::Init(_) | Cmd::Hooks(_) | Cmd::Git(_) | Cmd::Guide
+        )
     }
 }

@@ -2813,3 +2813,43 @@ fn missing_id_exits_4_broken_folder_exits_1() {
         stderr(&out)
     );
 }
+
+/// `--help` describes every flag and ends by pointing at the guide.
+#[test]
+fn help_documents_flags_and_points_at_guide() {
+    let fx = Fx::new();
+    let top = stdout(&fx.yman(&fx.a).arg("--help").output().unwrap());
+    assert!(top.contains("Scripts and agents:  yman guide"), "{top}");
+    assert!(top.contains("4 no such task"), "{top}");
+
+    let set = stdout(&fx.yman(&fx.a).args(["set", "--help"]).output().unwrap());
+    for (flag, doc) in [
+        ("--status <STATUS>", "New status"),
+        ("--title <TITLE>", "New title"),
+        ("--unrelate <ID>", "Remove a related task id"),
+        ("--body-file <PATH>", "Replace the body with a file"),
+    ] {
+        let line = set.lines().find(|l| l.trim_start().starts_with(flag));
+        assert!(
+            line.is_some_and(|l| l.contains(doc)),
+            "{flag}: {line:?}\n{set}"
+        );
+    }
+    let ls = stdout(&fx.yman(&fx.a).args(["ls", "--help"]).output().unwrap());
+    assert!(ls.contains("Print JSON instead of the table"), "{ls}");
+}
+
+/// `guide` prints docs/agents.md byte for byte, from a directory that is
+/// not a git repository at all.
+#[test]
+fn guide_needs_no_repository() {
+    let fx = Fx::new();
+    let nowhere = tempfile::tempdir().unwrap();
+    let out = fx.yman(nowhere.path()).arg("guide").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let expected =
+        std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/agents.md")).unwrap();
+    assert_eq!(stdout(&out), expected);
+    assert_eq!(stderr(&out), "");
+    assert!(expected.lines().count() <= 60, "agents.md must stay short");
+}

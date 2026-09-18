@@ -5,6 +5,7 @@ pub mod attach;
 pub mod comment;
 pub mod edit;
 pub mod git;
+pub mod guide;
 pub mod hooks;
 pub mod init;
 pub mod log;
@@ -82,6 +83,7 @@ pub fn dispatch(ctx: &mut Context, cmd: Cmd) -> Result<()> {
         Cmd::Path(a) => path::run(ctx, &a.id),
         Cmd::Log(a) => log::run(ctx, a),
         Cmd::Status => status::run(ctx),
+        Cmd::Guide => guide::run(),
         Cmd::Refresh(a) => refresh::run(ctx, a),
         Cmd::Hooks(a) => hooks::run(ctx, a),
         Cmd::Sync(a) => sync::run(ctx, a),

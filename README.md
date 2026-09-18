@@ -284,6 +284,7 @@ yman refresh [--quiet]   # fast-forward onto already-fetched task commits
 yman sync [--continue] [--abort] [--no-push]
 yman hooks install|remove|status
 yman git [--] <args>...  # raw git, run inside .yman
+yman guide               # the short manual for scripts and agents; works anywhere
 ```
 
 ```console
@@ -306,6 +307,15 @@ tasks:   todo 4, doing 1, done 7
 
 Errors go to stderr prefixed `error: `, warnings `warning: `, notes `note: `.
 Everything a script would want to read goes to stdout.
+
+### Scripts and agents
+
+`yman guide` prints [docs/agents.md](docs/agents.md), a one-page manual for a
+reader that pays per token: which calls to make, what `ls` columns mean, the
+exit codes, and how to recover from a stuck sync. It starts with a block to
+paste into a project's `CLAUDE.md`. The short version: filter with `ls -n`,
+read with `show -n`, close with `done <id> -m`, never open an editor, and set
+`YMAN_ACTOR` so the work is attributed to the agent.
 
 ---
 

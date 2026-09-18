@@ -21,6 +21,10 @@ Mutating commands, for the purposes of step 2: `add`, `edit`, `set`, `start`,
 `done`, `move`, `cancel`, `reopen`, `prio`, `rm`, `attach`, `detach`, `comment`. `sync` is excluded because
 it handles `MERGE_HEAD` itself.
 
+`guide` runs none of the three. It is documentation compiled into the binary
+and is answered before the repository is looked for, so it works from any
+directory.
+
 ## 2. Commit messages
 
 Every mutation commits immediately, with `--no-verify` so the user's own hooks
@@ -101,6 +105,12 @@ parsing `--diff-filter=R -M` rename records into a graph and walking backwards
 from the current one, then limits the log to those paths — so a task that
 changed priority or title, or moved into a status directory, keeps its full
 history.
+
+### `guide`
+
+Prints [agents.md](agents.md) — the short manual for scripts and agents — to
+stdout, byte for byte, via `include_str!`. Needs no repository. Every other
+`--help` ends by pointing at it.
 
 ## 4. Writing
 
