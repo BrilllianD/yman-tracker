@@ -302,6 +302,7 @@ tasks:   todo 4, doing 1, done 7
 | `1` | error — the message says what happened |
 | `2` | usage error, from the argument parser |
 | `3` | a sync merge is waiting to be resolved |
+| `4` | no task has that id |
 
 Errors go to stderr prefixed `error: `, warnings `warning: `, notes `note: `.
 Everything a script would want to read goes to stdout.

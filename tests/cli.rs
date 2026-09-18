@@ -171,7 +171,7 @@ fn add_ls_show() {
 
     // Unknown ids and statuses fail with the documented wording.
     let out = fx.yman(&fx.a).args(["show", "99"]).output().unwrap();
-    assert!(!out.status.success());
+    assert_eq!(out.status.code(), Some(4));
     assert_eq!(stderr(&out).trim(), "error: task 99 not found");
 
     let out = fx
@@ -2491,7 +2491,7 @@ fn done_accepts_several_ids() {
         .args(["done", "1", "99", "2"])
         .output()
         .unwrap();
-    assert!(!out.status.success());
+    assert_eq!(out.status.code(), Some(4));
     assert_eq!(stderr(&out).trim(), "error: task 99 not found");
     assert_eq!(stdout(&out).trim(), "1: status todo -> done");
     assert_eq!(fx.status(&fx.a, "1"), "done");
@@ -2783,4 +2783,33 @@ fn edit_without_editor_or_tty_fails_fast() {
     let out = fx.yman(&fx.a).args(["edit", "1"]).output().unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
     assert_eq!(stdout(&out).trim(), "no changes");
+}
+
+/// Every command that looks an id up exits 4 on a missing one; a folder that
+/// exists but is broken is a repository problem and stays at 1.
+#[test]
+fn missing_id_exits_4_broken_folder_exits_1() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+
+    for args in [
+        vec!["set", "99", "--priority", "1"],
+        vec!["path", "99"],
+        vec!["comment", "99", "-m", "x"],
+        vec!["rm", "99", "-f"],
+    ] {
+        let out = fx.yman(&fx.a).args(&args).output().unwrap();
+        assert_eq!(out.status.code(), Some(4), "{args:?}");
+        assert_eq!(stderr(&out).trim(), "error: task 99 not found", "{args:?}");
+    }
+
+    fx.write(&fx.task_dir(&fx.a, "1").join("m.yml"), "status: [\n");
+    let out = fx.yman(&fx.a).args(["show", "1"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).starts_with("error: task 1 is broken: "),
+        "{}",
+        stderr(&out)
+    );
 }

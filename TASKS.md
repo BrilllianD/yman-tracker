@@ -293,16 +293,6 @@ Agents drive `yman` through a shell, one call at a time, and pay per byte
 they read back. The entries below cut calls and bytes without moving any
 human default, table layout or pinned string. All are additive and opt-in.
 
-### Exit code 4 for an unknown task id
-
-`task 99 not found` exits 1 like every other error, so a script cannot tell
-a typo from a broken repository without parsing stderr.
-
-- Where: a `NotFound` marker in `src/errors.rs` next to `MergePending`,
-  raised from `task::find`; `docs/errors.md`, `README.md` exit tables.
-- Done when: every command that looks up an id exits 4 on a missing one,
-  `broken` and `duplicate` still exit 1, and the message is unchanged.
-
 ### Describe every flag; add `yman guide`
 
 `yman set --help` shows bare flags, and the only documentation is a 19 KB
