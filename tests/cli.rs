@@ -3391,3 +3391,86 @@ fn ls_matches_tags_case_insensitively() {
         stderr(&out)
     );
 }
+
+/// `tags` is an inventory: it counts closed tasks too, folds case, and costs
+/// no more `git` than `ls` does.
+#[test]
+fn tags_lists_every_tag_with_its_task_count() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Fix login", "-t", "ui", "-t", "auth"])
+        .assert()
+        .success();
+    fx.yman(&fx.a)
+        .args(["add", "Add SSO", "-t", "ui"])
+        .assert()
+        .success();
+    fx.yman(&fx.a)
+        .args(["add", "Ship it", "-t", "ui"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).args(["done", "3"]).assert().success();
+
+    // No header: stdout is a pipe here, as in `ls`.
+    let out = stdout(&fx.yman(&fx.a).args(["tags"]).output().unwrap());
+    assert_eq!(out, "auth  1\nui    3\n", "{out:?}");
+
+    let out = stdout(&fx.yman(&fx.a).args(["tags", "--json"]).output().unwrap());
+    assert_eq!(
+        out.trim_end(),
+        r#"[{"tag":"auth","tasks":1},{"tag":"ui","tasks":3}]"#
+    );
+}
+
+#[test]
+fn tags_folds_case_and_counts_a_task_once() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+
+    // Both spellings on one task, which yman would never write itself.
+    let meta = fx.a.join(".yman").join("5.1.fix-login").join("m.yml");
+    let text = fx.read(&meta).replace("tags: []", "tags:\n- UI\n- ui");
+    std::fs::write(&meta, text).unwrap();
+
+    let out = stdout(&fx.yman(&fx.a).args(["tags"]).output().unwrap());
+    assert_eq!(out, "ui  1\n", "{out:?}");
+}
+
+#[test]
+fn tags_reports_an_unreadable_folder_on_stderr() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Fix login", "-t", "ui"])
+        .assert()
+        .success();
+    std::fs::create_dir(fx.a.join(".yman").join("5.9.broken")).unwrap();
+
+    let out = fx.yman(&fx.a).args(["tags"]).output().unwrap();
+    assert!(out.status.success());
+    assert_eq!(stdout(&out), "ui  1\n", "{:?}", stdout(&out));
+    assert!(
+        stderr(&out).contains("warning: skipped 1 unreadable task folder(s): 5.9.broken"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+/// The property `a_read_only_command_spawns_at_most_one_git` pins for `ls` and
+/// `show`: `tags` prints from the filesystem, so it costs the one `rev-parse`
+/// in `discover` and nothing else.
+#[test]
+#[cfg(unix)]
+fn tags_spawns_at_most_one_git() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Fix login", "-t", "ui"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+
+    assert_eq!(fx.git_spawns(&fx.a, &["tags"]), 1);
+}

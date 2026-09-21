@@ -57,6 +57,8 @@ pub enum Cmd {
     Comment(CommentArgs),
     /// Print the absolute path of a task folder
     Path(IdArgs),
+    /// List the tags in use
+    Tags(TagsArgs),
     /// Show the task history log
     Log(LogArgs),
     /// Report the state of .yman and its remote
@@ -376,6 +378,13 @@ pub enum HooksAction {
     Remove,
     /// Report whether the hooks are in place
     Status,
+}
+
+#[derive(Args, Debug)]
+pub struct TagsArgs {
+    /// Print JSON instead of the table
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Args, Debug)]

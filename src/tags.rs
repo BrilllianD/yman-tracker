@@ -12,7 +12,9 @@
 //! applied to a stored value on the way in. What reads a stored tag folds it
 //! instead, with `fold`.
 
+use crate::task::{self, Entry};
 use anyhow::{Result, bail};
+use std::path::Path;
 
 /// A tag as typed on the command line: trimmed, checked, lowercased.
 pub fn normalize(raw: &str) -> Result<String> {
@@ -48,6 +50,46 @@ pub fn normalize_all(raw: &[String]) -> Result<Vec<String>> {
 /// not bound by what `normalize` accepts.
 pub fn fold(stored: &str) -> String {
     stored.to_lowercase()
+}
+
+/// What tags are in use, and what could not be read while finding out.
+pub struct Inventory {
+    /// `(tag, number of tasks carrying it)`, folded and sorted by name.
+    pub counts: Vec<(String, usize)>,
+    /// Relative paths of the folders that would not load.
+    pub broken: Vec<String>,
+}
+
+/// Every tag on disk with the number of tasks carrying it. Reads the
+/// filesystem and nothing else, as `ls` does.
+pub fn counts(ydir: &Path) -> Result<Inventory> {
+    let mut counts: Vec<(String, usize)> = Vec::new();
+    let mut broken: Vec<String> = Vec::new();
+    for entry in task::list(ydir)? {
+        let rel = entry.rel();
+        match entry {
+            Entry::Broken { .. } => broken.push(rel),
+            Entry::Task(t) => {
+                // A task counts once per distinct tag however its `m.yml`
+                // spells them, so a hand-written `ui` and `UI` on one task is
+                // one task, not two.
+                let mut seen: Vec<String> = Vec::new();
+                for tag in &t.meta.tags {
+                    let tag = fold(tag);
+                    if seen.contains(&tag) {
+                        continue;
+                    }
+                    match counts.iter_mut().find(|(name, _)| *name == tag) {
+                        Some((_, n)) => *n += 1,
+                        None => counts.push((tag.clone(), 1)),
+                    }
+                    seen.push(tag);
+                }
+            }
+        }
+    }
+    counts.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(Inventory { counts, broken })
 }
 
 #[cfg(test)]

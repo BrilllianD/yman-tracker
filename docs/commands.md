@@ -123,6 +123,23 @@ and both counters are `0`. The per-status counts are nested under `by_status`
 so a status named `other` or `broken` cannot collide with the two totals beside
 it.
 
+### `tags`
+
+An inventory of the tags in use: one row per tag with the number of tasks
+carrying it, sorted by name. Touches no git, and counts **every** task on disk
+— closed ones included, unlike `ls`, because the question is what tags exist,
+not what is open. Tags are folded to lowercase before counting, so a hand-written
+`UI` lands in the same row as `ui`, and a task that spells one tag two ways
+counts once. Column headers follow the `ls` rule: terminal only.
+
+    TAG   N
+    auth  1
+    ui    3
+
+`--json` emits `[{tag, tasks}]` in the same order. Folders that would not load
+are skipped with `warning: skipped <n> unreadable task folder(s): <rels>` on
+stderr; `ls` is the command that lists them properly.
+
 ### `path`
 
 Prints the absolute folder path and nothing else, so `cd $(yman path 14)` works.

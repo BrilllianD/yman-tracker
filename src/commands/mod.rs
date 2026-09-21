@@ -17,6 +17,7 @@ pub mod set;
 pub mod show;
 pub mod status;
 pub mod sync;
+pub mod tags;
 
 use crate::cli::Cmd;
 use crate::repo::Context;
@@ -97,6 +98,7 @@ pub fn dispatch(ctx: &mut Context, cmd: Cmd) -> Result<()> {
         Cmd::Path(a) => path::run(ctx, &a.id),
         Cmd::Log(a) => log::run(ctx, a),
         Cmd::Status(a) => status::run(ctx, a),
+        Cmd::Tags(a) => tags::run(ctx, a),
         Cmd::Guide => guide::run(),
         Cmd::Refresh(a) => refresh::run(ctx, a),
         Cmd::Hooks(a) => hooks::run(ctx, a),
