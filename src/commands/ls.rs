@@ -1,6 +1,7 @@
 use crate::cli::LsArgs;
 use crate::json;
 use crate::repo::Context;
+use crate::tags;
 use crate::task::{self, Entry, Task, format_ts};
 use anyhow::{Result, bail};
 use std::io::IsTerminal;
@@ -15,6 +16,9 @@ pub fn run(ctx: &mut Context, a: LsArgs) -> Result<()> {
         }
     }
 
+    // Folded on both sides, as `-q` already is: a tag yman wrote is lowercase
+    // anyway, and one written into `m.yml` by hand should still be findable.
+    let want_tags = tags::normalize_all(&a.tags)?;
     let needle = a.grep.as_deref().map(str::to_lowercase);
     let mut tasks: Vec<Task> = Vec::new();
     let mut broken: Vec<(String, String)> = Vec::new();
@@ -29,7 +33,9 @@ pub fn run(ctx: &mut Context, a: LsArgs) -> Result<()> {
                 } else {
                     a.statuses.contains(&t.meta.status)
                 };
-                let keep_tags = a.tags.iter().all(|want| t.meta.tags.contains(want));
+                let keep_tags = want_tags
+                    .iter()
+                    .all(|want| t.meta.tags.iter().any(|have| tags::fold(have) == *want));
                 let keep_assignee = match a.assignee.as_deref() {
                     None => true,
                     Some("-") => t.meta.assignee.is_none(),

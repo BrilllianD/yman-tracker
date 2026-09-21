@@ -67,7 +67,10 @@ lexically otherwise.
 
 Default filtering hides tasks in any **terminal** status — `statuses.terminal`,
 or the done status when that key is unset; `-a` includes them, and naming one
-with `-s` includes it too. `-t` requires **all** the tags given.
+with `-s` includes it too. `-t` requires **all** the tags given, compared
+lowercase on both sides — the tag yman writes is lowercase anyway, and one
+written into `m.yml` by hand is still found. An invalid tag at `-t` is the same
+error `add` gives.
 `--assignee WHO` keeps one assignee (`-` keeps the unassigned), `-p N` one
 priority, and `-q TEXT` the tasks whose title or body contains the text,
 compared lowercase; all of these AND together with the status and tag

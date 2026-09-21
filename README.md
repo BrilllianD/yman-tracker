@@ -210,7 +210,7 @@ yman ls [-s <status>]... [-t <tag>]... [-a] [--assignee <who>] [-p 0-9]
 ```
 Lists tasks sorted by priority, then status order, then id. Tasks in a closed
 status are hidden unless you pass `-a` or name that status with `-s`. `-t`
-requires *all* the tags given. `--assignee -` means unassigned, `-q` is a
+requires *all* the tags given and matches case-insensitively. `--assignee -` means unassigned, `-q` is a
 case-insensitive search over title and body, `-n` caps the rows after sorting.
 Column headers appear only when stdout is a terminal, so `yman ls | grep` stays
 predictable. `--json` prints one object per

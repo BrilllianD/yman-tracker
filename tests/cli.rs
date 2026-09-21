@@ -3357,3 +3357,37 @@ fn set_refuses_an_invalid_tag_on_either_side() {
     }
     assert_eq!(fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]), before);
 }
+
+/// `-t` folds case on both sides, the way `-q` already does, so a tag written
+/// into `m.yml` by hand is still findable.
+#[test]
+fn ls_matches_tags_case_insensitively() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Fix login", "-t", "ui"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).args(["add", "Add SSO"]).assert().success();
+
+    // A hand edit that yman itself would have refused.
+    let meta = fx.a.join(".yman").join("5.2.add-sso").join("m.yml");
+    let text = fx.read(&meta).replace("tags: []", "tags:\n- UI");
+    std::fs::write(&meta, text).unwrap();
+
+    let out = stdout(&fx.yman(&fx.a).args(["ls", "-t", "UI"]).output().unwrap());
+    assert!(out.contains("Fix login"), "{out}");
+    assert!(out.contains("Add SSO"), "{out}");
+
+    let out = stdout(&fx.yman(&fx.a).args(["ls", "-t", "ui"]).output().unwrap());
+    assert!(out.contains("Fix login"), "{out}");
+    assert!(out.contains("Add SSO"), "{out}");
+
+    let out = fx.yman(&fx.a).args(["ls", "-t", "a,b"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).contains("invalid tag \"a,b\""),
+        "{}",
+        stderr(&out)
+    );
+}

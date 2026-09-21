@@ -9,7 +9,8 @@
 //!
 //! Reading is deliberately more forgiving than writing, as everywhere else in
 //! yman: a `m.yml` edited by hand may hold anything, so nothing here is
-//! applied to a stored value on the way in.
+//! applied to a stored value on the way in. What reads a stored tag folds it
+//! instead, with `fold`.
 
 use anyhow::{Result, bail};
 
@@ -41,6 +42,12 @@ pub fn normalize_all(raw: &[String]) -> Result<Vec<String>> {
         }
     }
     Ok(out)
+}
+
+/// How a stored tag compares: lowercased, because a hand-written `m.yml` is
+/// not bound by what `normalize` accepts.
+pub fn fold(stored: &str) -> String {
+    stored.to_lowercase()
 }
 
 #[cfg(test)]
