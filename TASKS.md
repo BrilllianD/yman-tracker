@@ -36,16 +36,6 @@ that case by hand.
 
 ## Robustness
 
-### Keep a dangling attachment from breaking `show`
-
-`detach` already tolerates an entry in `m.yml` whose file has disappeared
-(`docs/commands.md` §4). Confirm `show` and `ls --json` behave the same way
-rather than erroring, and add a regression test either way.
-
-- Where: `src/commands/show.rs`, `src/commands/ls.rs`, `tests/cli.rs`
-- Done when: a task whose attachment file was deleted outside yman renders with
-  the entry marked as missing, and the behaviour is pinned in `docs/commands.md`.
-
 ### A retitle and a comment on two clones conflict
 
 `**/d.md merge=union` settles concurrent comments, but only while the folder

@@ -88,7 +88,7 @@ pub fn run_detach(ctx: &mut Context, a: DetachArgs) -> Result<()> {
     };
     let rel = format!("{}/{}/{}", t.rel(), task::FILES_DIR, a.name);
     // A listed attachment whose file is already gone just loses its entry.
-    if t.dir.join(task::FILES_DIR).join(&a.name).exists() {
+    if t.attachment_path(&t.meta.attachments[i]).exists() {
         ctx.wt.ok(&["rm", "-q", "--", &rel])?;
     }
     t.meta.attachments.remove(i);

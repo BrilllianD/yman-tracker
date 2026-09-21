@@ -86,13 +86,22 @@ columns are omitted, and zero counts render blank rather than `0`.
 `{id, priority, status, title, tags, assignee, links, related, created, updated, attachments, comments, dir}` —
 and `{dir, error}` for broken folders. `dir` is relative to `.yman` and names the
 status directory for a closed task (`done/5.1.fix-login`). `attachments` and
-`comments` are counts here, not lists. The writer is `src/json.rs`: the escaping
-is hand-rolled and there is no `serde_json` dependency.
+`comments` are counts here, not lists, and the attachment count comes from
+`m.yml` alone: an entry whose file has been deleted outside yman still counts,
+because `ls` stats nothing under `f/`. Use `show` to see which one is gone. The
+writer is `src/json.rs`: the escaping is hand-rolled and there is no
+`serde_json` dependency.
 
 ### `show`
 
 Prints the header block, then the body, then `attachments` and `discussion`.
 Empty sections are omitted entirely, including `links` and `related`.
+
+An attachment whose file is gone — deleted outside yman, since `detach` takes
+the entry with it — is still listed, with ` (missing)` after the
+`(added … by …)` parenthesis. The test is a plain existence check on
+`f/<name>`, one per attachment and only in `show`; it never errors and never
+rewrites `m.yml`. `detach` drops such an entry as usual (§4).
 
 `-n N` keeps only the last N discussion entries (a chunk `d.md` could not
 parse counts as one) under the header `discussion (last N of M):`; `-n 0`
@@ -102,7 +111,9 @@ output is identical to the default, header included.
 `--json` emits one object —
 `{id, priority, status, title, tags, assignee, links, related, created, updated,
 dir, body, attachments, discussion, discussion_total}`. `attachments` is
-`[{name, added, by}]` and `discussion` is `[{ts, author, text}]`, with an
+`[{name, added, by, missing}]`, where `missing` is the same existence check the
+text form marks, always present as `true` or `false`; `discussion` is
+`[{ts, author, text}]`, with an
 unparsable chunk appearing as `{raw}`; `discussion_total` is the count before
 `-n` trimmed anything. Unlike the text form nothing is omitted: an empty
 section is an empty array and an absent assignee is `null`, so a script never
