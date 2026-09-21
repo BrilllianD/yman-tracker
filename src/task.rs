@@ -331,37 +331,10 @@ pub fn task_path_of(path: &str) -> Option<(String, FolderName)> {
 /// `statuses.list` must still be found, or editing the config would make tasks
 /// disappear.
 pub fn list(ydir: &Path) -> Result<Vec<Entry>> {
-    let mut rels: Vec<(Option<String>, String)> = Vec::new();
-    for entry in std::fs::read_dir(ydir)? {
-        let entry = entry?;
-        if !entry.file_type()?.is_dir() {
-            continue;
-        }
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if FolderName::parse(&name).is_some() {
-            rels.push((None, name));
-        } else if crate::config::is_status_dir_name(&name) {
-            for nested in std::fs::read_dir(entry.path())? {
-                let nested = nested?;
-                if !nested.file_type()?.is_dir() {
-                    continue;
-                }
-                let leaf = nested.file_name().to_string_lossy().into_owned();
-                if FolderName::parse(&leaf).is_some() {
-                    rels.push((Some(name.clone()), leaf));
-                }
-            }
-        }
-    }
-    // Top-level tasks first, then each status directory, both by name.
-    rels.sort();
-    Ok(rels
+    Ok(task_dirs(ydir)?
         .into_iter()
-        .map(|(parent, name)| {
-            let dir = match &parent {
-                Some(p) => ydir.join(p).join(&name),
-                None => ydir.join(&name),
-            };
+        .map(|(parent, name, _)| {
+            let dir = dir_of(ydir, &parent, &name);
             match load(ydir, &dir) {
                 Ok(t) => Entry::Task(t),
                 Err(e) => Entry::Broken {
@@ -374,36 +347,80 @@ pub fn list(ydir: &Path) -> Result<Vec<Entry>> {
         .collect())
 }
 
-/// Look a task up by id. Broken folders with the right id still error out.
-pub fn find(ydir: &Path, id: &str) -> Result<Task> {
-    let mut hits: Vec<Entry> = Vec::new();
-    for entry in list(ydir)? {
-        let name = entry.dir_name();
-        if FolderName::parse(&name)
-            .map(|f| f.id == id)
-            .unwrap_or(false)
-        {
-            hits.push(entry);
+/// Every task folder in `ydir` as `(status directory, leaf name, parsed name)`,
+/// in relative-path order — the names only, nothing read from inside them.
+/// `list` loads all of these; `find` and `fs_ids` never do.
+pub fn task_dirs(ydir: &Path) -> Result<Vec<(Option<String>, String, FolderName)>> {
+    let mut rels: Vec<(Option<String>, String, FolderName)> = Vec::new();
+    for entry in std::fs::read_dir(ydir)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if let Some(folder) = FolderName::parse(&name) {
+            rels.push((None, name, folder));
+        } else if crate::config::is_status_dir_name(&name) {
+            for nested in std::fs::read_dir(entry.path())? {
+                let nested = nested?;
+                if !nested.file_type()?.is_dir() {
+                    continue;
+                }
+                let leaf = nested.file_name().to_string_lossy().into_owned();
+                if let Some(folder) = FolderName::parse(&leaf) {
+                    rels.push((Some(name.clone()), leaf, folder));
+                }
+            }
         }
     }
+    // Top-level tasks first, then each status directory, both by name.
+    rels.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
+    Ok(rels)
+}
+
+fn dir_of(ydir: &Path, parent: &Option<String>, name: &str) -> PathBuf {
+    match parent {
+        Some(p) => ydir.join(p).join(name),
+        None => ydir.join(name),
+    }
+}
+
+/// Look a task up by id. Broken folders with the right id still error out.
+///
+/// The id is in the folder name, so the match is decided from directory names
+/// alone and only the winning folder is read. `list` would read `t.md` and
+/// `m.yml` for every task on disk, which every `show`, `set`, `comment` and
+/// `attach` would then pay for.
+pub fn find(ydir: &Path, id: &str) -> Result<Task> {
+    let mut hits: Vec<(Option<String>, String)> = task_dirs(ydir)?
+        .into_iter()
+        .filter(|(_, _, folder)| folder.id == id)
+        .map(|(parent, name, _)| (parent, name))
+        .collect();
     match hits.len() {
         0 => Err(crate::errors::NotFound::new(format!("task {id} not found")).into()),
         1 => {
-            let hit = hits.pop().expect("length checked");
-            let rel = hit.rel();
-            match hit {
-                Entry::Task(t) => Ok(t),
-                Entry::Broken { error, .. } => {
-                    bail!("task {id} is broken: {rel}: {error}")
-                }
-            }
+            let (parent, name) = hits.pop().expect("length checked");
+            let rel = rel_of(&parent, &name);
+            load(ydir, &dir_of(ydir, &parent, &name))
+                .map_err(|e| anyhow::anyhow!("task {id} is broken: {rel}: {e:#}"))
         }
         _ => {
             // Relative paths, not folder names: after a bad merge both copies
             // can share a leaf name and differ only in their status directory.
-            let names: Vec<String> = hits.iter().map(|e| e.rel()).collect();
+            let names: Vec<String> = hits
+                .iter()
+                .map(|(parent, name)| rel_of(parent, name))
+                .collect();
             bail!("duplicate task id {id}: {}", names.join(", "))
         }
+    }
+}
+
+fn rel_of(parent: &Option<String>, name: &str) -> String {
+    match parent {
+        Some(p) => format!("{p}/{name}"),
+        None => name.to_string(),
     }
 }
 

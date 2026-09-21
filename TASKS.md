@@ -115,25 +115,6 @@ set. Record both in `docs/storage.md` §5 even if nothing else changes.
 
 ## Performance
 
-### `find` by folder name only
-
-`task::find` calls `list`, which reads `t.md` and `m.yml` for every folder in
-`.yman/` and in every status directory, then keeps the one whose id matches.
-Every `show`, `set`, `comment` and `attach` therefore pays for every closed task
-on disk.
-
-Archiving closed tasks took the edge off this — the common case is an open task,
-and `list` could stop descending into the status directories once it has a hit
-at the top level — but it did not fix it, and it added a second level to walk.
-
-- Where: `src/task.rs`
-- Measured baseline: 15 ms for `yman show <id>` at 1014 tasks, all of it
-  filesystem — the command spawns one `git` process.
-- Done when: `find` parses directory names with `FolderName::parse` at both
-  levels, loads only the matching folder, still reports `duplicate task id …`
-  from the names alone (relative paths, since two copies can share a leaf
-  name), and the broken-folder error path is unchanged.
-
 ### `log <id>` rebuilds the whole history's rename graph
 
 `historical_names` (`src/commands/log.rs:35-78`) runs an uncapped
