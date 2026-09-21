@@ -85,11 +85,11 @@ commit.
 | `--body-file` cannot be read | `cannot read <path>: <why>` — `<why>` is the OS error text |
 | `cancel` with no cancel status | `no cancel status configured; set statuses.cancel in .yman/config.toml` |
 | `reopen` on an open task | `task <id> is not closed (status "<s>"); closed statuses: <terminal joined by ", ">` |
-| `rm` with no terminal and no `-f` | `refusing to remove without -f` |
+| `rm` or `tags rm` with no terminal and no `-f` | `refusing to remove without -f` |
 | editor failed | `editor exited with status N; file left as is` (or `editor was killed by a signal; …`) |
 | no editor resolvable | `no editor configured; set $EDITOR` |
 | neither `$VISUAL` nor `$EDITOR` set, stdin not a terminal | `no terminal for vi; set $EDITOR, or use -m / --body-file` |
-| `rm` prompt declined | `aborted` |
+| `rm` or `tags rm` prompt declined | `aborted` |
 | `t.md` unparsable | `t.md must start with "# Title"` |
 | `t.md` unparsable after an edit | `t.md invalid after edit: <why>; fix the file then run: yman edit <id>` |
 | invalid config | `invalid .yman/config.toml: <why>` |

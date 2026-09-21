@@ -41,6 +41,8 @@ interfere. GPG signing is deliberately left to the user's configuration.
 | `attach` | `task({id}): attach {name}[, {name}…]` |
 | `detach` | `task({id}): detach {name}` |
 | `comment` | `task({id}): comment` |
+| `tags rename` | `yman: tags rename {old} -> {new} ({n} tasks)` |
+| `tags rm` | `yman: tags remove {tag} ({n} tasks)` |
 | `sync` snapshot | `yman: snapshot local changes` |
 | `sync` renumber | `yman: renumber 2->3, 7->8 (sync collision)` |
 | `sync` merge | `yman: merge origin refs/tasks/main` |
@@ -139,6 +141,9 @@ counts once. Column headers follow the `ls` rule: terminal only.
 `--json` emits `[{tag, tasks}]` in the same order. Folders that would not load
 are skipped with `warning: skipped <n> unreadable task folder(s): <rels>` on
 stderr; `ls` is the command that lists them properly.
+
+`tags rename` and `tags rm` edit the vocabulary itself; they are under
+[§4](#4-writing).
 
 ### `path`
 
@@ -248,6 +253,31 @@ take exactly one id.
 
 `cancel` has no fallback on purpose: picking one of several closed statuses by
 position is the guesswork the named roles exist to remove.
+
+### `tags rename` / `tags rm`
+
+The two edits that only make sense across every task at once. Both normalize
+their arguments the way `add` does, match stored tags folded, and touch only
+`m.yml` — a tag never names the folder, so nothing is renamed or moved.
+
+`tags rename <old> <new>` replaces `old` in place, keeping its position in the
+list. A task already carrying `new` loses `old` rather than gaining a duplicate,
+so its line reads `<id>: tags -<old>` where the others read
+`<id>: tags +<new> -<old>`. `old` and `new` that normalize to the same value is
+`no changes`.
+
+`tags rm <tag>` drops it. On a terminal it prompts
+`remove tag "<tag>" from <n> task(s)? [y/N] ` — asked only once the count is
+known, since confirming a removal without knowing it touches forty tasks is not
+consent. Anything but `y`/`Y` aborts. Without a terminal and without `-f` it
+refuses with `refusing to remove without -f`, the same wording as `rm`.
+
+Both are **one** commit for every task they touch: renaming a tag is a single
+decision, and a half-applied rename would leave the vocabulary in a state
+nobody chose. No match is `no changes` and no commit, as in `set`. A folder
+that does not load cannot be rewritten either, so it is reported on stderr with
+the same `warning: skipped …` the listing prints rather than silently left out
+of the count.
 
 ### `rm`
 

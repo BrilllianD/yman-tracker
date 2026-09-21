@@ -3474,3 +3474,148 @@ fn tags_spawns_at_most_one_git() {
 
     assert_eq!(fx.git_spawns(&fx.a, &["tags"]), 1);
 }
+
+/// A rename is one commit for every task it touches, keeps the tag's position,
+/// and never leaves a duplicate behind.
+#[test]
+fn tags_rename_rewrites_every_task_in_one_commit() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Fix login", "-t", "ui", "-t", "bug"])
+        .assert()
+        .success();
+    fx.yman(&fx.a)
+        .args(["add", "Add SSO", "-t", "ui", "-t", "auth"])
+        .assert()
+        .success();
+    fx.yman(&fx.a)
+        .args(["add", "Ship it", "-t", "other"])
+        .assert()
+        .success();
+
+    let before = fx.git(&fx.a.join(".yman"), &["rev-list", "--count", "HEAD"]);
+    let out = stdout(
+        &fx.yman(&fx.a)
+            .args(["tags", "rename", "UI", "auth"])
+            .output()
+            .unwrap(),
+    );
+    // Task 2 already carried `auth`: the rename is a removal there.
+    assert_eq!(out, "1: tags +auth -ui\n2: tags -ui\n", "{out:?}");
+
+    let text = stdout(&fx.yman(&fx.a).args(["ls", "--json"]).output().unwrap());
+    assert!(text.contains("\"tags\":[\"auth\",\"bug\"]"), "{text}");
+    assert!(text.contains("\"tags\":[\"auth\"]"), "{text}");
+    assert!(!text.contains("\"ui\""), "{text}");
+
+    let after: usize = fx
+        .git(&fx.a.join(".yman"), &["rev-list", "--count", "HEAD"])
+        .parse()
+        .unwrap();
+    assert_eq!(after, before.parse::<usize>().unwrap() + 1, "one commit");
+    assert_eq!(
+        fx.git(&fx.a.join(".yman"), &["log", "--format=%s", "-1"]),
+        "yman: tags rename ui -> auth (2 tasks)"
+    );
+}
+
+#[test]
+fn tags_rename_with_no_match_changes_nothing() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Fix login", "-t", "ui"])
+        .assert()
+        .success();
+    let before = fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]);
+
+    for args in [
+        ["tags", "rename", "nope", "other"],
+        // Both sides normalize to `ui`, so there is nothing to do.
+        ["tags", "rename", "UI", "ui"],
+    ] {
+        let out = fx.yman(&fx.a).args(args).output().unwrap();
+        assert!(out.status.success(), "{}", stderr(&out));
+        assert_eq!(stdout(&out).trim_end(), "no changes", "{args:?}");
+    }
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]), before);
+}
+
+#[test]
+fn tags_rm_drops_a_tag_everywhere_and_confirms_first() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Fix login", "-t", "ui", "-t", "bug"])
+        .assert()
+        .success();
+    fx.yman(&fx.a)
+        .args(["add", "Add SSO", "-t", "ui"])
+        .assert()
+        .success();
+
+    // No terminal and no -f: the same refusal `rm` gives.
+    let before = fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]);
+    let out = fx.yman(&fx.a).args(["tags", "rm", "ui"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        stderr(&out).trim_end(),
+        "error: refusing to remove without -f"
+    );
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]), before);
+
+    let out = stdout(
+        &fx.yman(&fx.a)
+            .args(["tags", "rm", "UI", "-f"])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(out, "1: tags -ui\n2: tags -ui\n", "{out:?}");
+    assert_eq!(
+        fx.git(&fx.a.join(".yman"), &["log", "--format=%s", "-1"]),
+        "yman: tags remove ui (2 tasks)"
+    );
+    let out = stdout(&fx.yman(&fx.a).args(["tags"]).output().unwrap());
+    assert_eq!(out, "bug  1\n", "{out:?}");
+
+    // Nothing carries it any more, so there is nothing to confirm either.
+    let out = fx.yman(&fx.a).args(["tags", "rm", "ui"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out).trim_end(), "no changes");
+}
+
+/// The bare listing is readable during an unresolved merge, like `ls`; the
+/// subcommands are mutations and wait for it.
+#[test]
+fn tags_subcommands_wait_for_an_unresolved_merge() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Fix login", "-t", "ui"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+
+    // Both clones retitle task 1, which conflicts in t.md.
+    fx.yman(&fx.a)
+        .args(["set", "1", "--title", "A wins"])
+        .assert()
+        .success();
+    fx.yman(&fx.b)
+        .args(["set", "1", "--title", "B wins"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+
+    fx.yman(&fx.b).args(["tags"]).assert().success();
+    let out = fx
+        .yman(&fx.b)
+        .args(["tags", "rm", "ui", "-f"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+}
