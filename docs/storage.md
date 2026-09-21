@@ -7,8 +7,8 @@ Companion documents: [commands.md](commands.md), [errors.md](errors.md).
 
 | Term | Meaning | Source |
 |---|---|---|
-| `ROOT` | main repo toplevel | `git rev-parse --show-toplevel` |
-| `COMMON` | main repo common git dir, absolute | `git rev-parse --path-format=absolute --git-common-dir` |
+| `ROOT` | main repo toplevel | `git rev-parse --path-format=absolute --show-toplevel --git-common-dir`, first line |
+| `COMMON` | main repo common git dir, absolute | the same call, second line |
 | `YDIR` | `ROOT/.yman` | |
 | `WT_GITDIR` | private git dir of the `.yman` worktree | read from `YDIR/.git` |
 | `LOCAL` | `refs/yman/local` — task history head | |
@@ -56,6 +56,27 @@ pickers and CI never see task history, while `git log --all`, `git show-ref` and
 
 Only one `.yman` per clone is supported. A second `worktree add` against the
 same ref is rejected by git and reported as such.
+
+### Refs are read from disk, with `git` as the fallback
+
+Resolving a ref is a file read, and `yman` does it as one (`src/refs.rs`):
+`COMMON/<ref>` first, then a scan of `COMMON/packed-refs`, chasing a `ref:`
+line up to five hops. `WT_GITDIR/HEAD` is read the same way for the symbolic
+HEAD check. Both files are replaced by rename, so a concurrent update is read
+as either the old value or the new one, never a torn one, and a loose ref takes
+precedence over the packed copy exactly as it does for git.
+
+Anything the reader does not recognise — the `reftable` backend (git 2.45+,
+detected as `COMMON/reftable/`), an unreadable file, a value that is not a full
+hex object id — is not a failure: the caller falls back to `git rev-parse` or
+`git symbolic-ref`, which is always authoritative. An unfamiliar repository is
+therefore slower, never wrong. The write paths (`sync`, `init`, `status`) keep
+asking git directly, because they read refs that git itself has just moved.
+
+The visible consequence is the process count: `yman ls` and `yman show` in an
+up-to-date repository spawn one `git`, the `rev-parse` above. A repository
+holding unpushed commits spawns a second for the ancestry question, which no
+file answers. `tests/cli.rs` pins both numbers.
 
 ## 3. Repository configuration
 

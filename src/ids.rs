@@ -59,7 +59,7 @@ pub fn author_prefix(ctx: &Context) -> Result<String> {
 pub fn ever_assigned(ctx: &Context, refs: &[&str]) -> Result<HashSet<String>> {
     let mut present: Vec<&str> = Vec::new();
     for r in refs {
-        if ctx.main.rev_parse(r)?.is_some() {
+        if ctx.resolve_ref(r)?.is_some() {
             present.push(r);
         }
     }

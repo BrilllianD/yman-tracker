@@ -66,19 +66,28 @@ pub enum YdirState {
 }
 
 /// Find the repository containing the current directory.
+///
+/// One `rev-parse` answers both questions: it prints the results in the order
+/// the options were given, so toplevel comes first and the common dir second.
+/// This is the only `git` process a read-only command needs.
 pub fn discover() -> Result<Context> {
     let here = Git::new(std::env::current_dir()?);
-    let root = match here.run(&["rev-parse", "--show-toplevel"])? {
-        o if o.ok() => PathBuf::from(o.stdout.trim()),
-        _ => bail!("not inside a git repository"),
-    };
-    let main = Git::new(&root);
     // `--path-format=absolute` so worktrees and `.git`-file layouts both give
     // us a path we can join onto.
-    let common = PathBuf::from(
-        main.out(&["rev-parse", "--path-format=absolute", "--git-common-dir"])?
-            .trim(),
-    );
+    let out = here.run(&[
+        "rev-parse",
+        "--path-format=absolute",
+        "--show-toplevel",
+        "--git-common-dir",
+    ])?;
+    let mut lines = out.stdout.lines();
+    let (root, common) = match (out.ok(), lines.next(), lines.next()) {
+        (true, Some(top), Some(dir)) => (PathBuf::from(top.trim()), PathBuf::from(dir.trim())),
+        // Older git without `--path-format`, or a layout where one of the two
+        // is unanswerable: ask the way we always did.
+        _ => discover_separately(&here)?,
+    };
+    let main = Git::new(&root);
     let ydir = root.join(YDIR_NAME);
     // git derives the worktree's private dir name from the basename and
     // sanitizes it (".yman" becomes "-yman"), so read it rather than guess.
@@ -92,6 +101,20 @@ pub fn discover() -> Result<Context> {
         wt_gitdir,
         config: None,
     })
+}
+
+/// Fallback for [`discover`]: the two separate `rev-parse` calls.
+fn discover_separately(here: &Git) -> Result<(PathBuf, PathBuf)> {
+    let root = match here.run(&["rev-parse", "--show-toplevel"])? {
+        o if o.ok() => PathBuf::from(o.stdout.trim()),
+        _ => bail!("not inside a git repository"),
+    };
+    let main = Git::new(&root);
+    let common = PathBuf::from(
+        main.out(&["rev-parse", "--path-format=absolute", "--git-common-dir"])?
+            .trim(),
+    );
+    Ok((root, common))
 }
 
 impl Context {
@@ -194,11 +217,28 @@ impl Context {
     /// HEAD of the `.yman` worktree must be the symbolic ref `refs/yman/local`
     /// (see the spike note at the top of `git.rs`).
     pub fn check_worktree_head(&self) -> Result<()> {
-        let out = self.wt.run(&["symbolic-ref", "-q", "HEAD"])?;
-        if out.ok() && out.stdout.trim() == LOCAL {
+        // HEAD is a file in the worktree's private git dir; only a layout
+        // `refs` does not recognise costs a process here.
+        let head = match crate::refs::head_symref(&self.wt_gitdir) {
+            Ok(v) => v,
+            Err(_) => {
+                let out = self.wt.run(&["symbolic-ref", "-q", "HEAD"])?;
+                out.ok().then(|| out.stdout.trim().to_string())
+            }
+        };
+        if head.as_deref() == Some(LOCAL) {
             return Ok(());
         }
         bail!(".yman worktree is not on {LOCAL}; run: yman init");
+    }
+
+    /// Resolve one of our refs to a full hash, off disk where the layout
+    /// allows it and through `git` where it does not.
+    pub fn resolve_ref(&self, name: &str) -> Result<Option<String>> {
+        match crate::refs::resolve(&self.common, name) {
+            Ok(v) => Ok(v),
+            Err(_) => self.main.rev_parse(name),
+        }
     }
 
     /// Checks every command (except `init`, `hooks`, `git`) runs first.

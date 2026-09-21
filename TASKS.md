@@ -146,23 +146,6 @@ set. Record both in `docs/storage.md` §5 even if nothing else changes.
 
 ## Performance
 
-### Stop spawning a `git` process per ref read
-
-Every ref lookup shells out (`Git::rev_parse`, `src/git.rs:124`), including on
-the lazy refresh path that runs before nearly every command
-(`src/refresh.rs:40`). That is two or more process spawns before `yman ls`
-prints a line, and `ls` otherwise touches no git at all.
-
-- Where: `src/git.rs`, `src/refresh.rs`
-- Approach: batch the reads that happen together into one `git for-each-ref`
-  call, or read the loose ref and `packed-refs` files directly and keep the
-  spawn as a fallback. Do not add a git library dependency for this — see the
-  dependency rule in `CLAUDE.md`.
-- Measured baseline (`scripts/synthetic-project.sh`, 1000 tasks): `yman ls` 6
-  processes and 32 ms, `yman show` 6 and 23 ms, `yman add` 11.
-- Done when: `yman ls` in a repository that needs no refresh spawns at most one
-  `git` process, and `scripts/spike-symref.sh` still passes.
-
 ### `find` by folder name only
 
 `task::find` calls `list`, which reads `t.md` and `m.yml` for every folder in
@@ -175,7 +158,8 @@ and `list` could stop descending into the status directories once it has a hit
 at the top level — but it did not fix it, and it added a second level to walk.
 
 - Where: `src/task.rs`
-- Measured baseline: 23 ms for `yman show <id>` at 1014 tasks.
+- Measured baseline: 15 ms for `yman show <id>` at 1014 tasks, all of it
+  filesystem — the command spawns one `git` process.
 - Done when: `find` parses directory names with `FolderName::parse` at both
   levels, loads only the matching folder, still reports `duplicate task id …`
   from the names alone (relative paths, since two copies can share a leaf
