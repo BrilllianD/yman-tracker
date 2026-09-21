@@ -336,6 +336,12 @@ paste into a project's `CLAUDE.md`. The short version: filter with `ls -n`,
 read with `show -n`, close with `done <id> -m`, never open an editor, and set
 `YMAN_ACTOR` so the work is attributed to the agent.
 
+For a harness that loads skills, [skills/yman/](skills/yman/) is the same
+material as a Claude Code skill, so it arrives without anyone pasting anything.
+Copy the directory into any project that tracks its work with `yman`; it
+assumes nothing about where the yman source tree is. Setting a tracker up from
+scratch is [docs/setup.md](docs/setup.md).
+
 ---
 
 ## Configuration
