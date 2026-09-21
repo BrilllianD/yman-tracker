@@ -74,6 +74,14 @@ convenience.
 
 `docs/` is the normative, as-built specification: `docs/storage.md` for the ref
 and on-disk contract, `docs/commands.md` for per-command semantics, and
-`docs/errors.md` for exit codes and pinned messages. They describe what the code
+`docs/errors.md` for exit codes and pinned messages, and `docs/setup.md` for
+getting from no `.yman` to a working tracker. They describe what the code
 does, so a disagreement between them is a bug in one or the other — say which
 you think it is instead of silently picking a side.
+
+The agent-facing surface is written down three times: `docs/agents.md`, which
+`src/commands/guide.rs` compiles into the binary with `include_str!` and
+`yman guide` prints; `skills/yman/SKILL.md`, the copy a harness loads (and what
+`.claude/skills/yman` symlinks to); and the `## Scripts and agents` section of
+`README.md`. A changed flag, exit code or interactive-command rule has to move
+in all three.
