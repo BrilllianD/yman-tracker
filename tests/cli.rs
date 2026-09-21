@@ -882,6 +882,47 @@ fn field_wise_merge_settles_disjoint_edits() {
     assert!(meta.contains("urgent"), "{meta}");
 }
 
+#[test]
+fn a_tag_added_on_each_clone_merges() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+
+    fx.yman(&fx.a)
+        .args(["set", "1", "--tag", "zeta"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b)
+        .args(["set", "1", "--tag", "alpha"])
+        .assert()
+        .success();
+
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+
+    // Both tags, and the order does not depend on which clone merged.
+    let meta = fx.read(&fx.b.join(".yman/5.1.fix-login/m.yml"));
+    assert!(!meta.contains("<<<<<<<"), "{meta}");
+    let tags: Vec<&str> = meta
+        .lines()
+        .skip_while(|l| *l != "tags:")
+        .skip(1)
+        .take_while(|l| l.starts_with("- "))
+        .map(|l| &l[2..])
+        .collect();
+    // Neither tag was in the base, so both are new and sort by key.
+    assert_eq!(tags, ["alpha", "zeta"]);
+
+    fx.yman(&fx.a).arg("sync").assert().success();
+    assert_eq!(
+        fx.read(&fx.a.join(".yman/5.1.fix-login/m.yml")),
+        fx.read(&fx.b.join(".yman/5.1.fix-login/m.yml"))
+    );
+}
+
 /// The driver is all-or-nothing on purpose: an m.yml it cannot parse has to
 /// end up looking exactly like it did before the driver existed.
 #[test]

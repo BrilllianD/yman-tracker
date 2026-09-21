@@ -45,37 +45,6 @@ references in every other task. The sync renumber path already rewrites
   the count, and the doc states that `related` is one-way and that id
   mentions inside `t.md` or `d.md` text are never rewritten.
 
-### Union-merge the list fields in `m.yml`
-
-The merge driver (`src/merge.rs`) compares `tags`, `links`, `related` and
-`attachments` as whole values, so two clones each *adding* a different tag
-conflict even though the two edits combine cleanly. This is the common case the
-driver does not cover: add/add on `tags` or `links`, and `related` entries
-minted on two sides of the same sync.
-
-The additions-and-removals rule itself is settled —
-`(ours ∪ theirs) − (base − ours) − (base − theirs)` — so what needs deciding
-before code is the rest:
-
-- Order. `tags`, `links` and `related` are order-preserving and
-  first-occurrence-wins (`commands::dedupe`). A union has to choose an
-  interleaving, and both clones must choose the *same* one, or the next sync
-  finds two orderings of the same set and conflicts on that instead.
-- `attachments` needs a key. `path` is the obvious one, but two clones
-  attaching different bytes under the same name both write `f/screenshot.png`:
-  same key, different `added` and `by`, and the file itself conflicts
-  separately. Decide whether that is a driver conflict or resolvable.
-- `unknown` blocks are a list too, of verbatim text keyed by `key`. Either
-  union them by key or say why they stay whole.
-
-- Where: `src/merge.rs`, `docs/storage.md` §6 (the "compared **whole**, not
-  unioned" paragraph comes back out), `tests/cli.rs`
-- Done when: `--tag` on two clones merges to both tags in a deterministic
-  order, a tag removed on one side and kept on the other is gone, an order
-  that differs only by interleaving does not conflict on the following sync,
-  and the attachment decision is recorded in `docs/storage.md` before it is
-  implemented.
-
 ---
 
 ## Robustness
