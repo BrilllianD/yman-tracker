@@ -428,6 +428,71 @@ fn attach_detach() {
     );
 }
 
+/// The entry in `m.yml` outlives its file when someone deletes it outside
+/// yman. `show` says so rather than rendering the entry as if the file were
+/// still there; `ls` keeps counting it, because it stats nothing under `f/`.
+#[test]
+fn show_marks_a_missing_attachment() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+
+    let shot = fx.tmp.path().join("screenshot.png");
+    fx.write(&shot, "not really a png");
+    let notes = fx.tmp.path().join("notes.txt");
+    fx.write(&notes, "still here");
+    for src in [&shot, &notes] {
+        fx.yman(&fx.a)
+            .args(["attach", "1", src.to_str().unwrap()])
+            .assert()
+            .success();
+    }
+
+    std::fs::remove_file(fx.a.join(".yman/5.1.fix-login/f/screenshot.png")).unwrap();
+
+    let shown = stdout(&fx.yman(&fx.a).args(["show", "1"]).output().unwrap());
+    let line = shown
+        .lines()
+        .find(|l| l.contains("screenshot.png"))
+        .unwrap_or_else(|| panic!("{shown}"));
+    assert!(line.starts_with("  screenshot.png   (added "), "{shown}");
+    assert!(line.ends_with(" by Test A) (missing)"), "{shown}");
+    // The file that is still there reads exactly as before.
+    let kept = shown
+        .lines()
+        .find(|l| l.contains("notes.txt"))
+        .unwrap_or_else(|| panic!("{shown}"));
+    assert!(kept.starts_with("  notes.txt   (added "), "{shown}");
+    assert!(kept.ends_with(" by Test A)"), "{shown}");
+
+    let json = stdout(
+        &fx.yman(&fx.a)
+            .args(["show", "1", "--json"])
+            .output()
+            .unwrap(),
+    );
+    assert!(
+        json.contains("\"name\":\"screenshot.png\"") && json.contains("\"missing\":true"),
+        "{json}"
+    );
+    assert!(json.contains("\"missing\":false"), "{json}");
+
+    // `ls` counts the entry, not the file.
+    let listed = stdout(&fx.yman(&fx.a).args(["ls", "--json"]).output().unwrap());
+    assert!(listed.contains("\"attachments\":2"), "{listed}");
+
+    // And the entry can still be detached.
+    let out = fx
+        .yman(&fx.a)
+        .args(["detach", "1", "screenshot.png"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let shown = stdout(&fx.yman(&fx.a).args(["show", "1"]).output().unwrap());
+    assert!(!shown.contains("screenshot.png"), "{shown}");
+    assert!(!shown.contains("(missing)"), "{shown}");
+}
+
 /// `init` writes `*.swp`, `*~`, `.#*` and `*.orig` to `.yman/.gitignore`, and a
 /// plain `git add <dir>` skips an ignored path in silence. Attaching a merge
 /// leftover therefore recorded the entry in `m.yml`, never committed the file,
@@ -3368,6 +3433,7 @@ fn show_json_carries_the_whole_task() {
     assert!(text.contains("\"body\":\"Body text\""), "{text}");
     assert!(text.contains("\"dir\":\"5.2.fix-login\""), "{text}");
     assert!(text.contains("\"name\":\"screenshot.png\""), "{text}");
+    assert!(text.contains("\"missing\":false"), "{text}");
     assert!(text.contains("\"text\":\"note 1\""), "{text}");
     assert!(text.contains("\"discussion_total\":2"), "{text}");
 

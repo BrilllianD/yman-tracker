@@ -468,6 +468,12 @@ impl Task {
     pub fn attachment_count(&self) -> usize {
         self.meta.attachments.len()
     }
+
+    /// The file behind an entry in `m.yml`. It can be absent: nothing stops a
+    /// user deleting it, and the entry outlives it until `detach` runs.
+    pub fn attachment_path(&self, at: &Attachment) -> PathBuf {
+        self.dir.join(FILES_DIR).join(&at.name)
+    }
 }
 
 /// Sort ids the way a human reads them: numerically when they are numbers,

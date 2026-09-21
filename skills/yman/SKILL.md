@@ -50,7 +50,9 @@ Sorting is by priority, then status order, then id — so `-n` keeps the most
 important rows, not arbitrary ones.
 
 Other readers: `show <id>` (one id; `-n <N>` keeps the last N discussion
-entries, `-n 0` drops the discussion entirely), `path <id>` (prints the absolute
+entries, `-n 0` drops the discussion entirely; an attachment whose file was
+deleted outside yman is listed marked ` (missing)`, `"missing":true` in
+`--json`), `path <id>` (prints the absolute
 folder path and nothing else, so `cd "$(yman path 14)"` works), `log [<id>]`
 (`-n`, default 20; with an id it follows the task across renames), `tags` (every
 tag with its task count, closed tasks included) and `status`.

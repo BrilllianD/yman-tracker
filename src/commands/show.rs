@@ -63,11 +63,18 @@ fn print_text(ctx: &Context, t: &Task, entries: &[discussion::Entry], total: usi
     if !t.meta.attachments.is_empty() {
         println!("\nattachments:");
         for at in &t.meta.attachments {
+            // The entry outlives the file if someone deletes it outside yman.
+            let missing = if t.attachment_path(at).exists() {
+                ""
+            } else {
+                " (missing)"
+            };
             println!(
-                "  {}   (added {} by {})",
+                "  {}   (added {} by {}){}",
                 at.name,
                 format_ts(&at.added),
-                at.by
+                at.by,
+                missing
             );
         }
     }
@@ -105,6 +112,7 @@ fn print_json(t: &Task, entries: &[discussion::Entry], total: usize) {
             .str("name", &at.name)
             .str("added", &format_ts(&at.added))
             .str("by", &at.by)
+            .raw("missing", (!t.attachment_path(at).exists()).to_string())
             .finish()
     }));
     let discussion = json::array(entries.iter().map(|e| {
