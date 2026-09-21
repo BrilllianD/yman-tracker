@@ -8,7 +8,7 @@
 //! deliberately more forgiving than the writer: `m.yml` is a file people edit
 //! by hand and resolve merge conflicts in.
 
-use crate::task::{Attachment, Meta, format_ts};
+use crate::task::{Attachment, Meta, Unknown, format_ts};
 use anyhow::{Result, bail};
 use chrono::{DateTime, Utc};
 
@@ -43,6 +43,11 @@ pub fn render(meta: &Meta) -> String {
     }
     seq(&mut out, "links", &meta.links);
     seq(&mut out, "related", &meta.related);
+    // Keys this version does not know, replayed byte for byte. They come last
+    // because the known shape above is what upgrading must not disturb.
+    for u in &meta.unknown {
+        out.push_str(&u.text);
+    }
     out
 }
 
@@ -262,6 +267,7 @@ pub fn parse(text: &str) -> Result<Meta> {
     let mut attachments: Vec<Attachment> = Vec::new();
     let mut links: Vec<String> = Vec::new();
     let mut related: Vec<String> = Vec::new();
+    let mut unknown: Vec<Unknown> = Vec::new();
 
     let lines: Vec<&str> = text.lines().collect();
     let mut i = 0;
@@ -278,6 +284,7 @@ pub fn parse(text: &str) -> Result<Meta> {
             i += 1;
             continue;
         }
+        let start = i;
         let (key, rest) = split_key(line, i + 1)?;
         i += 1;
         match key.as_str() {
@@ -293,12 +300,18 @@ pub fn parse(text: &str) -> Result<Meta> {
             "links" => links = seq_value(rest, &lines, &mut i)?,
             "related" => related = seq_value(rest, &lines, &mut i)?,
             "attachments" => attachments = attachments_value(rest, &lines, &mut i)?,
-            // Unknown keys are dropped on rewrite, so skip whatever they own.
-            _ => skip_block(&lines, &mut i),
+            // Unknown keys are kept verbatim and re-emitted after the known
+            // ones, so a newer yman's fields survive an older one's rewrite.
+            _ => {
+                skip_block(&lines, &mut i);
+                push_unknown(&mut unknown, key, &lines[start..i]);
+            }
         }
     }
 
-    let Some(status) = status else {
+    // A bare `status:`, `status: null` or `status: '  '` is not a status; this
+    // used to read back as the empty string and pass the check below.
+    let Some(status) = status.filter(|s| !s.trim().is_empty()) else {
         bail!("missing field `status`");
     };
     let Some(created) = created else {
@@ -316,7 +329,27 @@ pub fn parse(text: &str) -> Result<Meta> {
         attachments,
         links,
         related,
+        unknown,
     })
+}
+
+/// Keep the lines an unknown key owns, so `render` can replay them.
+fn push_unknown(out: &mut Vec<Unknown>, key: String, block: &[&str]) {
+    // `skip_block` also eats the blank and comment lines that follow the
+    // value; they belong to nobody and are not preserved anywhere else.
+    let end = block
+        .iter()
+        .rposition(|l| !is_blank(l))
+        .map_or(0, |p| p + 1);
+    let mut text = String::new();
+    for line in &block[..end] {
+        text.push_str(line);
+        text.push('\n');
+    }
+    // A repeated key is last-wins, the same as every known key. Replacing
+    // rather than pushing also keeps the file from growing on every rewrite.
+    out.retain(|u| u.key != key);
+    out.push(Unknown { key, text });
 }
 
 fn is_blank(line: &str) -> bool {
@@ -591,9 +624,12 @@ fn attachments_value(rest: &str, lines: &[&str], i: &mut usize) -> Result<Vec<At
             };
             fields.push((k, value));
         }
+        // Last-wins, matching the top level: whoever resolved a conflict by
+        // hand most likely kept the lower half.
         let get = |name: &str| {
             fields
                 .iter()
+                .rev()
                 .find(|(k, _)| k == name)
                 .map(|(_, v)| v.clone())
         };
@@ -737,6 +773,7 @@ mod tests {
             }],
             links: vec!["https://example.com/issues/12".into()],
             related: vec!["5".into()],
+            unknown: Vec::new(),
         }
     }
 
@@ -808,7 +845,11 @@ mod tests {
             "esc\u{1b}ape",
         ] {
             let mut m = meta();
-            m.status = value.to_string();
+            // A blank `status` reads back as missing, so it cannot round trip
+            // and is covered by `an_empty_status_is_missing` instead.
+            if !value.trim().is_empty() {
+                m.status = value.to_string();
+            }
             m.tags = vec![value.to_string()];
             m.assignee = Some(value.to_string());
             m.attachments[0].name = value.to_string();
@@ -846,8 +887,13 @@ priority: 3
         assert_eq!(m.attachments.len(), 1);
         assert_eq!(m.attachments[0].name, "a.png");
         assert_eq!(m.links, ["https://example.com/issues/12"]);
-        // `priority` lives in the folder name; an unknown key is dropped.
         assert!(m.related.is_empty());
+        // `priority` lives in the folder name, so the reader does not act on
+        // it — but it does keep it, rather than eating it on the next write.
+        assert_eq!(m.unknown.len(), 1);
+        assert_eq!(m.unknown[0].key, "priority");
+        assert_eq!(m.unknown[0].text, "priority: 3\n");
+        assert!(render(&m).ends_with("priority: 3\n"));
     }
 
     #[test]
@@ -907,6 +953,104 @@ tags:
 >>>>>>> origin
 created: 2026-09-16T10:00:00Z
 updated: 2026-09-16T10:00:00Z
+";
+        assert!(parse(text).is_err());
+    }
+
+    #[test]
+    fn unknown_blocks_survive_a_round_trip() {
+        let text = "\
+due: 2026-12-01
+status: doing
+custom:
+  a: 1
+  nested:
+    deep: true
+created: 2026-09-16T10:00:00Z
+updated: 2026-09-16T10:00:00Z
+estimate: |-
+  two
+  days
+\"quoted\": 1
+reviewers:
+- ana
+- bo
+
+";
+        let m = parse(text).unwrap();
+        let keys: Vec<&str> = m.unknown.iter().map(|u| u.key.as_str()).collect();
+        assert_eq!(keys, ["due", "custom", "estimate", "quoted", "reviewers"]);
+        // The trailing blank line belongs to nobody and is not kept.
+        assert_eq!(m.unknown[4].text, "reviewers:\n- ana\n- bo\n");
+
+        let out = render(&m);
+        let tail = out.split_once("related: []\n").unwrap().1;
+        assert_eq!(
+            tail,
+            "due: 2026-12-01\n\
+custom:\n  a: 1\n  nested:\n    deep: true\n\
+estimate: |-\n  two\n  days\n\
+\"quoted\": 1\n\
+reviewers:\n- ana\n- bo\n"
+        );
+        assert_eq!(parse(&out).unwrap(), m);
+    }
+
+    #[test]
+    fn unknown_duplicate_keys_are_last_wins() {
+        let text = "\
+status: todo
+due: 1
+created: 2026-09-16T10:00:00Z
+updated: 2026-09-16T10:00:00Z
+due: 2
+";
+        let m = parse(text).unwrap();
+        assert_eq!(m.unknown.len(), 1);
+        assert_eq!(m.unknown[0].text, "due: 2\n");
+        assert_eq!(parse(&render(&m)).unwrap(), m);
+    }
+
+    #[test]
+    fn an_attachment_takes_the_last_duplicate_key() {
+        let text = "\
+status: todo
+created: 2026-09-16T10:00:00Z
+updated: 2026-09-16T10:00:00Z
+attachments:
+- path: f/a.png
+  name: a.png
+  added: 2026-09-16T10:00:00Z
+  by: ana
+  by: bo
+";
+        let m = parse(text).unwrap();
+        assert_eq!(m.attachments[0].by, "bo");
+    }
+
+    #[test]
+    fn an_empty_status_is_missing() {
+        for rest in ["", " null", " ~", " ''", " '  '"] {
+            let text = format!(
+                "status:{rest}\ncreated: 2026-09-16T10:00:00Z\nupdated: 2026-09-16T10:00:00Z\n"
+            );
+            let err = parse(&text).unwrap_err().to_string();
+            assert_eq!(err, "missing field `status`", "status:{rest}");
+        }
+    }
+
+    #[test]
+    fn a_conflict_inside_an_unknown_block_still_fails() {
+        let text = "\
+status: todo
+created: 2026-09-16T10:00:00Z
+updated: 2026-09-16T10:00:00Z
+reviewers:
+<<<<<<< HEAD
+- ana
+=======
+- bo
+>>>>>>> origin
 ";
         assert!(parse(text).is_err());
     }

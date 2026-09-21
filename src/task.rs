@@ -33,6 +33,23 @@ pub struct Meta {
     pub attachments: Vec<Attachment>,
     pub links: Vec<String>,
     pub related: Vec<String>,
+    /// Top-level keys the reader does not know, in the order they were read.
+    pub unknown: Vec<Unknown>,
+}
+
+/// A top-level `m.yml` key this yman does not know, kept verbatim so that a
+/// rewrite by an older binary — or by a person — does not destroy it.
+///
+/// Invariant, upheld by `yml::parse`, the only producer: `text` starts with
+/// the column-zero `key: …` line, every later line is blank or indented or a
+/// sequence item, the last line is not blank, and every line ends with `\n`.
+/// That is exactly what the reader hands back on the next parse, which is what
+/// makes `parse(render(m)) == m` hold.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Unknown {
+    /// Unquoted; used only to collapse a repeated key.
+    pub key: String,
+    pub text: String,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -56,6 +73,7 @@ impl Meta {
             attachments: Vec::new(),
             links: Vec::new(),
             related: Vec::new(),
+            unknown: Vec::new(),
         }
     }
 }

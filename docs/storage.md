@@ -191,19 +191,29 @@ related:
 - Timestamps are RFC 3339, UTC, **second precision** (`task::now()` zeroes the
   nanoseconds), serialized with a `Z` suffix.
 - `attachments[].path` is always `f/<name>`.
-- Unknown keys are dropped on rewrite — documented and accepted.
+- Unknown top-level keys survive a rewrite. The reader keeps the lines a key
+  owns verbatim and the writer replays them after `related`, so a field a newer
+  yman writes — or one added by hand — is not destroyed by an older binary.
+  They are preserved, not interpreted: nothing reads them and none of them
+  appear in `--json` output. Comments, and unknown keys *inside* an
+  `attachments` item, are still dropped.
 - `m.yml` is read and written by hand in `src/yml.rs`; there is no YAML
   crate. The writer emits exactly the shape above: block sequences at column
   zero, `[]` for an empty list, `null` for an absent `assignee`, and a scalar
   quoted only when the plain form would read back as a number, a boolean or
   null. A value containing newlines becomes a literal block (`|-`, `|`,
-  `|+`).
+  `|+`). The preserved unknown blocks follow, which is why a hand-edited file
+  that interleaved one comes back with it moved to the end.
 - The reader is deliberately wider than the writer, because people edit this
   file and resolve merge conflicts in it: comments, flow sequences
   (`tags: [a, b]`), single- and double-quoted scalars, folded blocks (`>-`)
-  and sequences indented under their key are all accepted.
+  and sequences indented under their key are all accepted. A key repeated at
+  the top level or inside an `attachments` item keeps its **last** occurrence,
+  which is the half of a conflict a person usually means to keep.
 - A `status` outside `config.statuses.list` is reported, never a hard error, so
-  editing the config cannot brick existing tasks.
+  editing the config cannot brick existing tasks. An *empty* `status` — bare,
+  `null`, or whitespace — is a different thing: it reads as a missing field, so
+  the task is reported broken rather than loaded with no status at all.
 
 ### `d.md`
 

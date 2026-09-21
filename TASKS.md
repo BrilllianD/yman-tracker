@@ -32,21 +32,6 @@ conflict that the user resolves by hand, even though `status`, `priority`,
   that, or whether it is opt-in — and record the decision in `docs/storage.md`
   before writing code.
 
-### Preserve unknown `m.yml` keys on rewrite
-
-The reader consumes and drops any key it does not know, and `docs/storage.md`
-calls that accepted. There is no per-task schema version, so the day a newer
-yman writes a field (`due:`, say), any older yman on the team destroys it on
-the next `set`. Hand-added keys are lost the same way.
-
-- Where: `src/yml.rs`, `src/task.rs` (`Meta`), `docs/storage.md`
-- Done when: unknown top-level blocks survive a read-modify-write cycle
-  verbatim, re-emitted after the known keys, and the doc sentence is
-  reversed. Fix the reader's neighbouring inconsistencies in the same pass:
-  an empty `status:` currently passes the required-field check as `""`, and
-  duplicate keys are last-wins at top level but first-wins inside an
-  attachment item.
-
 ### Validate the `author` id prefix
 
 `author_prefix` returns `yman.author` or `$YMAN_AUTHOR` trimmed but otherwise

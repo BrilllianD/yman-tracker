@@ -1921,6 +1921,45 @@ fn awkward_field_values_survive_a_rewrite() {
     assert_eq!(before, after, "an unchanged task was rewritten");
 }
 
+/// A key this yman does not know — a newer version's field, or one someone
+/// added by hand — is carried through a rewrite instead of being eaten.
+#[test]
+fn hand_added_m_yml_keys_survive_a_rewrite() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+
+    // Spliced in the middle, where an older yman used to drop it.
+    let path = fx.a.join(".yman/5.1.fix-login/m.yml");
+    let text = fx.read(&path);
+    let (head, tail) = text.split_once("links: []\n").unwrap();
+    fx.write(&path, &format!("{head}due: 2026-12-01\nlinks: []\n{tail}"));
+
+    fx.yman(&fx.a)
+        .args(["set", "1", "--tag", "x"])
+        .assert()
+        .success();
+
+    let text = fx.read(&path);
+    assert!(text.contains("due: 2026-12-01"), "{text}");
+    assert!(text.ends_with("due: 2026-12-01\n"), "{text}");
+
+    // And the task is still a task, not a broken folder.
+    let out = fx.yman(&fx.a).arg("ls").output().unwrap();
+    let listing = stdout(&out);
+    assert!(listing.contains("Fix login"), "{listing}");
+    assert!(!listing.contains('!'), "{listing}");
+
+    // A second rewrite neither drops it nor emits it twice.
+    fx.yman(&fx.a)
+        .args(["set", "1", "--tag", "y"])
+        .assert()
+        .success();
+    let text = fx.read(&path);
+    assert_eq!(text.matches("due: 2026-12-01").count(), 1, "{text}");
+    assert!(text.ends_with("due: 2026-12-01\n"), "{text}");
+}
+
 /// Every closed status is hidden, not just the last one in the list.
 #[test]
 fn ls_hides_the_whole_terminal_set() {
