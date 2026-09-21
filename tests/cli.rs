@@ -1673,6 +1673,67 @@ fn author_scheme_derives_a_prefix_from_the_committer() {
         .success();
     fx.yman(&fx.a).args(["add", "A two"]).assert().success();
     assert!(fx.has_task(&fx.a, "iv-1"));
+
+    // A blank setting means "unset", not "invalid": it falls through to the
+    // next source, which here is the initials again.
+    fx.git(&fx.a, &["config", "yman.author", "   "]);
+    fx.yman(&fx.a).args(["add", "A three"]).assert().success();
+    assert!(fx.has_task(&fx.a, "ta-2"));
+}
+
+/// A prefix that would break the folder-name grammar is refused at `add`,
+/// before anything is written. `init` stores it without complaint, so this is
+/// where the user finds out.
+#[test]
+fn a_dotted_author_prefix_is_rejected() {
+    let fx = Fx::new();
+    fx.yman(&fx.a)
+        .args(["init", "--id-scheme", "author", "--author", "v.i"])
+        .assert()
+        .success();
+
+    let out = fx.yman(&fx.a).args(["add", "Fix login"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        stderr(&out).trim(),
+        "error: author prefix \"v.i\" from yman.author must be letters, digits, \"_\" or \"-\""
+    );
+    // The id is minted before the folder, so nothing was created.
+    assert!(fx.task_dirs(&fx.a).is_empty());
+}
+
+#[test]
+fn a_bad_author_prefix_names_its_source() {
+    let fx = Fx::new();
+    fx.yman(&fx.a)
+        .args(["init", "--id-scheme", "author"])
+        .assert()
+        .success();
+
+    // The fixture removes YMAN_AUTHOR; a later `.env` puts it back.
+    let out = fx
+        .yman(&fx.a)
+        .args(["add", "Fix login"])
+        .env("YMAN_AUTHOR", "ivan p")
+        .output()
+        .unwrap();
+    assert_eq!(
+        stderr(&out).trim(),
+        "error: author prefix \"ivan p\" from $YMAN_AUTHOR must be letters, digits, \"_\" or \"-\""
+    );
+
+    // Config wins over the environment, and reports itself as the source.
+    fx.git(&fx.a, &["config", "yman.author", "a/b"]);
+    let out = fx
+        .yman(&fx.a)
+        .args(["add", "Fix login"])
+        .env("YMAN_AUTHOR", "ivan p")
+        .output()
+        .unwrap();
+    assert_eq!(
+        stderr(&out).trim(),
+        "error: author prefix \"a/b\" from yman.author must be letters, digits, \"_\" or \"-\""
+    );
 }
 
 #[test]

@@ -515,6 +515,16 @@ mod tests {
         }
     }
 
+    /// A dotted id is mis-read, not refused — the id field ends at the first
+    /// dot. This is why `ids::author_prefix` validates its prefix: nothing
+    /// downstream would complain about the folder it produces.
+    #[test]
+    fn folder_name_splits_at_the_first_dot() {
+        let f = FolderName::parse("5.v.i-1.fix-login").expect("parses");
+        assert_eq!(f.id, "v");
+        assert_eq!(f.slug, "i-1.fix-login");
+    }
+
     #[test]
     fn slug_keeps_only_alphanumerics() {
         assert_eq!(slugify("Fix login!", 200), "fix-login");

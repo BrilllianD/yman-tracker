@@ -32,19 +32,6 @@ conflict that the user resolves by hand, even though `status`, `priority`,
   that, or whether it is opt-in — and record the decision in `docs/storage.md`
   before writing code.
 
-### Validate the `author` id prefix
-
-`author_prefix` returns `yman.author` or `$YMAN_AUTHOR` trimmed but otherwise
-unchecked. A prefix containing `.` produces a folder such as `5.v.i-1.slug`,
-which `FolderName::parse` reads as id `v` with slug `i-1.slug`; `/`, `\` or
-whitespace make the folder unparsable, so the new task is invisible or
-mis-identified.
-
-- Where: `src/ids.rs`, `tests/cli.rs`, `docs/errors.md`, `docs/storage.md` §8
-- Done when: a prefix that is empty or contains `.`, `/`, `\` or whitespace
-  fails `add` with a pinned message, and the accepted grammar is written
-  down next to the id schemes.
-
 ### Renumbering leaves `related` references dangling on other clones
 
 `rewrite_related` (`src/commands/sync.rs:422-456`) walks the renumbering

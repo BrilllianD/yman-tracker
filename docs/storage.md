@@ -109,7 +109,11 @@ dependency.
   Only the priority sorts numerically: the listing is lexical, so within one
   priority `5.10.x` comes before `5.2.x`. `yman ls` orders ids properly
   (commands.md §3); zero-padding them here would change the id contract.
-- `id` never contains `.`; every scheme satisfies this (`14`, `t-7f3a`, `iv-12`).
+- `id` never contains `.`. `FolderName::parse` splits at the *first* dot after
+  the priority and only rejects `/` and `\` outright, so a dotted id would be
+  silently mis-read rather than refused — `5.v.i-1.slug` parses as id `v` with
+  slug `i-1.slug`. `seq` and `random` cannot produce one, and the `author`
+  prefix is validated before an id is minted (§8).
 - **The folder name is the source of truth** for priority and id. `m.yml` does
   not repeat them, and changing either is a `git mv` so history follows.
 - Entries in `.yman/` that are not directories, or whose names do not match, are
@@ -361,3 +365,13 @@ its id — a later `add` cannot reuse it and confuse the history.
 The `author` prefix resolves in order: `git config yman.author`, `$YMAN_AUTHOR`,
 then the initials of `user.name` (first letter of each word, lowercased, ASCII
 letters only). With none of those available, `add` fails rather than guess.
+
+The prefix must match `[A-Za-z0-9_-]+`, and whichever source supplies it is
+checked every time it is read. A setting that is empty or all whitespace counts
+as unset and falls through to the next source; anything else that fails the
+grammar fails `add`, naming the value and the source it came from. The reason
+is §5: the prefix lands in the folder name, where a `.` is read as the id
+separator. `yman init --author` stores the value without checking it, so a bad
+prefix surfaces at the first `add`. Ids minted before the rule are left alone —
+a collision renumber re-derives the prefix from the id it finds, so an old task
+stays renumberable.
