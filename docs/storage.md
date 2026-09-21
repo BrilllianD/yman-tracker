@@ -313,9 +313,24 @@ comment text, possibly several lines
 ```
 
 i.e. `## {rfc3339} — {author}`, blank line, text, blank line. The separator is
-an em dash. The parser splits on lines starting with `## ` and keeps
-unparsable chunks as raw text, so a hand-edited or union-merged file never makes
-`show` fail.
+an em dash.
+
+A new entry starts only at a line of exactly that shape: `## `, a timestamp
+with no whitespace in it, ` — `, an author. Any other line beginning with `## `
+is prose and stays inside the entry it was written in, so quoting a markdown
+heading in a comment does not inflate the comment count `ls` reports.
+Unparsable chunks are kept as raw text, so a hand-edited or union-merged file
+never makes `show` fail.
+
+Two things the writer does to keep that true:
+
+- Body lines whose first non-blank character is `#` are indented by one space.
+  Markdown still renders them as headings, and `show` strips the space back off,
+  but a comment can no longer contain something that reads as an entry header.
+- Before appending, it checks the file already ends with a blank line and
+  supplies whatever is missing. Every entry we write ends in `\n\n`; a
+  hand-edited tail may not, and a header glued onto the previous line would
+  degrade that whole chunk to raw text.
 
 `.gitattributes` marks `**/d.md` as `merge=union`, so concurrent comments merge
 without a conflict. The pattern is `**`, not `*`, because a `*` does not cross a
