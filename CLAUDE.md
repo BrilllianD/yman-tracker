@@ -10,7 +10,7 @@ that touches refs, the worktree, or the on-disk layout.
 ## Commands
 
 ```sh
-cargo test                                  # 83 unit + 90 integration
+cargo test                                  # 88 unit + 93 integration
 cargo clippy --all-targets -- -D warnings   # must be clean; CI-equivalent gate
 cargo fmt                                   # run before committing
 sh scripts/spike-symref.sh                  # re-proves the git invariant below

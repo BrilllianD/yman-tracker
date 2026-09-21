@@ -144,8 +144,14 @@ stdout, byte for byte, via `include_str!`. Needs no repository. Every other
 ### `add`
 
 Mints an id (see [storage.md §8](storage.md#8-id-schemes)), validates the status
-against the config, dedupes tags, `--link`s and `--relate`d ids while keeping
-their order, then writes `t.md` and `m.yml` with `created == updated`.
+against the config, normalizes the tags, dedupes them together with the
+`--link`s and `--relate`d ids while keeping their order, then writes `t.md` and
+`m.yml` with `created == updated`. A tag is trimmed, lowercased, and refused
+when it is empty or carries whitespace, a comma or a control character — the
+comma separates the `ls` TAGS column and the flow sequence `m.yml` accepts, and
+whitespace makes `-t` unusable without quoting. Tags are checked before the
+editor opens, before `--body-file` reads stdin and before an id is minted, so a
+typo costs neither an id nor a half-written folder. `-t UI -t ui` is one tag.
 `-a/--assignee` is trimmed; blank means unassigned. The body comes from `-m`,
 or from `--body-file PATH` (`-` reads stdin); the two exclude each other and
 `-e`. With `-e`, the editor opens before the
@@ -181,7 +187,10 @@ applied in memory first, then:
 
 List fields (`--tag/--untag`, `--link/--unlink`, `--relate/--unrelate`) are set
 semantics with insertion order preserved: adding a value already present is not
-a change, and removing one that was never there is quietly accepted. When
+a change, and removing one that was never there is quietly accepted. Both
+`--tag` and `--untag` normalize their values the way `add` does, and both refuse
+an invalid one — nothing yman wrote can look like that, so such a value is a
+typo rather than something waiting to be removed. When
 nothing at all changed, `set` prints `no changes` and commits nothing. `-m`
 always counts as a change; an empty message is the `empty comment` error.
 

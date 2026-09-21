@@ -3272,3 +3272,88 @@ fn a_read_only_command_spawns_at_most_one_git() {
         .success();
     assert_eq!(fx.git_spawns(&fx.a, &["ls"]), 2);
 }
+
+/// A tag is a token: trimmed, lowercased, and refused when it carries the
+/// characters that would break the TAGS column or `-t`.
+#[test]
+fn tags_are_normalized_on_add_and_set() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Fix login", "-t", "UI", "-t", "  ui  ", "-t", "Auth"])
+        .assert()
+        .success();
+    let text = stdout(&fx.yman(&fx.a).args(["ls", "--json"]).output().unwrap());
+    assert!(text.contains("\"tags\":[\"ui\",\"auth\"]"), "{text}");
+
+    // `--untag` folds the same way, so removing `UI` removes the stored `ui`.
+    fx.yman(&fx.a)
+        .args(["set", "1", "--untag", "UI", "--tag", "BUG"])
+        .assert()
+        .success();
+    let text = stdout(&fx.yman(&fx.a).args(["ls", "--json"]).output().unwrap());
+    assert!(text.contains("\"tags\":[\"auth\",\"bug\"]"), "{text}");
+}
+
+#[test]
+fn add_refuses_a_tag_that_is_empty_or_carries_a_separator() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["add", "Fix login", "-t", "  "])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(stderr(&out).trim_end(), "error: tag must not be empty");
+
+    for bad in ["a,b", "needs review"] {
+        let out = fx
+            .yman(&fx.a)
+            .args(["add", "Fix login", "-t", bad])
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(1));
+        assert_eq!(
+            stderr(&out).trim_end(),
+            format!(
+                "error: invalid tag \"{bad}\"; tags must not contain whitespace, \
+                 commas or control characters"
+            )
+        );
+    }
+
+    // Nothing was minted and nothing was written: the check runs before the
+    // id and the folder exist.
+    assert!(fx.task_dirs(&fx.a).is_empty(), "{:?}", fx.task_dirs(&fx.a));
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let dirs = fx.task_dirs(&fx.a);
+    assert_eq!(
+        dirs,
+        [std::path::PathBuf::from("5.1.fix-login")],
+        "{dirs:?}"
+    );
+}
+
+#[test]
+fn set_refuses_an_invalid_tag_on_either_side() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Fix login", "-t", "ui"])
+        .assert()
+        .success();
+    let before = fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]);
+
+    for args in [["set", "1", "--tag", "a,b"], ["set", "1", "--untag", "a,b"]] {
+        let out = fx.yman(&fx.a).args(args).output().unwrap();
+        assert_eq!(out.status.code(), Some(1), "{args:?}");
+        assert!(
+            stderr(&out).contains("invalid tag \"a,b\""),
+            "{}",
+            stderr(&out)
+        );
+    }
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]), before);
+}

@@ -216,6 +216,11 @@ related:
 - Timestamps are RFC 3339, UTC, **second precision** (`task::now()` zeroes the
   nanoseconds), serialized with a `Z` suffix.
 - `attachments[].path` is always `f/<name>`.
+- `tags` entries written by yman are trimmed, lowercased and free of
+  whitespace, commas and control characters (see
+  [commands.md §4](commands.md#add)). The reader enforces none of that: a
+  hand-written `Tags: [UI]` loads as it stands, and `ls -t` and `yman tags`
+  fold case so it still matches and still counts.
 - Unknown top-level keys survive a rewrite. The reader keeps the lines a key
   owns verbatim and the writer replays them after `related`, so a field a newer
   yman writes — or one added by hand — is not destroyed by an older binary.

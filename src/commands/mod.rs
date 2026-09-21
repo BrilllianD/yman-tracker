@@ -39,6 +39,20 @@ pub fn read_text_source(path: &str) -> Result<String> {
     }
 }
 
+/// The rule every list field on `add` follows: first occurrence wins, order
+/// kept. `set` reaches the same result through `apply_set`, and
+/// `tags::normalize_all` through its own loop, because it has to fold case
+/// before it can tell two values apart.
+pub fn dedupe(values: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for v in values {
+        if !out.contains(&v) {
+            out.push(v);
+        }
+    }
+    out
+}
+
 /// Titles go into commit subjects verbatim except for double quotes, which
 /// would fight with the quoting in the message template.
 pub fn quote_title(title: &str) -> String {

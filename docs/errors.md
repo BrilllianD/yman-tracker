@@ -73,6 +73,8 @@ commit.
 | `default` or the start status is terminal | `invalid .yman/config.toml: statuses.terminal must not contain statuses.default "<s>"` / `… must not contain the start status "<s>"` |
 | every status is terminal | `invalid .yman/config.toml: statuses.terminal marks every status terminal; at least one must stay open` |
 | empty title | `title must not be empty` |
+| empty tag | `tag must not be empty` |
+| tag with a separator or a control character | `invalid tag "<t>"; tags must not contain whitespace, commas or control characters` — `<t>` is the trimmed value |
 | unknown attachment | `no attachment "<name>" on task <id>` |
 | attachment name already used | `attachment "<name>" already exists on task <id>; use --force` |
 | `--name` with several files | `--name only works with a single file` |

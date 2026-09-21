@@ -1,6 +1,7 @@
 use crate::cli::AddArgs;
 use crate::ids;
 use crate::repo::Context;
+use crate::tags;
 use crate::task::{self, FolderName, Meta, Task};
 use anyhow::{Result, bail};
 
@@ -12,6 +13,9 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
     if title.is_empty() {
         bail!("title must not be empty");
     }
+    // Before the editor, before stdin, before an id is minted: a bad tag must
+    // not cost the user a burned id or a half-written folder.
+    let tags = tags::normalize_all(&a.tags)?;
     if a.edit {
         // Refuse before the folder exists; see `edit::resolve_editor`.
         super::edit::resolve_editor()?;
@@ -35,7 +39,6 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
     };
     let priority = a.priority.unwrap_or(ctx.config().priorities.default);
 
-    let tags = dedupe(a.tags);
     let assignee = a
         .assignee
         .map(|s| s.trim().to_string())
@@ -61,8 +64,8 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
     std::fs::create_dir_all(&dir)?;
     let mut meta = Meta::new(status, tags);
     meta.assignee = assignee;
-    meta.links = dedupe(a.links);
-    meta.related = dedupe(a.related);
+    meta.links = super::dedupe(a.links);
+    meta.related = super::dedupe(a.related);
     let mut t = Task {
         folder,
         parent,
@@ -99,16 +102,4 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
         .commit(&format!("task({id}): add \"{}\"", quote_title(&t.title)))?;
     println!("added {id}  {}", t.rel());
     Ok(())
-}
-
-/// First occurrence wins, order kept — the same rule `set` applies to its
-/// list fields.
-fn dedupe(values: Vec<String>) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for v in values {
-        if !out.contains(&v) {
-            out.push(v);
-        }
-    }
-    out
 }

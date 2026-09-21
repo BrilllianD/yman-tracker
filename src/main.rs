@@ -10,6 +10,7 @@ mod json;
 mod refresh;
 mod refs;
 mod repo;
+mod tags;
 mod task;
 mod yml;
 
