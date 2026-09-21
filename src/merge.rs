@@ -13,27 +13,95 @@
 //! resolve by hand is exactly the file they would have seen before this
 //! existed. See `src/commands/merge_driver.rs` for the git side.
 
-use crate::task::Meta;
+use crate::task::{Attachment, Meta, Unknown};
+use std::collections::{BTreeMap, BTreeSet};
 
 /// The merged metadata, or `None` when a field was changed differently on both
 /// sides.
 ///
-/// Every field is compared as a whole value — a `tags` list edited on both
-/// sides conflicts even when the two edits would union cleanly. The two
-/// exceptions are the timestamps, which have an obvious answer and never
-/// conflict: `updated` takes the later of the two, `created` the earlier.
+/// Scalars go to the side that moved. The timestamps have an obvious answer
+/// and never conflict: `updated` takes the later of the two, `created` the
+/// earlier. The list fields are merged entry by entry — see [`merge_list`].
 pub fn three_way(base: &Meta, ours: &Meta, theirs: &Meta) -> Option<Meta> {
     Some(Meta {
         status: pick(&base.status, &ours.status, &theirs.status)?,
-        tags: pick(&base.tags, &ours.tags, &theirs.tags)?,
+        tags: merge_list(&base.tags, &ours.tags, &theirs.tags, String::clone)?,
         assignee: pick(&base.assignee, &ours.assignee, &theirs.assignee)?,
         created: ours.created.min(theirs.created),
         updated: ours.updated.max(theirs.updated),
-        attachments: pick(&base.attachments, &ours.attachments, &theirs.attachments)?,
-        links: pick(&base.links, &ours.links, &theirs.links)?,
-        related: pick(&base.related, &ours.related, &theirs.related)?,
-        unknown: pick(&base.unknown, &ours.unknown, &theirs.unknown)?,
+        attachments: merge_list(
+            &base.attachments,
+            &ours.attachments,
+            &theirs.attachments,
+            |a: &Attachment| a.path.clone(),
+        )?,
+        links: merge_list(&base.links, &ours.links, &theirs.links, String::clone)?,
+        related: merge_list(&base.related, &ours.related, &theirs.related, String::clone)?,
+        unknown: merge_list(
+            &base.unknown,
+            &ours.unknown,
+            &theirs.unknown,
+            |u: &Unknown| u.key.clone(),
+        )?,
     })
+}
+
+/// Merge a list entry by entry, keyed by `key`.
+///
+/// Every entry is an independent [`pick`] over "is it there, and with what
+/// value": added on one side stays, removed on one side goes, and only an
+/// entry *changed* differently on both sides conflicts. Two clones each adding
+/// a tag therefore merge instead of conflicting, which whole-value comparison
+/// could not do.
+///
+/// The result's order is the one thing this cannot take from either side.
+/// Git hands the driver `%A` and `%B` the other way round on the other clone,
+/// so anything derived from "ours first" would produce two different orderings
+/// of the same set and conflict on the *next* sync. Instead: entries that were
+/// already in the base keep the base's order, and everything new is appended
+/// sorted by key. That is commutative, so both clones reach the same list.
+/// Duplicate keys within one list — only reachable by hand-editing — collapse
+/// to their first entry.
+fn merge_list<T, K, F>(base: &[T], ours: &[T], theirs: &[T], key: F) -> Option<Vec<T>>
+where
+    T: Clone + PartialEq,
+    K: Ord + Clone,
+    F: Fn(&T) -> K,
+{
+    let index = |list: &[T]| -> BTreeMap<K, T> {
+        let mut m = BTreeMap::new();
+        for item in list {
+            m.entry(key(item)).or_insert_with(|| item.clone());
+        }
+        m
+    };
+    let (b, o, t) = (index(base), index(ours), index(theirs));
+
+    // `None` is "absent", which is a value like any other: a removal on one
+    // side against an untouched other side is a removal.
+    let mut keys: BTreeSet<K> = BTreeSet::new();
+    keys.extend(b.keys().chain(o.keys()).chain(t.keys()).cloned());
+    let mut merged: BTreeMap<K, T> = BTreeMap::new();
+    for k in keys {
+        let entry = pick(
+            &b.get(&k).cloned(),
+            &o.get(&k).cloned(),
+            &t.get(&k).cloned(),
+        )?;
+        if let Some(v) = entry {
+            merged.insert(k, v);
+        }
+    }
+
+    let mut out: Vec<T> = Vec::new();
+    for item in base {
+        if let Some(v) = merged.remove(&key(item)) {
+            out.push(v);
+        }
+    }
+    // BTreeMap iteration is key order, which is the commutative part.
+    out.extend(merged.into_values());
+    Some(out)
 }
 
 /// The one rule: a side that did not move yields to the side that did.
@@ -109,13 +177,85 @@ mod tests {
     }
 
     #[test]
-    fn a_list_edited_on_both_sides_conflicts() {
-        // Deliberate: lists are compared whole, not unioned.
+    fn a_tag_added_on_each_side_keeps_both() {
         let base = meta();
         let mut ours = base.clone();
         ours.tags = vec!["api".into(), "ours".into()];
         let mut theirs = base.clone();
         theirs.tags = vec!["api".into(), "theirs".into()];
+
+        let m = three_way(&base, &ours, &theirs).expect("add/add unions");
+        // Base entries keep the base's order; new ones are appended by key.
+        assert_eq!(m.tags, ["api", "ours", "theirs"]);
+    }
+
+    /// The property the ordering rule exists for: git hands the driver the two
+    /// sides the other way round on the other clone, so a merge that is not
+    /// commutative produces two orderings of one set and conflicts on the next
+    /// sync.
+    #[test]
+    fn swapping_the_two_sides_gives_the_same_list() {
+        let base = meta();
+        let mut ours = base.clone();
+        ours.tags = vec!["api".into(), "zeta".into()];
+        let mut theirs = base.clone();
+        theirs.tags = vec!["api".into(), "alpha".into()];
+
+        let a = three_way(&base, &ours, &theirs).unwrap();
+        let b = three_way(&base, &theirs, &ours).unwrap();
+        assert_eq!(a.tags, b.tags);
+        assert_eq!(a.tags, ["api", "alpha", "zeta"]);
+    }
+
+    #[test]
+    fn a_removal_beats_an_untouched_side() {
+        let mut base = meta();
+        base.tags = vec!["api".into(), "stale".into()];
+        let mut ours = base.clone();
+        ours.tags = vec!["api".into()];
+        let mut theirs = base.clone();
+        theirs.tags = vec!["api".into(), "stale".into(), "new".into()];
+
+        let m = three_way(&base, &ours, &theirs).expect("remove/add is not a conflict");
+        assert_eq!(m.tags, ["api", "new"]);
+    }
+
+    #[test]
+    fn one_entry_changed_differently_still_conflicts() {
+        // Same attachment path, different metadata on each side.
+        let mut base = meta();
+        let att = |by: &str| Attachment {
+            path: "f/log.txt".into(),
+            name: "log.txt".into(),
+            added: ts("2026-01-02T00:00:00Z"),
+            by: by.into(),
+        };
+        base.attachments = vec![att("ann")];
+        let mut ours = base.clone();
+        ours.attachments = vec![att("bo")];
+        let mut theirs = base.clone();
+        theirs.attachments = vec![att("cy")];
+        assert!(three_way(&base, &ours, &theirs).is_none());
+    }
+
+    #[test]
+    fn an_unknown_block_is_keyed_by_its_key() {
+        let base = meta();
+        let blk = |key: &str, v: &str| Unknown {
+            key: key.into(),
+            text: format!("{key}: {v}\n"),
+        };
+        let mut ours = base.clone();
+        ours.unknown = vec![blk("estimate", "3d")];
+        let mut theirs = base.clone();
+        theirs.unknown = vec![blk("owner", "ops")];
+
+        let m = three_way(&base, &ours, &theirs).expect("different keys union");
+        assert_eq!(m.unknown.len(), 2);
+
+        // The same key with different text is a conflict, though.
+        let mut theirs = base.clone();
+        theirs.unknown = vec![blk("estimate", "5d")];
         assert!(three_way(&base, &ours, &theirs).is_none());
     }
 

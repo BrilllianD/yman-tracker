@@ -264,20 +264,32 @@ merge conflicts. `updated` makes it worse — it changes on every edit on both
 sides, so it is a permanently-differing line wedged between `created` and
 `attachments`, dragging its neighbours into conflicts they do not deserve.
 
-The driver compares whole field values:
+The driver merges field by field:
 
 | Field | Rule |
 |---|---|
 | `updated` | the later of the two; never conflicts |
 | `created` | the earlier of the two; never conflicts |
-| everything else | the side that moved wins; both moved differently is a conflict |
+| `status`, `assignee` | the side that moved wins; both moved differently is a conflict |
+| `tags`, `links`, `related`, `attachments`, unknown blocks | merged entry by entry (below) |
 
-"Everything else" includes the list fields. `tags`, `links`, `related` and
-`attachments` are compared **whole**, not unioned: a tag added on each clone is
-a conflict, even though the two edits would combine cleanly. That is a
-deliberate limit, not an oversight — union semantics for a list also have to
-answer what a *removal* on one side means against an addition on the other, and
-the answer is not obvious enough to bury in a merge driver.
+A list is merged one entry at a time, so a tag added on each clone keeps both.
+Each entry is the same three-way decision as a scalar, over "is it there, and
+with what value": added on one side stays, removed on one side goes, and only an
+entry *changed* differently on both sides conflicts. Entries are identified by
+themselves for `tags`, `links` and `related`, by `path` for `attachments`, and
+by the top-level key for an unknown block — so two clones attaching different
+files under one name, or writing the same unknown key with different text, do
+conflict.
+
+The result's **order** is the one thing the driver cannot take from either side.
+Git hands `%A` and `%B` over the other way round on the other clone, so anything
+derived from "ours first" would give the two clones two orderings of one set,
+and they would conflict on that at the next sync. So: entries that were already
+in the merge base keep the base's order, and everything new is appended sorted
+by key. A merge can therefore reorder a task's tags relative to the order the
+user typed them in — only on a merge, and only among newly added entries. A
+duplicate entry in a hand-edited list collapses to its first occurrence.
 
 The driver is all-or-nothing. One conflicting field abandons the whole
 field-wise merge and hands the three files to `git merge-file`, so what the user
