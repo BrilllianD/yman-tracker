@@ -164,21 +164,6 @@ against 3802 rename records, for a task with 17 commits.
 
 ---
 
-## Dependencies and tooling
-
-### Add a CI workflow
-
-`CLAUDE.md` calls `cargo clippy --all-targets -- -D warnings` the
-"CI-equivalent gate", but there is no `.github/` directory — the gate only runs
-when someone remembers to run it.
-
-- Where: new `.github/workflows/ci.yml`
-- Done when: pushes and pull requests run `cargo fmt --check`, the clippy gate,
-  `cargo test` and `sh scripts/spike-symref.sh` — the same four steps as the
-  `verify` skill in `.claude/skills/verify/SKILL.md`.
-
----
-
 ## Distribution
 
 ### Shell completions and a man page

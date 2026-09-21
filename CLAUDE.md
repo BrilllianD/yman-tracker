@@ -10,12 +10,16 @@ that touches refs, the worktree, or the on-disk layout.
 ## Commands
 
 ```sh
-cargo test                                  # 88 unit + 102 integration
-cargo clippy --all-targets -- -D warnings   # must be clean; CI-equivalent gate
+cargo test                                  # 98 unit + 105 integration
+cargo clippy --all-targets -- -D warnings   # must be clean; CI runs it too
 cargo fmt                                   # run before committing
 sh scripts/spike-symref.sh                  # re-proves the git invariant below
 cargo test --test cli <name>                # one integration scenario
 ```
+
+`.github/workflows/ci.yml` runs the same four checks as the `verify` skill
+(`.claude/skills/verify/SKILL.md`) on every push and pull request, in that
+skill's order. Changing a gate means changing both.
 
 ## Gotchas
 

@@ -1,0 +1,53 @@
+# The quality gate from .claude/skills/verify/SKILL.md, run on every push and
+# pull request. The four steps and their order are the same; keep them in sync.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The runner image ships a stable toolchain with rustfmt and clippy; this
+      # only makes sure it is current enough for edition 2024.
+      - name: Install toolchain
+        run: |
+          rustup update --no-self-update stable
+          rustup default stable
+          rustup component add rustfmt clippy
+          rustc --version
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      # Every step below runs even after an earlier one fails, so a single run
+      # reports everything that is broken rather than only the first thing.
+      - name: cargo fmt --check
+        if: ${{ !cancelled() }}
+        run: cargo fmt --check
+
+      - name: cargo clippy
+        if: ${{ !cancelled() }}
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: cargo test
+        if: ${{ !cancelled() }}
+        run: cargo test
+
+      - name: symref spike
+        if: ${{ !cancelled() }}
+        run: sh scripts/spike-symref.sh
