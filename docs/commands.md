@@ -41,6 +41,8 @@ interfere. GPG signing is deliberately left to the user's configuration.
 | `attach` | `task({id}): attach {name}[, {name}…]` |
 | `detach` | `task({id}): detach {name}` |
 | `comment` | `task({id}): comment` |
+| `tags rename` | `yman: tags rename {old} -> {new} ({n} tasks)` |
+| `tags rm` | `yman: tags remove {tag} ({n} tasks)` |
 | `sync` snapshot | `yman: snapshot local changes` |
 | `sync` renumber | `yman: renumber 2->3, 7->8 (sync collision)` |
 | `sync` merge | `yman: merge origin refs/tasks/main` |
@@ -67,7 +69,10 @@ lexically otherwise.
 
 Default filtering hides tasks in any **terminal** status — `statuses.terminal`,
 or the done status when that key is unset; `-a` includes them, and naming one
-with `-s` includes it too. `-t` requires **all** the tags given.
+with `-s` includes it too. `-t` requires **all** the tags given, compared
+lowercase on both sides — the tag yman writes is lowercase anyway, and one
+written into `m.yml` by hand is still found. An invalid tag at `-t` is the same
+error `add` gives.
 `--assignee WHO` keeps one assignee (`-` keeps the unassigned), `-p N` one
 priority, and `-q TEXT` the tasks whose title or body contains the text,
 compared lowercase; all of these AND together with the status and tag
@@ -120,6 +125,26 @@ and both counters are `0`. The per-status counts are nested under `by_status`
 so a status named `other` or `broken` cannot collide with the two totals beside
 it.
 
+### `tags`
+
+An inventory of the tags in use: one row per tag with the number of tasks
+carrying it, sorted by name. Touches no git, and counts **every** task on disk
+— closed ones included, unlike `ls`, because the question is what tags exist,
+not what is open. Tags are folded to lowercase before counting, so a hand-written
+`UI` lands in the same row as `ui`, and a task that spells one tag two ways
+counts once. Column headers follow the `ls` rule: terminal only.
+
+    TAG   N
+    auth  1
+    ui    3
+
+`--json` emits `[{tag, tasks}]` in the same order. Folders that would not load
+are skipped with `warning: skipped <n> unreadable task folder(s): <rels>` on
+stderr; `ls` is the command that lists them properly.
+
+`tags rename` and `tags rm` edit the vocabulary itself; they are under
+[§4](#4-writing).
+
 ### `path`
 
 Prints the absolute folder path and nothing else, so `cd $(yman path 14)` works.
@@ -144,8 +169,14 @@ stdout, byte for byte, via `include_str!`. Needs no repository. Every other
 ### `add`
 
 Mints an id (see [storage.md §8](storage.md#8-id-schemes)), validates the status
-against the config, dedupes tags, `--link`s and `--relate`d ids while keeping
-their order, then writes `t.md` and `m.yml` with `created == updated`.
+against the config, normalizes the tags, dedupes them together with the
+`--link`s and `--relate`d ids while keeping their order, then writes `t.md` and
+`m.yml` with `created == updated`. A tag is trimmed, lowercased, and refused
+when it is empty or carries whitespace, a comma or a control character — the
+comma separates the `ls` TAGS column and the flow sequence `m.yml` accepts, and
+whitespace makes `-t` unusable without quoting. Tags are checked before the
+editor opens, before `--body-file` reads stdin and before an id is minted, so a
+typo costs neither an id nor a half-written folder. `-t UI -t ui` is one tag.
 `-a/--assignee` is trimmed; blank means unassigned. The body comes from `-m`,
 or from `--body-file PATH` (`-` reads stdin); the two exclude each other and
 `-e`. With `-e`, the editor opens before the
@@ -181,7 +212,10 @@ applied in memory first, then:
 
 List fields (`--tag/--untag`, `--link/--unlink`, `--relate/--unrelate`) are set
 semantics with insertion order preserved: adding a value already present is not
-a change, and removing one that was never there is quietly accepted. When
+a change, and removing one that was never there is quietly accepted. Both
+`--tag` and `--untag` normalize their values the way `add` does, and both refuse
+an invalid one — nothing yman wrote can look like that, so such a value is a
+typo rather than something waiting to be removed. When
 nothing at all changed, `set` prints `no changes` and commits nothing. `-m`
 always counts as a change; an empty message is the `empty comment` error.
 
@@ -219,6 +253,31 @@ take exactly one id.
 
 `cancel` has no fallback on purpose: picking one of several closed statuses by
 position is the guesswork the named roles exist to remove.
+
+### `tags rename` / `tags rm`
+
+The two edits that only make sense across every task at once. Both normalize
+their arguments the way `add` does, match stored tags folded, and touch only
+`m.yml` — a tag never names the folder, so nothing is renamed or moved.
+
+`tags rename <old> <new>` replaces `old` in place, keeping its position in the
+list. A task already carrying `new` loses `old` rather than gaining a duplicate,
+so its line reads `<id>: tags -<old>` where the others read
+`<id>: tags +<new> -<old>`. `old` and `new` that normalize to the same value is
+`no changes`.
+
+`tags rm <tag>` drops it. On a terminal it prompts
+`remove tag "<tag>" from <n> task(s)? [y/N] ` — asked only once the count is
+known, since confirming a removal without knowing it touches forty tasks is not
+consent. Anything but `y`/`Y` aborts. Without a terminal and without `-f` it
+refuses with `refusing to remove without -f`, the same wording as `rm`.
+
+Both are **one** commit for every task they touch: renaming a tag is a single
+decision, and a half-applied rename would leave the vocabulary in a state
+nobody chose. No match is `no changes` and no commit, as in `set`. A folder
+that does not load cannot be rewritten either, so it is reported on stderr with
+the same `warning: skipped …` the listing prints rather than silently left out
+of the count.
 
 ### `rm`
 

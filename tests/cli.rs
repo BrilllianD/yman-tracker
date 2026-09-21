@@ -3272,3 +3272,350 @@ fn a_read_only_command_spawns_at_most_one_git() {
         .success();
     assert_eq!(fx.git_spawns(&fx.a, &["ls"]), 2);
 }
+
+/// A tag is a token: trimmed, lowercased, and refused when it carries the
+/// characters that would break the TAGS column or `-t`.
+#[test]
+fn tags_are_normalized_on_add_and_set() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Fix login", "-t", "UI", "-t", "  ui  ", "-t", "Auth"])
+        .assert()
+        .success();
+    let text = stdout(&fx.yman(&fx.a).args(["ls", "--json"]).output().unwrap());
+    assert!(text.contains("\"tags\":[\"ui\",\"auth\"]"), "{text}");
+
+    // `--untag` folds the same way, so removing `UI` removes the stored `ui`.
+    fx.yman(&fx.a)
+        .args(["set", "1", "--untag", "UI", "--tag", "BUG"])
+        .assert()
+        .success();
+    let text = stdout(&fx.yman(&fx.a).args(["ls", "--json"]).output().unwrap());
+    assert!(text.contains("\"tags\":[\"auth\",\"bug\"]"), "{text}");
+}
+
+#[test]
+fn add_refuses_a_tag_that_is_empty_or_carries_a_separator() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["add", "Fix login", "-t", "  "])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(stderr(&out).trim_end(), "error: tag must not be empty");
+
+    for bad in ["a,b", "needs review"] {
+        let out = fx
+            .yman(&fx.a)
+            .args(["add", "Fix login", "-t", bad])
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(1));
+        assert_eq!(
+            stderr(&out).trim_end(),
+            format!(
+                "error: invalid tag \"{bad}\"; tags must not contain whitespace, \
+                 commas or control characters"
+            )
+        );
+    }
+
+    // Nothing was minted and nothing was written: the check runs before the
+    // id and the folder exist.
+    assert!(fx.task_dirs(&fx.a).is_empty(), "{:?}", fx.task_dirs(&fx.a));
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let dirs = fx.task_dirs(&fx.a);
+    assert_eq!(
+        dirs,
+        [std::path::PathBuf::from("5.1.fix-login")],
+        "{dirs:?}"
+    );
+}
+
+#[test]
+fn set_refuses_an_invalid_tag_on_either_side() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Fix login", "-t", "ui"])
+        .assert()
+        .success();
+    let before = fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]);
+
+    for args in [["set", "1", "--tag", "a,b"], ["set", "1", "--untag", "a,b"]] {
+        let out = fx.yman(&fx.a).args(args).output().unwrap();
+        assert_eq!(out.status.code(), Some(1), "{args:?}");
+        assert!(
+            stderr(&out).contains("invalid tag \"a,b\""),
+            "{}",
+            stderr(&out)
+        );
+    }
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]), before);
+}
+
+/// `-t` folds case on both sides, the way `-q` already does, so a tag written
+/// into `m.yml` by hand is still findable.
+#[test]
+fn ls_matches_tags_case_insensitively() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Fix login", "-t", "ui"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).args(["add", "Add SSO"]).assert().success();
+
+    // A hand edit that yman itself would have refused.
+    let meta = fx.a.join(".yman").join("5.2.add-sso").join("m.yml");
+    let text = fx.read(&meta).replace("tags: []", "tags:\n- UI");
+    std::fs::write(&meta, text).unwrap();
+
+    let out = stdout(&fx.yman(&fx.a).args(["ls", "-t", "UI"]).output().unwrap());
+    assert!(out.contains("Fix login"), "{out}");
+    assert!(out.contains("Add SSO"), "{out}");
+
+    let out = stdout(&fx.yman(&fx.a).args(["ls", "-t", "ui"]).output().unwrap());
+    assert!(out.contains("Fix login"), "{out}");
+    assert!(out.contains("Add SSO"), "{out}");
+
+    let out = fx.yman(&fx.a).args(["ls", "-t", "a,b"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).contains("invalid tag \"a,b\""),
+        "{}",
+        stderr(&out)
+    );
+}
+
+/// `tags` is an inventory: it counts closed tasks too, folds case, and costs
+/// no more `git` than `ls` does.
+#[test]
+fn tags_lists_every_tag_with_its_task_count() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Fix login", "-t", "ui", "-t", "auth"])
+        .assert()
+        .success();
+    fx.yman(&fx.a)
+        .args(["add", "Add SSO", "-t", "ui"])
+        .assert()
+        .success();
+    fx.yman(&fx.a)
+        .args(["add", "Ship it", "-t", "ui"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).args(["done", "3"]).assert().success();
+
+    // No header: stdout is a pipe here, as in `ls`.
+    let out = stdout(&fx.yman(&fx.a).args(["tags"]).output().unwrap());
+    assert_eq!(out, "auth  1\nui    3\n", "{out:?}");
+
+    let out = stdout(&fx.yman(&fx.a).args(["tags", "--json"]).output().unwrap());
+    assert_eq!(
+        out.trim_end(),
+        r#"[{"tag":"auth","tasks":1},{"tag":"ui","tasks":3}]"#
+    );
+}
+
+#[test]
+fn tags_folds_case_and_counts_a_task_once() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+
+    // Both spellings on one task, which yman would never write itself.
+    let meta = fx.a.join(".yman").join("5.1.fix-login").join("m.yml");
+    let text = fx.read(&meta).replace("tags: []", "tags:\n- UI\n- ui");
+    std::fs::write(&meta, text).unwrap();
+
+    let out = stdout(&fx.yman(&fx.a).args(["tags"]).output().unwrap());
+    assert_eq!(out, "ui  1\n", "{out:?}");
+}
+
+#[test]
+fn tags_reports_an_unreadable_folder_on_stderr() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Fix login", "-t", "ui"])
+        .assert()
+        .success();
+    std::fs::create_dir(fx.a.join(".yman").join("5.9.broken")).unwrap();
+
+    let out = fx.yman(&fx.a).args(["tags"]).output().unwrap();
+    assert!(out.status.success());
+    assert_eq!(stdout(&out), "ui  1\n", "{:?}", stdout(&out));
+    assert!(
+        stderr(&out).contains("warning: skipped 1 unreadable task folder(s): 5.9.broken"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+/// The property `a_read_only_command_spawns_at_most_one_git` pins for `ls` and
+/// `show`: `tags` prints from the filesystem, so it costs the one `rev-parse`
+/// in `discover` and nothing else.
+#[test]
+#[cfg(unix)]
+fn tags_spawns_at_most_one_git() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Fix login", "-t", "ui"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+
+    assert_eq!(fx.git_spawns(&fx.a, &["tags"]), 1);
+}
+
+/// A rename is one commit for every task it touches, keeps the tag's position,
+/// and never leaves a duplicate behind.
+#[test]
+fn tags_rename_rewrites_every_task_in_one_commit() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Fix login", "-t", "ui", "-t", "bug"])
+        .assert()
+        .success();
+    fx.yman(&fx.a)
+        .args(["add", "Add SSO", "-t", "ui", "-t", "auth"])
+        .assert()
+        .success();
+    fx.yman(&fx.a)
+        .args(["add", "Ship it", "-t", "other"])
+        .assert()
+        .success();
+
+    let before = fx.git(&fx.a.join(".yman"), &["rev-list", "--count", "HEAD"]);
+    let out = stdout(
+        &fx.yman(&fx.a)
+            .args(["tags", "rename", "UI", "auth"])
+            .output()
+            .unwrap(),
+    );
+    // Task 2 already carried `auth`: the rename is a removal there.
+    assert_eq!(out, "1: tags +auth -ui\n2: tags -ui\n", "{out:?}");
+
+    let text = stdout(&fx.yman(&fx.a).args(["ls", "--json"]).output().unwrap());
+    assert!(text.contains("\"tags\":[\"auth\",\"bug\"]"), "{text}");
+    assert!(text.contains("\"tags\":[\"auth\"]"), "{text}");
+    assert!(!text.contains("\"ui\""), "{text}");
+
+    let after: usize = fx
+        .git(&fx.a.join(".yman"), &["rev-list", "--count", "HEAD"])
+        .parse()
+        .unwrap();
+    assert_eq!(after, before.parse::<usize>().unwrap() + 1, "one commit");
+    assert_eq!(
+        fx.git(&fx.a.join(".yman"), &["log", "--format=%s", "-1"]),
+        "yman: tags rename ui -> auth (2 tasks)"
+    );
+}
+
+#[test]
+fn tags_rename_with_no_match_changes_nothing() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Fix login", "-t", "ui"])
+        .assert()
+        .success();
+    let before = fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]);
+
+    for args in [
+        ["tags", "rename", "nope", "other"],
+        // Both sides normalize to `ui`, so there is nothing to do.
+        ["tags", "rename", "UI", "ui"],
+    ] {
+        let out = fx.yman(&fx.a).args(args).output().unwrap();
+        assert!(out.status.success(), "{}", stderr(&out));
+        assert_eq!(stdout(&out).trim_end(), "no changes", "{args:?}");
+    }
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]), before);
+}
+
+#[test]
+fn tags_rm_drops_a_tag_everywhere_and_confirms_first() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Fix login", "-t", "ui", "-t", "bug"])
+        .assert()
+        .success();
+    fx.yman(&fx.a)
+        .args(["add", "Add SSO", "-t", "ui"])
+        .assert()
+        .success();
+
+    // No terminal and no -f: the same refusal `rm` gives.
+    let before = fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]);
+    let out = fx.yman(&fx.a).args(["tags", "rm", "ui"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        stderr(&out).trim_end(),
+        "error: refusing to remove without -f"
+    );
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]), before);
+
+    let out = stdout(
+        &fx.yman(&fx.a)
+            .args(["tags", "rm", "UI", "-f"])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(out, "1: tags -ui\n2: tags -ui\n", "{out:?}");
+    assert_eq!(
+        fx.git(&fx.a.join(".yman"), &["log", "--format=%s", "-1"]),
+        "yman: tags remove ui (2 tasks)"
+    );
+    let out = stdout(&fx.yman(&fx.a).args(["tags"]).output().unwrap());
+    assert_eq!(out, "bug  1\n", "{out:?}");
+
+    // Nothing carries it any more, so there is nothing to confirm either.
+    let out = fx.yman(&fx.a).args(["tags", "rm", "ui"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out).trim_end(), "no changes");
+}
+
+/// The bare listing is readable during an unresolved merge, like `ls`; the
+/// subcommands are mutations and wait for it.
+#[test]
+fn tags_subcommands_wait_for_an_unresolved_merge() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Fix login", "-t", "ui"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+
+    // Both clones retitle task 1, which conflicts in t.md.
+    fx.yman(&fx.a)
+        .args(["set", "1", "--title", "A wins"])
+        .assert()
+        .success();
+    fx.yman(&fx.b)
+        .args(["set", "1", "--title", "B wins"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+
+    fx.yman(&fx.b).args(["tags"]).assert().success();
+    let out = fx
+        .yman(&fx.b)
+        .args(["tags", "rm", "ui", "-f"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+}

@@ -207,13 +207,20 @@ it.
 ```sh
 yman ls [-s <status>]... [-t <tag>]... [-a] [--assignee <who>] [-p 0-9]
         [-q <text>] [-n <N>] [--json]
+yman tags [--json]
+yman tags rename <old> <new>
+yman tags rm <tag> [-f]
 ```
 Lists tasks sorted by priority, then status order, then id. Tasks in a closed
 status are hidden unless you pass `-a` or name that status with `-s`. `-t`
-requires *all* the tags given. `--assignee -` means unassigned, `-q` is a
+requires *all* the tags given and matches case-insensitively. `--assignee -` means unassigned, `-q` is a
 case-insensitive search over title and body, `-n` caps the rows after sorting.
 Column headers appear only when stdout is a terminal, so `yman ls | grep` stays
-predictable. `--json` prints one object per
+predictable. `yman tags` is the inventory of the tags in use, one row per tag
+with the number of tasks carrying it — closed tasks included, since the
+question is what exists rather than what is open. `yman tags rename` and
+`yman tags rm` edit that vocabulary across every task carrying the tag, in one
+commit; `rm` confirms first, like `yman rm`. `--json` prints one object per
 task — including its `links` and `related` ids — plus `{dir, error}` for
 anything broken.
 

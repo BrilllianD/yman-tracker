@@ -73,6 +73,8 @@ commit.
 | `default` or the start status is terminal | `invalid .yman/config.toml: statuses.terminal must not contain statuses.default "<s>"` / `… must not contain the start status "<s>"` |
 | every status is terminal | `invalid .yman/config.toml: statuses.terminal marks every status terminal; at least one must stay open` |
 | empty title | `title must not be empty` |
+| empty tag | `tag must not be empty` |
+| tag with a separator or a control character | `invalid tag "<t>"; tags must not contain whitespace, commas or control characters` — `<t>` is the trimmed value |
 | unknown attachment | `no attachment "<name>" on task <id>` |
 | attachment name already used | `attachment "<name>" already exists on task <id>; use --force` |
 | `--name` with several files | `--name only works with a single file` |
@@ -83,11 +85,11 @@ commit.
 | `--body-file` cannot be read | `cannot read <path>: <why>` — `<why>` is the OS error text |
 | `cancel` with no cancel status | `no cancel status configured; set statuses.cancel in .yman/config.toml` |
 | `reopen` on an open task | `task <id> is not closed (status "<s>"); closed statuses: <terminal joined by ", ">` |
-| `rm` with no terminal and no `-f` | `refusing to remove without -f` |
+| `rm` or `tags rm` with no terminal and no `-f` | `refusing to remove without -f` |
 | editor failed | `editor exited with status N; file left as is` (or `editor was killed by a signal; …`) |
 | no editor resolvable | `no editor configured; set $EDITOR` |
 | neither `$VISUAL` nor `$EDITOR` set, stdin not a terminal | `no terminal for vi; set $EDITOR, or use -m / --body-file` |
-| `rm` prompt declined | `aborted` |
+| `rm` or `tags rm` prompt declined | `aborted` |
 | `t.md` unparsable | `t.md must start with "# Title"` |
 | `t.md` unparsable after an edit | `t.md invalid after edit: <why>; fix the file then run: yman edit <id>` |
 | invalid config | `invalid .yman/config.toml: <why>` |

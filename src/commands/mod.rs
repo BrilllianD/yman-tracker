@@ -17,6 +17,7 @@ pub mod set;
 pub mod show;
 pub mod status;
 pub mod sync;
+pub mod tags;
 
 use crate::cli::Cmd;
 use crate::repo::Context;
@@ -37,6 +38,20 @@ pub fn read_text_source(path: &str) -> Result<String> {
         Ok(()) => Ok(buf),
         Err(e) => anyhow::bail!("cannot read {path}: {e}"),
     }
+}
+
+/// The rule every list field on `add` follows: first occurrence wins, order
+/// kept. `set` reaches the same result through `apply_set`, and
+/// `tags::normalize_all` through its own loop, because it has to fold case
+/// before it can tell two values apart.
+pub fn dedupe(values: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for v in values {
+        if !out.contains(&v) {
+            out.push(v);
+        }
+    }
+    out
 }
 
 /// Titles go into commit subjects verbatim except for double quotes, which
@@ -83,6 +98,7 @@ pub fn dispatch(ctx: &mut Context, cmd: Cmd) -> Result<()> {
         Cmd::Path(a) => path::run(ctx, &a.id),
         Cmd::Log(a) => log::run(ctx, a),
         Cmd::Status(a) => status::run(ctx, a),
+        Cmd::Tags(a) => tags::run(ctx, a),
         Cmd::Guide => guide::run(),
         Cmd::Refresh(a) => refresh::run(ctx, a),
         Cmd::Hooks(a) => hooks::run(ctx, a),

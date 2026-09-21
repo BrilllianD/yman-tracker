@@ -16,13 +16,14 @@
     P  ID  STATUS  TITLE  TAGS  F  C
 
 `P` is priority 0 (highest) to 9, `F` attachments, `C` comments; zero is
-blank and trailing empty columns are dropped. Filters AND together:
-`-s <status>` `-t <tag>` `--assignee <who|->` `-p <0-9>` `-q <text>`, and
-`-n <N>` caps the rows after sorting. Closed tasks need `-a`.
+blank and trailing empty columns are dropped. Filters AND together, `-t` and
+`-q` comparing lowercase: `-s <status>` `-t <tag>` `--assignee <who|->`
+`-p <0-9>` `-q <text>`; `-n <N>` caps rows after sorting, closed tasks need `-a`.
 
 `show <id>` prints a header block, the body, then `attachments:` and
-`discussion:`; empty sections are omitted, and `-n <N>` keeps the last N. `ls`,
-`show` and `status` take `--json`, which omits nothing: `[]` and `null` instead.
+`discussion:`; empty sections are omitted, and `-n <N>` keeps the last N.
+`tags` lists every tag in use with its task count, closed tasks included. `ls`,
+`show`, `status` and `tags` take `--json`, which omits nothing: `[]` and `null`.
 
 ## Writing
 
@@ -35,8 +36,7 @@ comment in the same commit. `set <id>` changes any field: `--status`
 
 ## Streams and exit codes
 
-stdout carries data only. Errors (`error: ...`), warnings and notes go to
-stderr.
+stdout carries data only. Errors (`error: ...`), warnings and notes go to stderr.
 
     0  ok
     1  error, stderr says what

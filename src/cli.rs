@@ -57,6 +57,8 @@ pub enum Cmd {
     Comment(CommentArgs),
     /// Print the absolute path of a task folder
     Path(IdArgs),
+    /// List the tags in use
+    Tags(TagsArgs),
     /// Show the task history log
     Log(LogArgs),
     /// Report the state of .yman and its remote
@@ -379,6 +381,41 @@ pub enum HooksAction {
 }
 
 #[derive(Args, Debug)]
+pub struct TagsArgs {
+    /// Without a subcommand, list the tags in use
+    #[command(subcommand)]
+    pub action: Option<TagsAction>,
+    /// Print JSON instead of the table
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum TagsAction {
+    /// Rename a tag on every task carrying it
+    Rename(TagRenameArgs),
+    /// Remove a tag from every task carrying it
+    Rm(TagRmArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct TagRenameArgs {
+    /// Tag to rename
+    pub old: String,
+    /// What to rename it to
+    pub new: String,
+}
+
+#[derive(Args, Debug)]
+pub struct TagRmArgs {
+    /// Tag to remove
+    pub tag: String,
+    /// Do not ask for confirmation
+    #[arg(short = 'f', long)]
+    pub force: bool,
+}
+
+#[derive(Args, Debug)]
 pub struct StatusArgs {
     /// Print JSON instead of the text report
     #[arg(long)]
@@ -409,22 +446,28 @@ impl Cmd {
     /// Commands that mutate the task history (preflight refuses while a sync
     /// merge is unresolved).
     pub fn is_mutating(&self) -> bool {
-        matches!(
-            self,
-            Cmd::Add(_)
-                | Cmd::Edit(_)
-                | Cmd::Set(_)
-                | Cmd::Start(_)
-                | Cmd::Done(_)
-                | Cmd::Move(_)
-                | Cmd::Cancel(_)
-                | Cmd::Reopen(_)
-                | Cmd::Prio(_)
-                | Cmd::Rm(_)
-                | Cmd::Attach(_)
-                | Cmd::Detach(_)
-                | Cmd::Comment(_)
-        )
+        match self {
+            // `tags` is two commands sharing a name: the bare form is a
+            // listing, and stays readable during an unresolved merge like
+            // `ls`, while its subcommands rewrite every task carrying a tag.
+            Cmd::Tags(a) => a.action.is_some(),
+            _ => matches!(
+                self,
+                Cmd::Add(_)
+                    | Cmd::Edit(_)
+                    | Cmd::Set(_)
+                    | Cmd::Start(_)
+                    | Cmd::Done(_)
+                    | Cmd::Move(_)
+                    | Cmd::Cancel(_)
+                    | Cmd::Reopen(_)
+                    | Cmd::Prio(_)
+                    | Cmd::Rm(_)
+                    | Cmd::Attach(_)
+                    | Cmd::Detach(_)
+                    | Cmd::Comment(_)
+            ),
+        }
     }
 
     /// Commands that run their own refresh logic, or must not trigger one.

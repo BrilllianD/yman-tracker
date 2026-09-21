@@ -1,6 +1,7 @@
 use crate::cli::SetArgs;
 use crate::discussion;
 use crate::repo::Context;
+use crate::tags;
 use crate::task;
 use anyhow::{Result, bail};
 
@@ -78,7 +79,11 @@ pub fn run(ctx: &mut Context, a: SetArgs) -> Result<()> {
         t.meta.assignee = Some(who);
     }
 
-    apply_set(&mut t.meta.tags, &a.tag, &a.untag, "tags", &mut changes);
+    // `--untag` is validated too: no tag yman wrote can look otherwise, so a
+    // rejected value is a typo, not a value waiting to be removed.
+    let add_tags = tags::normalize_all(&a.tag)?;
+    let del_tags = tags::normalize_all(&a.untag)?;
+    apply_set(&mut t.meta.tags, &add_tags, &del_tags, "tags", &mut changes);
     apply_set(&mut t.meta.links, &a.link, &a.unlink, "links", &mut changes);
     apply_set(
         &mut t.meta.related,
