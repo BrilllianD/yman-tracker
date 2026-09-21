@@ -94,6 +94,7 @@ commit.
 | origin holds a non-yman history | `refs/tasks/main on origin is not a yman history (missing or invalid config.toml): <why>` |
 | unrelated histories | `task history unrelated to origin refs/tasks/main; re-init from remote:  rm -rf .yman && git update-ref -d refs/yman/local && yman init` |
 | author prefix unresolvable | `author prefix unknown; run: git config yman.author <prefix>  (or set YMAN_AUTHOR)` |
+| author prefix not a legal id prefix | `author prefix "<p>" from <source> must be letters, digits, "_" or "-"` — `<source>` is `yman.author`, `$YMAN_AUTHOR` or `user.name initials` |
 | git identity missing | `git identity missing; run: git config --global user.name "…" && git config --global user.email "…"` |
 | git binary absent | `git not found in PATH` |
 | any other git failure | `git <subcommand> failed: <trimmed stderr>` |

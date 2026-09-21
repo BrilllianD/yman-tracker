@@ -408,7 +408,7 @@ else the initials of your `user.name`.
 | Key | Values | Set by |
 |---|---|---|
 | `yman.refresh` | `lazy` (default), `manual` | `yman init --refresh` |
-| `yman.author` | any prefix | `yman init --author` |
+| `yman.author` | letters, digits, `_` or `-` | `yman init --author` |
 
 Two environment variables, easy to confuse:
 

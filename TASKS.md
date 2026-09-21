@@ -32,34 +32,6 @@ conflict that the user resolves by hand, even though `status`, `priority`,
   that, or whether it is opt-in — and record the decision in `docs/storage.md`
   before writing code.
 
-### Preserve unknown `m.yml` keys on rewrite
-
-The reader consumes and drops any key it does not know, and `docs/storage.md`
-calls that accepted. There is no per-task schema version, so the day a newer
-yman writes a field (`due:`, say), any older yman on the team destroys it on
-the next `set`. Hand-added keys are lost the same way.
-
-- Where: `src/yml.rs`, `src/task.rs` (`Meta`), `docs/storage.md`
-- Done when: unknown top-level blocks survive a read-modify-write cycle
-  verbatim, re-emitted after the known keys, and the doc sentence is
-  reversed. Fix the reader's neighbouring inconsistencies in the same pass:
-  an empty `status:` currently passes the required-field check as `""`, and
-  duplicate keys are last-wins at top level but first-wins inside an
-  attachment item.
-
-### Validate the `author` id prefix
-
-`author_prefix` returns `yman.author` or `$YMAN_AUTHOR` trimmed but otherwise
-unchecked. A prefix containing `.` produces a folder such as `5.v.i-1.slug`,
-which `FolderName::parse` reads as id `v` with slug `i-1.slug`; `/`, `\` or
-whitespace make the folder unparsable, so the new task is invisible or
-mis-identified.
-
-- Where: `src/ids.rs`, `tests/cli.rs`, `docs/errors.md`, `docs/storage.md` §8
-- Done when: a prefix that is empty or contains `.`, `/`, `\` or whitespace
-  fails `add` with a pinned message, and the accepted grammar is written
-  down next to the id schemes.
-
 ### Renumbering leaves `related` references dangling on other clones
 
 `rewrite_related` (`src/commands/sync.rs:422-456`) walks the renumbering

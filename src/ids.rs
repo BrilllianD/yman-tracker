@@ -12,18 +12,34 @@ use rand::Rng;
 use std::collections::HashSet;
 use std::path::Path;
 
+/// The prefix lands in a folder name (`5.{prefix}-1.slug`), so it has to
+/// survive `FolderName::parse` and stay typeable: ASCII letters, digits, `_`
+/// and `-`, nothing else. A `.` is the dangerous one — `v.i` would mint
+/// `5.v.i-1.slug`, which parses as id `v` with slug `i-1.slug`, so the task
+/// exists under an id nobody asked for.
+fn checked_prefix(p: &str, source: &str) -> Result<String> {
+    let ok = !p.is_empty()
+        && p.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+    if !ok {
+        bail!("author prefix \"{p}\" from {source} must be letters, digits, \"_\" or \"-\"");
+    }
+    Ok(p.to_string())
+}
+
 /// Prefix for the `author` scheme: explicit config, then env, then the
-/// initials of the committer's name.
+/// initials of the committer's name. Whichever source wins is checked, so a
+/// bad prefix fails here rather than on disk.
 pub fn author_prefix(ctx: &Context) -> Result<String> {
     if let Some(p) = ctx.get_cfg("yman.author")?
         && !p.trim().is_empty()
     {
-        return Ok(p.trim().to_string());
+        return checked_prefix(p.trim(), "yman.author");
     }
     if let Ok(p) = std::env::var("YMAN_AUTHOR")
         && !p.trim().is_empty()
     {
-        return Ok(p.trim().to_string());
+        return checked_prefix(p.trim(), "$YMAN_AUTHOR");
     }
     if let Some(name) = ctx.get_cfg("user.name")? {
         let initials: String = name
@@ -33,7 +49,7 @@ pub fn author_prefix(ctx: &Context) -> Result<String> {
             .filter(|c| c.is_ascii_alphabetic())
             .collect();
         if !initials.is_empty() {
-            return Ok(initials);
+            return checked_prefix(&initials, "user.name initials");
         }
     }
     bail!("author prefix unknown; run: git config yman.author <prefix>  (or set YMAN_AUTHOR)")
@@ -241,5 +257,30 @@ mod tests {
         assert_eq!(prefix_of("a-b-3"), Some("a-b"));
         assert_eq!(prefix_of("t-7f3a"), None);
         assert_eq!(prefix_of("14"), None);
+    }
+
+    #[test]
+    fn prefix_grammar_accepts_and_rejects() {
+        for p in ["iv", "a-b", "iv_2", "x9", "ta", "A"] {
+            assert!(checked_prefix(p, "test").is_ok(), "{p} should be accepted");
+            // The point of the grammar: the minted id survives the folder name.
+            let folder = FolderName::parse(&format!("5.{p}-1.slug")).expect("{p}");
+            assert_eq!(folder.id, format!("{p}-1"));
+            assert_eq!(folder.slug, "slug");
+        }
+        for p in ["", "v.i", "a/b", "a\\b", "ivan p", "ив", "a\tb", "a:b"] {
+            assert!(checked_prefix(p, "test").is_err(), "{p} should be rejected");
+        }
+    }
+
+    #[test]
+    fn the_prefix_error_names_the_value_and_its_source() {
+        let err = checked_prefix("v.i", "yman.author")
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            err,
+            "author prefix \"v.i\" from yman.author must be letters, digits, \"_\" or \"-\""
+        );
     }
 }

@@ -109,7 +109,11 @@ dependency.
   Only the priority sorts numerically: the listing is lexical, so within one
   priority `5.10.x` comes before `5.2.x`. `yman ls` orders ids properly
   (commands.md §3); zero-padding them here would change the id contract.
-- `id` never contains `.`; every scheme satisfies this (`14`, `t-7f3a`, `iv-12`).
+- `id` never contains `.`. `FolderName::parse` splits at the *first* dot after
+  the priority and only rejects `/` and `\` outright, so a dotted id would be
+  silently mis-read rather than refused — `5.v.i-1.slug` parses as id `v` with
+  slug `i-1.slug`. `seq` and `random` cannot produce one, and the `author`
+  prefix is validated before an id is minted (§8).
 - **The folder name is the source of truth** for priority and id. `m.yml` does
   not repeat them, and changing either is a `git mv` so history follows.
 - Entries in `.yman/` that are not directories, or whose names do not match, are
@@ -191,19 +195,29 @@ related:
 - Timestamps are RFC 3339, UTC, **second precision** (`task::now()` zeroes the
   nanoseconds), serialized with a `Z` suffix.
 - `attachments[].path` is always `f/<name>`.
-- Unknown keys are dropped on rewrite — documented and accepted.
+- Unknown top-level keys survive a rewrite. The reader keeps the lines a key
+  owns verbatim and the writer replays them after `related`, so a field a newer
+  yman writes — or one added by hand — is not destroyed by an older binary.
+  They are preserved, not interpreted: nothing reads them and none of them
+  appear in `--json` output. Comments, and unknown keys *inside* an
+  `attachments` item, are still dropped.
 - `m.yml` is read and written by hand in `src/yml.rs`; there is no YAML
   crate. The writer emits exactly the shape above: block sequences at column
   zero, `[]` for an empty list, `null` for an absent `assignee`, and a scalar
   quoted only when the plain form would read back as a number, a boolean or
   null. A value containing newlines becomes a literal block (`|-`, `|`,
-  `|+`).
+  `|+`). The preserved unknown blocks follow, which is why a hand-edited file
+  that interleaved one comes back with it moved to the end.
 - The reader is deliberately wider than the writer, because people edit this
   file and resolve merge conflicts in it: comments, flow sequences
   (`tags: [a, b]`), single- and double-quoted scalars, folded blocks (`>-`)
-  and sequences indented under their key are all accepted.
+  and sequences indented under their key are all accepted. A key repeated at
+  the top level or inside an `attachments` item keeps its **last** occurrence,
+  which is the half of a conflict a person usually means to keep.
 - A `status` outside `config.statuses.list` is reported, never a hard error, so
-  editing the config cannot brick existing tasks.
+  editing the config cannot brick existing tasks. An *empty* `status` — bare,
+  `null`, or whitespace — is a different thing: it reads as a missing field, so
+  the task is reported broken rather than loaded with no status at all.
 
 ### `d.md`
 
@@ -351,3 +365,13 @@ its id — a later `add` cannot reuse it and confuse the history.
 The `author` prefix resolves in order: `git config yman.author`, `$YMAN_AUTHOR`,
 then the initials of `user.name` (first letter of each word, lowercased, ASCII
 letters only). With none of those available, `add` fails rather than guess.
+
+The prefix must match `[A-Za-z0-9_-]+`, and whichever source supplies it is
+checked every time it is read. A setting that is empty or all whitespace counts
+as unset and falls through to the next source; anything else that fails the
+grammar fails `add`, naming the value and the source it came from. The reason
+is §5: the prefix lands in the folder name, where a `.` is read as the id
+separator. `yman init --author` stores the value without checking it, so a bad
+prefix surfaces at the first `add`. Ids minted before the rule are left alone —
+a collision renumber re-derives the prefix from the id it finds, so an old task
+stays renumberable.
