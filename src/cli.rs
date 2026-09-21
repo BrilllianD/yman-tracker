@@ -73,6 +73,9 @@ pub enum Cmd {
     Git(GitArgs),
     /// Print the short manual for scripts and agents (works anywhere)
     Guide,
+    /// git merge driver for m.yml (called by git, not by people)
+    #[command(hide = true)]
+    MergeDriver(MergeDriverArgs),
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
@@ -442,6 +445,16 @@ pub struct GitArgs {
     pub args: Vec<String>,
 }
 
+#[derive(Args, Debug)]
+pub struct MergeDriverArgs {
+    /// %O: the common ancestor's version
+    pub base: String,
+    /// %A: our version, and the file git reads the result back out of
+    pub ours: String,
+    /// %B: the other side's version
+    pub theirs: String,
+}
+
 impl Cmd {
     /// Commands that mutate the task history (preflight refuses while a sync
     /// merge is unresolved).
@@ -481,15 +494,17 @@ impl Cmd {
                 | Cmd::Hooks(_)
                 | Cmd::Git(_)
                 | Cmd::Guide
+                | Cmd::MergeDriver(_)
         )
     }
 
-    /// Commands that do not need `.yman` to exist yet. `guide` is listed for
-    /// completeness; `main` answers it before looking for a repository at all.
+    /// Commands that do not need `.yman` to exist yet. `guide` and
+    /// `merge-driver` are listed for completeness; `main` answers both before
+    /// looking for a repository at all.
     pub fn skips_preflight(&self) -> bool {
         matches!(
             self,
-            Cmd::Init(_) | Cmd::Hooks(_) | Cmd::Git(_) | Cmd::Guide
+            Cmd::Init(_) | Cmd::Hooks(_) | Cmd::Git(_) | Cmd::Guide | Cmd::MergeDriver(_)
         )
     }
 }

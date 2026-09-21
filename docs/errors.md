@@ -104,6 +104,7 @@ commit.
 | push rejected while finishing a merge | `origin moved while finishing the merge; run: yman sync` |
 | network step failed | `fetch failed` / `push failed` / `merge failed`, with git's stderr printed above |
 | `init` fetch failed | `fetch failed (see above); use --offline to skip` |
+| `m.yml` merge driver could not fall back | `git merge-file failed`, with git's stderr printed above — reaches the user through git's own merge output |
 
 ### Exit-code-3 messages
 

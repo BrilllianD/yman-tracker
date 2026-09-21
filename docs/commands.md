@@ -366,7 +366,10 @@ The only command that uses the network. Preflight runs with `mutating = false`;
    out the re-init recipe.
 6. `base == remote` → nothing to merge. `base == local` → `merge --ff-only`.
 7. Otherwise **renumber collisions** (below), then
-   `merge --no-edit --no-verify`. Conflicts print the unmerged files and exit 3.
+   `merge --no-edit --no-verify`. `m.yml` goes through the field-wise merge
+   driver ([storage.md](storage.md#merging-myml)), so edits to different fields
+   of one task settle on their own; anything it cannot settle falls back to the
+   text merge. Conflicts print the unmerged files and exit 3.
 8. Push, unless `--no-push`. A rejected push means origin moved: loop back to
    step 3, at most three attempts, then fail with `origin keeps moving`.
 9. Report `synced  pulled N, pushed N, renumbered N   refs/yman/local @ <sha>`.

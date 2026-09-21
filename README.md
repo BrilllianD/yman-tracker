@@ -115,7 +115,7 @@ One task is one folder:
 .yman/
   config.toml              # committed; shared by everyone on the project
   .gitignore
-  .gitattributes           # **/d.md merge=union
+  .gitattributes           # **/d.md merge=union, **/m.yml merge=ymanmeta
   2.14.fix-login/
     t.md                   # "# Title" plus a free-form Markdown body
     m.yml                  # status, tags, assignee, timestamps, attachments…
@@ -188,6 +188,12 @@ reproduced on staging
 the same task at the same time merge cleanly instead of conflicting — as long
 as neither of them also retitled it, which renames the folder the comment was
 written against.
+
+`m.yml` gets a merge driver of its own, `merge=ymanmeta`, which merges the file
+one field at a time instead of one line at a time: a status change on one clone
+and a tag change on another no longer collide just because they sit on adjacent
+lines. Two edits to the *same* field still conflict, and land in the file as the
+usual markers.
 
 ---
 
@@ -500,7 +506,9 @@ that every task the merge touched still parses before it commits. Until the
 merge is settled, commands that would change a task exit 3 rather than build on
 a half-merged state. `yman status` shows the same information at any time.
 
-Comments never conflict: `merge=union` keeps both sides.
+Comments never conflict: `merge=union` keeps both sides. Edits to different
+fields of one task's `m.yml` do not conflict either: `merge=ymanmeta` merges
+that file field by field.
 
 The exception is closing one task to two *different* statuses at version 2.
 Each side moves the folder somewhere else, git keeps both, and `yman sync` says
@@ -551,8 +559,9 @@ the error; fix the file and the task comes back. Nothing else is affected.
 
 ## Limits and future work
 
-- `m.yml` conflicts are resolved by hand; a field-wise merge driver would settle
-  status and tag edits automatically.
+- `m.yml` merges field by field, but a list field — `tags`, `links`, `related`,
+  `attachments` — is compared whole. Two clones each adding a tag conflict, and
+  are resolved by hand.
 - Attachments go straight into git; there is no git-lfs integration.
 - **`add` slows as the project ages.** An id is never reused, which means
   reading every id the history ever assigned before minting one. Measured with
