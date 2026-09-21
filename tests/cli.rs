@@ -3235,3 +3235,40 @@ fn status_json_reports_refs_and_counts() {
     let text = stdout(&fx.yman(&fx.a).args(["status", "--json"]).output().unwrap());
     assert!(text.contains("\"worktree\":{\"dirty\":1}"), "{text}");
 }
+
+/// What reading refs off disk buys: a read-only command in a repository that
+/// needs no refresh costs one `git` process — the `rev-parse` in `discover`.
+/// Everything else it used to ask git is a file it can read itself.
+#[test]
+#[cfg(unix)]
+fn a_read_only_command_spawns_at_most_one_git() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "first task"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+
+    assert_eq!(fx.git_spawns(&fx.a, &["ls"]), 1);
+    assert_eq!(fx.git_spawns(&fx.a, &["show", "1"]), 1);
+
+    // Packed refs are the other on-disk shape, and no fixture reaches it
+    // by default.
+    fx.git(&fx.a, &["pack-refs", "--all"]);
+    assert_eq!(fx.git_spawns(&fx.a, &["ls"]), 1);
+    fx.yman(&fx.a)
+        .args(["ls"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("first task"));
+
+    // Unpushed work is the other steady state. It costs the one ancestry
+    // question that cannot be answered from a ref file, and nothing more:
+    // the policy is not consulted for a repository that is not behind.
+    fx.yman(&fx.a)
+        .args(["add", "second task"])
+        .assert()
+        .success();
+    assert_eq!(fx.git_spawns(&fx.a, &["ls"]), 2);
+}

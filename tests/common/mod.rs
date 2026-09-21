@@ -95,6 +95,38 @@ impl Fx {
         cmd
     }
 
+    /// How many `git` processes one `yman` invocation spawns.
+    ///
+    /// A shim earlier on `PATH` records each spawn and execs the real binary —
+    /// the same trick `scripts/synthetic-project.sh` uses, so the number here
+    /// is the number the performance notes quote.
+    #[cfg(unix)]
+    pub fn git_spawns(&self, dir: &Path, args: &[&str]) -> usize {
+        use std::os::unix::fs::PermissionsExt;
+
+        let shim_dir = self.tmp.path().join("shim");
+        std::fs::create_dir_all(&shim_dir).unwrap();
+        let shim = shim_dir.join("git");
+        std::fs::write(
+            &shim,
+            "#!/bin/sh\nprintf 'x\\n' >> \"$GIT_SPAWN_LOG\"\nPATH=\"$YMAN_REAL_PATH\"\nexport PATH\nexec git \"$@\"\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let log = self.tmp.path().join("git-spawns");
+        std::fs::write(&log, "").unwrap();
+        let path = std::env::var("PATH").unwrap_or_default();
+        self.yman(dir)
+            .env("YMAN_REAL_PATH", &path)
+            .env("PATH", format!("{}:{path}", shim_dir.display()))
+            .env("GIT_SPAWN_LOG", &log)
+            .args(args)
+            .assert()
+            .success();
+        self.read(&log).lines().count()
+    }
+
     /// Run git, panic on failure, return trimmed stdout.
     pub fn git(&self, dir: &Path, args: &[&str]) -> String {
         self.git_at(dir, args)

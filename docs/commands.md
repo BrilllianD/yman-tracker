@@ -265,6 +265,11 @@ name written into `d.md` only; the git committer is whatever git resolves.
 | `lazy` (default) | every non-exempt command fast-forwards first |
 | `manual` | only `yman refresh` and `yman sync` move `.yman` |
 
+On the lazy path the policy is consulted between steps 2 and 3, not before
+step 1: it can only change the outcome for a repository that is actually
+behind, and reading it costs a `git` process. A repository that is up to date
+or holds unpushed commits reaches the same answer without it.
+
 ### Hooks
 
 `yman hooks install` writes `post-merge` and `post-checkout`, each carrying the

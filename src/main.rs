@@ -8,6 +8,7 @@ mod hooks;
 mod ids;
 mod json;
 mod refresh;
+mod refs;
 mod repo;
 mod task;
 mod yml;
@@ -39,9 +40,9 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         ctx.preflight(cli.cmd.is_mutating())?;
     }
 
-    if !cli.cmd.skips_lazy_refresh() && refresh::policy_is_lazy(&ctx)? {
+    if !cli.cmd.skips_lazy_refresh() {
         // A failing refresh must never take the actual command down with it.
-        if let Err(err) = refresh::refresh(&ctx, true) {
+        if let Err(err) = refresh::lazy(&ctx, true) {
             eprintln!("warning: refresh failed: {err:#}");
         }
     }
