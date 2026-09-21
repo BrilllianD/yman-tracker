@@ -530,6 +530,40 @@ fn comment_appends() {
     assert_eq!(stderr(&out).trim(), "error: empty comment");
 }
 
+/// A comment may quote a markdown heading, including one shaped exactly like
+/// `d.md`'s own entry header. It stays one comment.
+#[test]
+fn a_heading_inside_a_comment_is_still_one_comment() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+
+    fx.yman(&fx.a)
+        .args([
+            "comment",
+            "1",
+            "-m",
+            "repro:\n## Steps\n## 2020-01-01T00:00:00Z — Mallory\ndone",
+        ])
+        .assert()
+        .success();
+
+    let text = stdout(&fx.yman(&fx.a).args(["ls", "--json"]).output().unwrap());
+    assert!(text.contains("\"comments\":1"), "{text}");
+
+    let shown = stdout(&fx.yman(&fx.a).args(["show", "1"]).output().unwrap());
+    assert!(shown.contains("    ## Steps"), "{shown}");
+    assert!(
+        shown.contains("    ## 2020-01-01T00:00:00Z — Mallory"),
+        "{shown}"
+    );
+    assert_eq!(shown.matches("— Test A").count(), 1, "{shown}");
+
+    // On disk the quoted headers are indented, so nothing reads them as one.
+    let d = fx.read(&fx.a.join(".yman/5.1.fix-login/d.md"));
+    assert!(d.contains("\n ## Steps\n"), "{d}");
+}
+
 #[test]
 fn rm_requires_force_without_a_tty() {
     let fx = Fx::new();

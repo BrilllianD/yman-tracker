@@ -59,21 +59,6 @@ rather than erroring, and add a regression test either way.
 - Done when: a task whose attachment file was deleted outside yman renders with
   the entry marked as missing, and the behaviour is pinned in `docs/commands.md`.
 
-### `d.md`: guard the entry header on write and on read
-
-The parser starts a new entry at any line beginning with `## `, so a comment
-whose text contains a markdown heading is split into a `Comment` plus a
-`Raw` chunk and inflates the comment count in `ls` and `ls --json`. And
-`append_entry` does not check that the file already ends with a blank line,
-so a hand-edited tail glues the next header onto the previous line and the
-whole chunk degrades to raw text.
-
-- Where: `src/discussion.rs`, `docs/storage.md` §6
-- Done when: the writer ensures a trailing blank line before appending and
-  neutralises text lines that start with `#` (a leading space is enough; the
-  reader trims), the reader only treats `## <timestamp> — ` with a
-  whitespace-free timestamp as a header, and both cases have unit tests.
-
 ### A retitle and a comment on two clones conflict
 
 `**/d.md merge=union` settles concurrent comments, but only while the folder
