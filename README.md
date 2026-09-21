@@ -600,6 +600,12 @@ The integration suite builds a bare remote and two clones in a temp directory
 and drives both through init, add, sync, id collisions, conflicts and hooks.
 Nothing touches the network or your real git configuration.
 
+`skills/yman/evals/run.sh` tests the agent-facing side: it hands a headless
+agent one prompt per case against a throwaway tracker, then grades the repo it
+leaves behind *and* the commands it reached for — so a run catches the skill
+drifting from the CLI, not just the CLI breaking. It spends real tokens, so it
+is not part of CI either; see [skills/yman/evals/](skills/yman/evals/).
+
 `scripts/synthetic-project.sh` covers what a suite of short-lived fixtures
 cannot: it builds four clones and a thousand tasks over a couple of thousand
 commits, churns them, closes them, crosses them in and out of the archive
@@ -622,6 +628,7 @@ Layout:
 | `src/commands/` | one module per subcommand |
 | `scripts/spike-symref.sh` | proves committing in the worktree moves `refs/yman/local` |
 | `scripts/synthetic-project.sh` | builds a large repository and measures what commands cost on it |
+| `skills/yman/` | the agent skill, and the evals that keep it honest |
 | `docs/` | the normative specification |
 
 `docs/` holds the normative, as-built specification — [storage.md](docs/storage.md)
