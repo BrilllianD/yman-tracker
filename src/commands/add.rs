@@ -16,6 +16,9 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
     // Before the editor, before stdin, before an id is minted: a bad tag must
     // not cost the user a burned id or a half-written folder.
     let tags = tags::normalize_all(&a.tags)?;
+    // Before an id is minted, so the warning cannot read as being about the
+    // task we are creating.
+    super::warn_unknown_related(ctx, &a.related, &[])?;
     if a.edit {
         // Refuse before the folder exists; see `edit::resolve_editor`.
         super::edit::resolve_editor()?;

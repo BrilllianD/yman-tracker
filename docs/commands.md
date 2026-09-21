@@ -177,7 +177,9 @@ comma separates the `ls` TAGS column and the flow sequence `m.yml` accepts, and
 whitespace makes `-t` unusable without quoting. Tags are checked before the
 editor opens, before `--body-file` reads stdin and before an id is minted, so a
 typo costs neither an id nor a half-written folder. `-t UI -t ui` is one tag.
-`-a/--assignee` is trimmed; blank means unassigned. The body comes from `-m`,
+`-a/--assignee` is trimmed; blank means unassigned. `--relate` to an id no
+folder here carries warns exactly as `set --relate` does, before the id is
+minted. The body comes from `-m`,
 or from `--body-file PATH` (`-` reads stdin); the two exclude each other and
 `-e`. With `-e`, the editor opens before the
 first commit, so a title typed there renames the folder by plain rename — the
@@ -218,6 +220,18 @@ an invalid one — nothing yman wrote can look like that, so such a value is a
 typo rather than something waiting to be removed. When
 nothing at all changed, `set` prints `no changes` and commits nothing. `-m`
 always counts as a change; an empty message is the `empty comment` error.
+
+`--relate` to an id no folder here carries prints
+`warning: task <id> does not exist here; relating anyway` on stderr and commits
+regardless. It is not a refusal because a concurrent `add` on another clone can
+legitimately race it, and the id becomes real the moment that clone's work
+arrives. Re-adding an id the task already relates to is not a change and warns
+about nothing.
+
+`related` is **one-way**: relating 1 to 2 says nothing about 2. yman maintains
+the field in exactly three places — here, the renumber rewrite in §6, and `rm`
+below — and nowhere else. In particular, an id written into the prose of `t.md`
+or `d.md` is text; it is never checked and never rewritten.
 
 `--body TEXT` and `--body-file PATH` (`-` for stdin) replace the body of
 `t.md`; they exclude each other. The comparison ignores leading and trailing
@@ -284,6 +298,14 @@ of the count.
 On a terminal, prompts `remove task 14 "Fix login"? [y/N]`; anything but `y`/`Y`
 aborts. Without a terminal and without `-f`, it refuses rather than assume
 consent.
+
+Every other task's `related` loses the removed id in the **same commit** as the
+removal, so a task that is gone and a reference still naming it are never two
+states of the repository anyone can observe. The count goes to stderr as
+`note: dropped N reference(s) to <id>`, and is omitted when there was nothing to
+drop. A folder that does not load cannot be rewritten, so it is reported with
+the same `warning: skipped N unreadable task folder(s): …` the listing prints —
+a reference inside one survives the removal.
 
 ### `attach` / `detach`
 

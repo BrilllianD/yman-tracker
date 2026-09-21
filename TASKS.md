@@ -32,19 +32,6 @@ that case by hand.
 - Done when: references on both sides of the merge are rewritten, and the scope
   sentence added to `docs/commands.md` §6 comes back out.
 
-### Keep `related` references consistent
-
-`set --relate` accepts an id that does not exist, and `rm` leaves dangling
-references in every other task. The sync renumber path already rewrites
-`related` entries, so the machinery exists.
-
-- Where: `src/commands/set.rs`, `src/commands/rm.rs`, `docs/commands.md`
-- Done when: relating to an unknown id prints a `warning:` on stderr but
-  still commits (a concurrent `add` on another clone can legitimately race),
-  `rm` drops references to the removed task in the same commit and reports
-  the count, and the doc states that `related` is one-way and that id
-  mentions inside `t.md` or `d.md` text are never rewritten.
-
 ---
 
 ## Robustness
