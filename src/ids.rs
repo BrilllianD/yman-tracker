@@ -6,7 +6,7 @@
 
 use crate::config::{Config, Scheme};
 use crate::repo::{Context, LOCAL, REMOTE};
-use crate::task::{FolderName, list, task_path_of};
+use crate::task::{task_dirs, task_path_of};
 use anyhow::{Result, bail};
 use rand::Rng;
 use std::collections::HashSet;
@@ -86,11 +86,12 @@ pub fn ever_assigned(ctx: &Context, refs: &[&str]) -> Result<HashSet<String>> {
     Ok(ids)
 }
 
-/// Ids of the folders currently on disk, including broken ones.
+/// Ids of the folders currently on disk, including broken ones. The id is in
+/// the folder name, so this never opens a task.
 pub fn fs_ids(ydir: &Path) -> Result<HashSet<String>> {
-    Ok(list(ydir)?
-        .iter()
-        .filter_map(|e| FolderName::parse(&e.dir_name()).map(|f| f.id))
+    Ok(task_dirs(ydir)?
+        .into_iter()
+        .map(|(_, _, folder)| folder.id)
         .collect())
 }
 
@@ -175,6 +176,7 @@ pub fn new_id(ctx: &Context) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::task::FolderName;
 
     fn cfg() -> Config {
         Config::new(Scheme::Seq)
