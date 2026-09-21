@@ -206,7 +206,9 @@ attachment — still conflict, and land in the file as the usual markers.
 yman add <title> [-p 0-9] [-s <status>] [-t <tag>]... [-m <body> | --body-file <path> | -e]
          [-a <who>] [--link <url>]... [--relate <id>]...
 ```
-Creates a task and commits it. `-t`, `--link` and `--relate` repeat.
+Creates a task and commits it. `-t`, `--link` and `--relate` repeat. Relating
+to an id this clone does not have warns on stderr and commits anyway — another
+clone may not have synced yet.
 `--body-file -` reads the body from stdin. `-e` opens `$EDITOR` on the new
 `t.md` first — whatever title you type there wins, and the folder is named after
 it.
@@ -276,7 +278,12 @@ take several ids — `yman done 14 15 16` — and commit each task on its own,
 stopping at the first error.
 
 `yman rm` asks for confirmation on a terminal and refuses outright without `-f`
-when there is no terminal to ask at.
+when there is no terminal to ask at. It also drops the removed id from every
+other task's `related` list in the same commit, reporting the count on stderr.
+
+`related` is one-way — relating 14 to 15 says nothing about 15 — and only the
+`related` field is maintained: an id written into the text of `t.md` or `d.md`
+is prose, and is never checked or rewritten.
 
 ### Attachments and discussion
 

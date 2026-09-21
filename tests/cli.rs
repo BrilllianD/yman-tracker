@@ -1991,6 +1991,102 @@ fn set_assignee_links_and_related() {
     assert!(!shown.contains("related:"), "{shown}");
 }
 
+/// Relating to an id nobody here has warns and commits anyway — the other
+/// clone that owns it may not have synced yet.
+#[test]
+fn relating_to_an_unknown_id_warns_but_commits() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["set", "1", "--relate", "99"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(
+        stderr(&out).trim(),
+        "warning: task 99 does not exist here; relating anyway"
+    );
+    assert!(stdout(&out).contains("1: related +99"), "{}", stdout(&out));
+
+    let shown = stdout(&fx.yman(&fx.a).args(["show", "1"]).output().unwrap());
+    assert!(shown.contains("related:  99"), "{shown}");
+
+    // An id that is on disk is not warned about, and neither is re-adding one
+    // the task already carries.
+    fx.yman(&fx.a).args(["add", "Other"]).assert().success();
+    let out = fx
+        .yman(&fx.a)
+        .args(["set", "1", "--relate", "2", "--relate", "99"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stderr(&out).trim(), "", "{}", stderr(&out));
+
+    // `add --relate` says the same thing, once per id however often it repeats.
+    let out = fx
+        .yman(&fx.a)
+        .args(["add", "Third", "--relate", "98", "--relate", "98"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(
+        stderr(&out).trim(),
+        "warning: task 98 does not exist here; relating anyway"
+    );
+}
+
+/// Removing a task takes the references to it with it, in the same commit.
+#[test]
+fn rm_drops_references_to_the_removed_task() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).args(["add", "Other"]).assert().success();
+    fx.yman(&fx.a).args(["add", "Third"]).assert().success();
+
+    fx.yman(&fx.a)
+        .args(["set", "2", "--relate", "1", "--relate", "3"])
+        .assert()
+        .success();
+    fx.yman(&fx.a)
+        .args(["set", "3", "--relate", "1"])
+        .assert()
+        .success();
+
+    let out = fx.yman(&fx.a).args(["rm", "1", "-f"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out).trim(), "removed 1");
+    assert_eq!(
+        stderr(&out).trim(),
+        "note: dropped 2 reference(s) to 1",
+        "{}",
+        stderr(&out)
+    );
+
+    let two = stdout(&fx.yman(&fx.a).args(["show", "2"]).output().unwrap());
+    assert!(two.contains("related:  3"), "{two}");
+    assert!(!two.contains(" 1"), "reference to 1 survived: {two}");
+    let three = stdout(&fx.yman(&fx.a).args(["show", "3"]).output().unwrap());
+    assert!(!three.contains("related:"), "{three}");
+
+    // One commit: the removal and the rewrites are never two observable states.
+    let log = fx.git(
+        &fx.a.join(".yman"),
+        &["log", "--oneline", "-1", "--name-only"],
+    );
+    assert!(log.contains("task(1): remove"), "{log}");
+    assert!(log.contains("5.2.other/m.yml"), "{log}");
+    assert!(log.contains("5.3.third/m.yml"), "{log}");
+
+    // Nothing to drop is silent: no task relates to 2.
+    let out = fx.yman(&fx.a).args(["rm", "2", "-f"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stderr(&out).trim(), "", "{}", stderr(&out));
+}
+
 #[test]
 fn set_tags_keep_their_order_and_dedupe() {
     let fx = Fx::new();

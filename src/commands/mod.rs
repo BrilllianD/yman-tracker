@@ -55,6 +55,25 @@ pub fn dedupe(values: Vec<String>) -> Vec<String> {
     out
 }
 
+/// Warn about every `--relate` target no folder here carries. Not a refusal:
+/// a concurrent `add` on another clone can legitimately race this, and the id
+/// becomes real the moment that clone's work arrives.
+pub fn warn_unknown_related(ctx: &Context, wanted: &[String], already: &[String]) -> Result<()> {
+    if wanted.is_empty() {
+        return Ok(());
+    }
+    let known = crate::ids::fs_ids(&ctx.ydir)?;
+    let mut warned: Vec<&String> = Vec::new();
+    for id in wanted {
+        if known.contains(id) || already.contains(id) || warned.contains(&id) {
+            continue;
+        }
+        warned.push(id);
+        eprintln!("warning: task {id} does not exist here; relating anyway");
+    }
+    Ok(())
+}
+
 /// Titles go into commit subjects verbatim except for double quotes, which
 /// would fight with the quoting in the message template.
 pub fn quote_title(title: &str) -> String {

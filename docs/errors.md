@@ -129,9 +129,12 @@ Never fatal, always stderr:
 | `warning: refs/tasks/main disappeared from origin; will recreate it` | the ref was deleted server-side |
 | `warning: <name> is N MiB; git is not great at large binaries` | attaching a file over 5 MiB |
 | `warning: installing into core.hooksPath=<p>` | hooks redirected away from `.git/hooks` |
+| `warning: task <id> does not exist here; relating anyway` | `set --relate` naming an id no folder here carries |
+| `warning: skipped N unreadable task folder(s): <rels>` | `tags`, `tags rename`, `tags rm` and `rm` walking every task |
 | `note: added remote "origin" -> <url>` | `init --remote` created the remote |
 | `note: .yman has uncommitted changes, refresh skipped` | refresh backed off |
 | `note: rewrote N reference(s) to renumbered ids` | a collision renumber moved ids other tasks related to |
+| `note: dropped N reference(s) to <id>` | `rm` cleared the removed task out of other tasks' `related` |
 | `note: task <id> was closed to two different statuses; keep one of <relA>, <relB>` | a merge renamed one task into two status directories |
 | `note: task folder is now <rel>` | a status change moved the folder into or out of a status directory |
 

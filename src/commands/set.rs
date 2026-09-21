@@ -85,6 +85,7 @@ pub fn run(ctx: &mut Context, a: SetArgs) -> Result<()> {
     let del_tags = tags::normalize_all(&a.untag)?;
     apply_set(&mut t.meta.tags, &add_tags, &del_tags, "tags", &mut changes);
     apply_set(&mut t.meta.links, &a.link, &a.unlink, "links", &mut changes);
+    super::warn_unknown_related(ctx, &a.relate, &t.meta.related)?;
     apply_set(
         &mut t.meta.related,
         &a.relate,
