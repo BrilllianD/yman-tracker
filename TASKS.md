@@ -16,22 +16,6 @@ closes it. Anything that changes a user-facing string must change
 
 ## Correctness and data integrity
 
-### Field-wise merge driver for `m.yml`
-
-Two machines editing different fields of the same task produce a textual
-conflict that the user resolves by hand, even though `status`, `priority`,
-`tags`, `links` and `related` merge unambiguously in most cases.
-
-- Where: new module (`src/merge.rs`), wired from `src/commands/sync.rs`;
-  `docs/storage.md` needs a section on the driver and how it is registered.
-- Done when: a driver merges non-overlapping field edits without user
-  intervention, genuinely conflicting scalar edits still stop the sync with
-  exit 3, and `tests/cli.rs` covers both outcomes.
-- Open question: registering a merge driver means writing to the repository's
-  config or `.gitattributes` inside `.yman`. Decide whether `yman init` does
-  that, or whether it is opt-in — and record the decision in `docs/storage.md`
-  before writing code.
-
 ### Renumbering leaves `related` references dangling on other clones
 
 `rewrite_related` (`src/commands/sync.rs:422-456`) walks the renumbering

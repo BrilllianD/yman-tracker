@@ -15,7 +15,16 @@ fn init_creates_worktree_and_config() {
     // The worktree is a linked one, not a nested repo.
     assert!(fx.a.join(".yman/.git").is_file());
     assert!(fx.a.join(".yman/config.toml").is_file());
-    assert!(fx.a.join(".yman/.gitattributes").is_file());
+    let attrs = fx.read(&fx.a.join(".yman/.gitattributes"));
+    assert!(attrs.lines().any(|l| l == "**/d.md merge=union"), "{attrs}");
+    assert!(
+        attrs.lines().any(|l| l == "**/m.yml merge=ymanmeta"),
+        "{attrs}"
+    );
+
+    // The attribute is history; the driver that implements it is per-clone.
+    let driver = fx.git(&fx.a, &["config", "--get", "merge.ymanmeta.driver"]);
+    assert!(driver.contains("merge-driver %O %A %B"), "{driver}");
 
     // HEAD points at the ref, and the ref is not a branch.
     assert_eq!(
@@ -836,6 +845,67 @@ fn conflict_abort() {
     let out = fx.yman(&fx.b).args(["sync", "--abort"]).output().unwrap();
     assert!(!out.status.success());
     assert_eq!(stderr(&out).trim(), "error: no merge in progress");
+}
+
+#[test]
+fn field_wise_merge_settles_disjoint_edits() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+
+    // Same task, two different fields. These land on adjacent lines in m.yml,
+    // which is exactly what the text merge cannot handle.
+    fx.yman(&fx.a)
+        .args(["set", "1", "--status", "doing"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b)
+        .args(["set", "1", "--tag", "urgent"])
+        .assert()
+        .success();
+
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+
+    let meta = fx.read(&fx.b.join(".yman/5.1.fix-login/m.yml"));
+    assert!(!meta.contains("<<<<<<<"), "{meta}");
+    assert_eq!(fx.status(&fx.b, "1"), "doing");
+    assert!(meta.contains("urgent"), "{meta}");
+
+    // And A sees both halves once it syncs back.
+    fx.yman(&fx.a).arg("sync").assert().success();
+    let meta = fx.read(&fx.a.join(".yman/5.1.fix-login/m.yml"));
+    assert_eq!(fx.status(&fx.a, "1"), "doing");
+    assert!(meta.contains("urgent"), "{meta}");
+}
+
+/// The driver is all-or-nothing on purpose: an m.yml it cannot parse has to
+/// end up looking exactly like it did before the driver existed.
+#[test]
+fn an_unparseable_m_yml_falls_back_to_the_text_merge() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+
+    fx.yman(&fx.a)
+        .args(["set", "1", "--status", "doing"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+
+    // B hand-edits the same line into something no YAML reader accepts.
+    let mpath = fx.b.join(".yman/5.1.fix-login/m.yml");
+    let broken = fx.read(&mpath).replace("status: todo", "status: ['a,b']");
+    fx.write(&mpath, &broken);
+
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert!(fx.read(&mpath).contains("<<<<<<<"), "{}", fx.read(&mpath));
 }
 
 #[test]

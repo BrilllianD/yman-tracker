@@ -10,6 +10,7 @@ pub mod hooks;
 pub mod init;
 pub mod log;
 pub mod ls;
+pub mod merge_driver;
 pub mod path;
 pub mod refresh;
 pub mod rm;
@@ -100,6 +101,8 @@ pub fn dispatch(ctx: &mut Context, cmd: Cmd) -> Result<()> {
         Cmd::Status(a) => status::run(ctx, a),
         Cmd::Tags(a) => tags::run(ctx, a),
         Cmd::Guide => guide::run(),
+        // `main` answers this one before discovery; it never reaches dispatch.
+        Cmd::MergeDriver(_) => unreachable!("merge-driver is dispatched in main"),
         Cmd::Refresh(a) => refresh::run(ctx, a),
         Cmd::Hooks(a) => hooks::run(ctx, a),
         Cmd::Sync(a) => sync::run(ctx, a),

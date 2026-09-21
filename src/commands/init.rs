@@ -8,7 +8,11 @@ use anyhow::{Result, bail};
 use super::sync::{PushResult, push};
 
 const GITIGNORE: &str = "*.swp\n*~\n.#*\n*.orig\n";
-const GITATTRIBUTES: &str = "**/d.md merge=union\n";
+const GITATTRIBUTES: &str = "**/d.md merge=union\n**/m.yml merge=ymanmeta\n";
+
+/// The merge driver `.gitattributes` names. Registering it is per-clone — the
+/// attribute travels in the history, the `merge.<name>.*` config does not.
+const MERGE_DRIVER: &str = "ymanmeta";
 
 pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
     let url = resolve_remote(ctx, a.remote.as_deref())?;
@@ -35,6 +39,7 @@ pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
     if let Some(author) = &a.author {
         ctx.set_cfg("yman.author", author)?;
     }
+    register_merge_driver(ctx)?;
 
     // A previous `rm -rf .yman` leaves a stale worktree registration behind.
     ctx.main.run(&["worktree", "prune"])?;
@@ -109,6 +114,7 @@ fn repair(ctx: &mut Context, a: &InitArgs, url: &str) -> Result<()> {
     if let Some(author) = &a.author {
         ctx.set_cfg("yman.author", author)?;
     }
+    register_merge_driver(ctx)?;
     ctx.config = Some(load_history_config(ctx)?);
     if a.id_scheme.is_some() {
         warn_scheme_ignored(ctx);
@@ -117,6 +123,27 @@ fn repair(ctx: &mut Context, a: &InitArgs, url: &str) -> Result<()> {
         hooks::install(ctx)?;
     }
     summary(ctx, url, "already initialized")
+}
+
+/// Teach this clone how to run the `m.yml` merge driver. Idempotent, and
+/// writes no commit — the `.gitattributes` side of the pair is history, this
+/// side is local config. A clone that never ran this falls back to git's text
+/// merge, which is what `m.yml` got before the driver existed.
+fn register_merge_driver(ctx: &Context) -> Result<()> {
+    // git runs the driver through a shell, so the path is quoted: `yman` need
+    // not be on PATH, and an installed binary may live somewhere with spaces.
+    let exe = std::env::current_exe()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| "yman".to_string());
+    ctx.set_cfg(
+        &format!("merge.{MERGE_DRIVER}.name"),
+        "yman m.yml field-wise merge",
+    )?;
+    ctx.set_cfg(
+        &format!("merge.{MERGE_DRIVER}.driver"),
+        &format!("\"{exe}\" merge-driver %O %A %B"),
+    )?;
+    Ok(())
 }
 
 fn warn_scheme_ignored(ctx: &Context) {

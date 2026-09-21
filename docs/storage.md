@@ -88,6 +88,9 @@ file answers. `tests/cli.rs` pins both numbers.
 | `remote.origin.fetch` (appended) | `+refs/tasks/main:refs/yman/remote` | a plain `git fetch` carries task commits |
 | `yman.refresh` | `lazy` \| `manual` | see [commands.md](commands.md#refresh) |
 | `yman.author` | prefix string | only meaningful for the `author` id scheme |
+| `merge.ymanmeta.name` | `yman m.yml field-wise merge` | shown by git when the driver runs |
+| `merge.ymanmeta.driver` | `"<yman>" merge-driver %O %A %B` | see [Merging `m.yml`](#merging-myml) |
+| `.yman/.gitattributes` | `**/d.md merge=union`, `**/m.yml merge=ymanmeta` | committed, so every clone inherits it |
 
 `remote.origin.push` is **never** set: that would hijack the user's plain
 `git push`. Publishing is always the explicit refspec
@@ -102,7 +105,8 @@ the URL without creating it would lead nowhere.
 ```
 ROOT/
   .git/
-    config                      # + fetch refspec, yman.refresh, yman.author
+    config                      # + fetch refspec, yman.refresh, yman.author,
+                                #   merge.ymanmeta.*
     info/exclude                # + ".yman/"
     refs/yman/{local,remote}
     worktrees/-yman/            # git-managed; HEAD, index, MERGE_HEAD
@@ -110,7 +114,7 @@ ROOT/
   .yman/
     .git                        # file: "gitdir: <COMMON>/worktrees/-yman"
     .gitignore                  # *.swp  *~  .#*  *.orig
-    .gitattributes              # **/d.md merge=union
+    .gitattributes              # **/d.md merge=union, **/m.yml merge=ymanmeta
     config.toml
     2.14.fix-login/
       t.md
@@ -244,6 +248,46 @@ related:
   editing the config cannot brick existing tasks. An *empty* `status` — bare,
   `null`, or whitespace — is a different thing: it reads as a missing field, so
   the task is reported broken rather than loaded with no status at all.
+
+### Merging `m.yml`
+
+`.gitattributes` marks `**/m.yml` as `merge=ymanmeta`, and `yman init` points
+that name at `yman merge-driver %O %A %B` in the clone's own config. The
+attribute travels in the history; the `merge.ymanmeta.*` config does not, so
+every clone registers it for itself. A clone that never did falls back to git's
+text merge, which is what `m.yml` got before the driver existed — an
+unregistered driver cannot corrupt a file.
+
+Why it exists: the writer emits keys in one fixed order, so a status change on
+one clone and a tag change on another land on *adjacent lines* and the text
+merge conflicts. `updated` makes it worse — it changes on every edit on both
+sides, so it is a permanently-differing line wedged between `created` and
+`attachments`, dragging its neighbours into conflicts they do not deserve.
+
+The driver compares whole field values:
+
+| Field | Rule |
+|---|---|
+| `updated` | the later of the two; never conflicts |
+| `created` | the earlier of the two; never conflicts |
+| everything else | the side that moved wins; both moved differently is a conflict |
+
+"Everything else" includes the list fields. `tags`, `links`, `related` and
+`attachments` are compared **whole**, not unioned: a tag added on each clone is
+a conflict, even though the two edits would combine cleanly. That is a
+deliberate limit, not an oversight — union semantics for a list also have to
+answer what a *removal* on one side means against an addition on the other, and
+the answer is not obvious enough to bury in a merge driver.
+
+The driver is all-or-nothing. One conflicting field abandons the whole
+field-wise merge and hands the three files to `git merge-file`, so what the user
+resolves by hand is byte for byte what they would have seen without the driver:
+`<<<<<<<` markers in `m.yml`, `yman sync` exiting 3, `yman sync --continue`
+after. The two sides are labelled `ours` and `theirs` rather than `HEAD` and
+the ref name: the driver is handed three temporary files and never learns what
+is being merged into what. The same happens when any of the three versions does not parse — a
+half-resolved file, or the empty `%O` git passes when the two sides share no
+ancestor.
 
 ### `d.md`
 

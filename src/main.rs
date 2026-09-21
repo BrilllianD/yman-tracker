@@ -7,6 +7,7 @@ mod git;
 mod hooks;
 mod ids;
 mod json;
+mod merge;
 mod refresh;
 mod refs;
 mod repo;
@@ -33,6 +34,18 @@ fn run(cli: Cli) -> anyhow::Result<()> {
     // fresh shell in any directory, so it is answered before discovery.
     if matches!(cli.cmd, Cmd::Guide) {
         return commands::guide::run();
+    }
+
+    // Git calls this one with three temp files, from inside a merge it is
+    // itself driving: there is no repository state to discover, and preflight
+    // would refuse on the `MERGE_HEAD` that is always present here.
+    if let Cmd::MergeDriver(a) = cli.cmd {
+        return match commands::merge_driver::run(a)? {
+            true => Ok(()),
+            // A conflict the driver could not settle. Git wants a non-zero
+            // exit and has already been handed the marked-up file.
+            false => std::process::exit(1),
+        };
     }
 
     let mut ctx = repo::discover()?;
