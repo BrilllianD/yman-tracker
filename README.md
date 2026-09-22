@@ -583,9 +583,11 @@ the error; fix the file and the task comes back. Nothing else is affected.
   `scripts/synthetic-project.sh` on a Ryzen 7 4700U, git 2.55.0, release build:
   32 ms on an empty tracker, 157 ms at 1000 tasks over 1081 commits — a linear
   18 ms + 0.13 ms per existing task.
-- Every ref read spawns a `git` process, including on the lazy refresh path.
-  On that same repository `yman ls` costs 6 processes and 32 ms, `yman show`
-  6 and 23 ms, `yman add` 11.
+- A ref is resolved by reading its file, not by spawning `git`; only a layout
+  `src/refs.rs` does not recognise falls back to `rev-parse`. On that same
+  repository `yman ls` costs 1 process and 18 ms, `yman show` 1 and 6 ms,
+  `yman add` 4. A clone holding unpushed commits pays one more, for the
+  ancestry question no file answers.
 - `yman log <id>` rebuilds the rename graph of the whole history on every call,
   not just the task's: 420 ms against 3802 rename records.
 - One `.yman` worktree per clone.
