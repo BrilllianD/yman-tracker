@@ -302,8 +302,8 @@ fn parent_of(ydir: &Path, dir: &Path) -> Result<Option<String>> {
 /// its parsed name. Accepts both `5.1.x/m.yml` and `done/5.1.x/m.yml`, and
 /// rejects root files such as `config.toml`.
 ///
-/// Every place that reads paths out of git — the rename graph, the id history,
-/// the collision renumber, the merge check — goes through this, so a task keeps
+/// Every place that reads paths out of git — the id history, the collision
+/// renumber, the merge check — goes through this, so a task keeps
 /// its identity when it moves into or out of a status directory.
 pub fn task_path_of(path: &str) -> Option<(String, FolderName)> {
     let segs: Vec<&str> = path.split('/').collect();

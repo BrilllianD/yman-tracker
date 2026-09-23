@@ -185,9 +185,10 @@ reproduced on staging
 ```
 
 `.gitattributes` marks `**/d.md` as `merge=union`, so two people commenting on
-the same task at the same time merge cleanly instead of conflicting — as long
-as neither of them also retitled it, which renames the folder the comment was
-written against.
+the same task at the same time merge cleanly instead of conflicting. That holds
+when one of them retitled or closed the task meanwhile, too: a comment or an
+attachment written against the old folder name follows the task into the new
+one.
 
 `m.yml` gets a merge driver of its own, `merge=ymanmeta`, which merges the file
 one field at a time instead of one line at a time: a status change on one clone
@@ -589,8 +590,10 @@ the error; fix the file and the task comes back. Nothing else is affected.
   repository `yman ls` costs 1 process and 18 ms, `yman show` 1 and 6 ms,
   `yman add` 4. A clone holding unpushed commits pays one more, for the
   ancestry question no file answers.
-- `yman log <id>` rebuilds the rename graph of the whole history on every call,
-  not just the task's: 420 ms against 3802 rename records.
+- `yman log <id>` finds a task's history by a pathspec on its id, so a task
+  with fewer commits than `-n` still walks the whole history: 125 ms for a
+  17-commit task on the same repository, down from 400 ms when it rebuilt the
+  rename graph. There is no index to make that cheaper.
 - One `.yman` worktree per clone.
 - Windows should work with `core.longpaths`, but is not tested.
 - No colour, no TUI, no web UI, no GitHub Issues bridge.

@@ -400,31 +400,25 @@ if ! echo "$logout" | grep -q "task($probe_id): add"; then
 fi
 echo "P2 log:  task $probe_id, $(echo "$logout" | wc -l | tr -d ' \t') commits, $(( (t1 - t0) / 5 )) ms, $renames rename records in history"
 
-# P3: `.gitattributes` marks `**/d.md merge=union` so concurrent comments
-# merge without a conflict — but only while the folder keeps its name. A
-# retitle is a `git mv`, so a comment written on another clone against the old
-# name arrives as modify/delete and the merge stops. Exercised on one task,
-# then unwound, because it needs hands to resolve.
+# P3: a retitle on one clone, and on another a first comment and an
+# attachment written against the old folder name. The new `d.md` follows the
+# directory rename git is told to apply, and sync rejoins the attachment that
+# git leaves behind; either one going missing is a broken tree.
 conf_id=$(y a add "Conflict probe" -p 5 | awk '{print $2}')
 sync_all
 yq a set "$conf_id" --title "Conflict probe renamed by a"
 sync_one a
 yq b comment "$conf_id" -m "Comment written on b against the old folder name."
-set +e
-( cd "$out/b" && "$yman" sync ) >/dev/null 2>>"$runlog"
-conf_rc=$?
-set -e
-if [ "$conf_rc" -ne 3 ]; then
-	fail "expected exit 3 from the retitle-versus-comment merge, got $conf_rc"
-fi
-conf_files=$(cd "$out/b/.yman" && git diff --name-only --diff-filter=U | wc -l | tr -d ' \t')
-yq b sync --abort
-# Drop b's side outright: the point was the conflict, not resolving it. HEAD in
-# the worktree is a symref to refs/yman/local, so this moves the ref too.
-git -C "$out/b/.yman" reset -q --hard refs/yman/remote
+printf 'probe payload\n' > "$out/blobs/probe.txt"
+yq b attach "$conf_id" "$out/blobs/probe.txt"
+sync_one b
 sync_all
-finding "retitle on one clone + comment on another = exit $conf_rc, $conf_files unmerged path(s);"
-echo "           merge=union settles concurrent comments only while the folder keeps its name"
+conf_show=$(y a show "$conf_id")
+echo "$conf_show" | grep -q "Comment written on b" \
+	|| fail "the comment written against the old folder name was lost"
+echo "$conf_show" | grep "probe.txt" | grep -qv "(missing)" \
+	|| fail "the attachment written against the old folder name was lost"
+echo "P3 merge: retitle on one clone + first comment and attachment on another merged cleanly"
 
 # P4: what do ls / show / find cost on the big tree?
 bench() { # bench <clone> <reps> <yman args...>
