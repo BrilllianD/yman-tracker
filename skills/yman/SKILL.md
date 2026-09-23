@@ -21,15 +21,17 @@ yman add "Title" -m "body" -a <me> --relate <id>  # follow-up, linked to its par
 
 ## When asked for the task list
 
-1. Run `yman ls -l`: open tasks with their bodies, already sorted by priority,
-   status order and id. On a large tracker cap it with `-n`.
+1. Run `yman ls -l -n 20`: open tasks with their bodies, already sorted by
+   priority, status order and id. Raise the cap on a small tracker if the
+   list was cut off; never run it uncapped on a large one.
 2. Show the rows as a markdown table, `P | ID | Status | Title | Tags`, in the
    order `ls` printed them. A `! <dir> broken <error>` row goes under the
    table as-is, not dropped.
 3. Work out what can be taken next. Prefer the best priority; within it, a
    `todo` task that is unassigned (or assigned to you) over one somebody else
-   already has in progress. Skip a task whose body or relations say it waits on
-   another open task.
+   already has in progress. `ls` rows carry no assignee: take it from the
+   `show` in step 4, or list the unassigned ones with `yman ls --assignee -`.
+   Skip a task whose body or relations say it waits on another open task.
 4. Read only the top one to three candidates with `yman show <id> -n 0`, for
    their "Where", "Done when" and relations. Do not `show` every task.
 5. Finish with a short recommendation: which id to take, why, and roughly how
@@ -37,7 +39,8 @@ yman add "Title" -m "body" -a <me> --relate <id>  # follow-up, linked to its par
 
 ## Reading
 
-`ls` prints one row per task and touches no git:
+`ls` prints one row per task and runs no git of its own (only the lazy
+refresh that precedes most commands may):
 
 ```
 P  ID  STATUS  TITLE  TAGS  F  C
@@ -59,7 +62,7 @@ lowercase:
 | `--assignee <WHO>` | `-` means unassigned |
 | `-p, --priority <N>` | 0 to 9 |
 | `-q, --grep <TEXT>` | case-insensitive substring of title or body, not a regex |
-| `-a, --all` | include closed tasks, hidden by default |
+| `-a, --all` | include closed tasks, hidden by default (or name one with `-s`) |
 | `-n, --limit <N>` | first N rows, applied after sorting |
 | `-l, --long` | each task's body under its row, indented four spaces; `body` in `--json` |
 
@@ -117,11 +120,13 @@ the calls, half the commits.
 | `yman rm <id>` without `-f` | prompts on a terminal | `yman rm <id> -f` |
 | `yman tags rm <tag>` without `-f` | prompts on a terminal | `yman tags rm <tag> -f` |
 
-These fail fast rather than hanging. Off a terminal, a removal without `-f`
-prints `refusing to remove without -f`, and an editor path with neither
-`$VISUAL` nor `$EDITOR` set prints
+Off a terminal, a removal without `-f` fails fast with
+`refusing to remove without -f`, and an editor path with neither `$VISUAL` nor
+`$EDITOR` set fails with
 `no terminal for vi; set $EDITOR, or use -m / --body-file`. Both mean "use the
-non-interactive form", not "retry".
+non-interactive form", not "retry". With `$VISUAL` or `$EDITOR` set, the editor
+path does **not** fail: that editor is started even without a terminal, and
+the command may hang waiting on it.
 
 ## Streams and exit codes
 
@@ -152,8 +157,14 @@ yman status                  # names the unmerged files under .yman/
 yman sync --continue         # or: yman sync --abort
 ```
 
-`yman sync` is the only command that touches the network: it fetches, merges and
-pushes. `--no-push` merges without publishing.
+`--continue` can also stop with
+`duplicate task id <id>: <a>, <b>; delete one folder, then: yman sync --continue`
+(still exit 3): both sides closed the same task, to two different statuses.
+There are no markers to remove; delete the folder you do not want and continue.
+
+`yman sync` is the command that touches the network day to day: it fetches,
+merges and pushes. `--no-push` merges without publishing. `init` also fetches
+and pushes unless given `--offline`.
 
 ## Attribution
 
@@ -164,8 +175,8 @@ yours. It does not change the git committer, which stays whatever git says it is
 
 Plain output is the cheapest thing yman prints. `--json` repeats every key on
 every row, so reach for it only when the output goes into `jq`. Cap with `-n`,
-use `show <id> -n 0` when you only need the header and body, and never `ls`
-without a filter on a large tracker.
+use `show <id> -n 0` when you only need the header and body, and never run
+`ls` without `-n` or a filter on a large tracker.
 
 ## If `.yman` does not exist
 
@@ -181,5 +192,5 @@ If `origin` already carries a task history, `init` adopts it — there is no
 separate clone step. The full runbook is `docs/setup.md` in the yman-tracker
 repository.
 
-`yman guide` prints the same manual straight from the binary, works in any
-directory, and needs no repository.
+`yman guide` prints a condensed version of this skill straight from the
+binary, works in any directory, and needs no repository.

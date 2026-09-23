@@ -17,6 +17,11 @@ under [Releasing](README.md#releasing) in the README.
   spike script actually enforces, how `t.md` and `m.yml` are written, where
   hooks go, which commands use the network, and the filesystem notes added in
   the previous entry, which overstated one gap and missed the Windows ones.
+- The three copies of the agent manual (`yman guide`, the skill and the
+  README's "Scripts and agents") agree again: the task-list rule no longer
+  asks for an assignee `ls` does not print, `rm -f` and the duplicate-id
+  recovery are in all of them, and the README no longer says `init` adds one
+  config line or that `sync` is the only command using the network.
 
 ### Changed
 
