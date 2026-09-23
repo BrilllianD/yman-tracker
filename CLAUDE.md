@@ -60,8 +60,12 @@ convenience.
 
 ## Git conventions
 
-- Conventional Commits: `feat:`, `fix:`, `test:`, `docs:`, `style:`. Subject in
-  the imperative; body explains *why*, not what the diff already shows.
+- Conventional Commits: `feat:`, `fix:`, `perf:`, `refactor:`, `test:`,
+  `docs:`, `style:`, `ci:`, `chore:`. Subject in the imperative; body explains
+  *why*, not what the diff already shows.
+- A user-visible change adds a line under `[Unreleased]` in `CHANGELOG.md` in
+  the same commit. Cutting a release is described under "Releasing" in
+  `README.md`.
 - Work on a feature branch and merge it — do not commit straight to `main`.
 - The backlog lives in this repository's own tracker: `yman ls` lists open
   work, `yman show <id>` gives each entry's "Where" and "Done when". Claim a
