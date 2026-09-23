@@ -438,8 +438,10 @@ that is behind moves, because the other side's id is already published.
   same commit as the moves, and `note: rewrote N reference(s) to renumbered
   ids` reports how many changed. A folder that does not load is left alone.
   The rewrite covers the renumbering clone's own tree, which is the pre-merge
-  one: a reference held by another clone, or arriving in the same merge, keeps
-  the old id and is left pointing at nothing.
+  one, and that is every reference that can mean the moved task: a candidate
+  is absent from the merge base, so it never reached origin and no other
+  clone has seen it. A reference on the remote side, including one arriving
+  in the same merge, names the remote's task, which keeps its id.
 
 ### `--continue` and `--abort`
 

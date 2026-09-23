@@ -3973,3 +3973,133 @@ fn tags_subcommands_wait_for_an_unresolved_merge() {
         .unwrap();
     assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
 }
+
+/// References on both sides of a renumbering merge end up pointing at the task
+/// their author meant. The remote side's references name the remote task,
+/// which keeps its id; only the renumbering clone's own references can mean
+/// the moved task, and those are all in its pre-merge tree.
+#[test]
+fn collision_renumber_leaves_no_reference_dangling() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Shared"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+
+    // Both mint 2 offline, and on each side a published task and a new one
+    // point at that side's own 2.
+    for (clone, who) in [(&fx.a, "A"), (&fx.b, "B")] {
+        fx.yman(clone)
+            .args(["add", &format!("{who} two")])
+            .assert()
+            .success();
+        fx.yman(clone)
+            .args(["add", &format!("{who} three"), "--relate", "2"])
+            .assert()
+            .success();
+        fx.yman(clone)
+            .args(["set", "1", "--relate", "2"])
+            .assert()
+            .success();
+    }
+    fx.yman(&fx.a).arg("sync").assert().success();
+
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("renumbered 2 -> 4"), "{text}");
+    assert!(text.contains("renumbered 3 -> 5"), "{text}");
+    fx.yman(&fx.a).arg("sync").assert().success();
+
+    for clone in [&fx.a, &fx.b] {
+        assert_eq!(fx.title(clone, "2"), "A two");
+        assert_eq!(fx.title(clone, "3"), "A three");
+        assert_eq!(fx.title(clone, "4"), "B two");
+        assert_eq!(fx.title(clone, "5"), "B three");
+        let related = |id: &str| {
+            let out = fx
+                .yman(clone)
+                .args(["show", id, "-n", "0"])
+                .output()
+                .unwrap();
+            let text = stdout(&out);
+            text.lines()
+                .find_map(|l| l.strip_prefix("related:").map(|r| r.trim().to_string()))
+                .unwrap_or_default()
+        };
+        assert_eq!(related("3"), "2", "A's new task keeps A's 2");
+        assert_eq!(related("5"), "4", "B's new task follows B's 2");
+        assert_eq!(related("1"), "2, 4", "the shared task keeps both");
+    }
+}
+
+/// The second round of a sync whose first round merged but did not push:
+/// `LOCAL` is now a merge commit that already carries the remote side's
+/// references, and a closed task holds one of the local ones. Each id is
+/// renumbered at most once per round and every reference still lands.
+#[test]
+fn second_round_renumber_leaves_no_reference_dangling() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Shared"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+
+    fx.yman(&fx.a).args(["add", "A two"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["set", "1", "--relate", "2"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+
+    fx.yman(&fx.b).args(["add", "B two"]).assert().success();
+    fx.yman(&fx.b)
+        .args(["add", "B three", "--relate", "2"])
+        .assert()
+        .success();
+    fx.yman(&fx.b).args(["done", "3"]).assert().success();
+    let out = fx.yman(&fx.b).args(["sync", "--no-push"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stdout(&out).contains("renumbered 2 -> 4"),
+        "{}",
+        stdout(&out)
+    );
+
+    // A mints the ids B just moved to, and points at one of them.
+    fx.yman(&fx.a).args(["add", "A three"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "A four", "--relate", "3"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("renumbered 3 -> 5"), "{text}");
+    assert!(text.contains("renumbered 4 -> 6"), "{text}");
+    fx.yman(&fx.a).arg("sync").assert().success();
+
+    for clone in [&fx.a, &fx.b] {
+        assert_eq!(fx.title(clone, "2"), "A two");
+        assert_eq!(fx.title(clone, "3"), "A three");
+        assert_eq!(fx.title(clone, "4"), "A four");
+        assert_eq!(fx.title(clone, "5"), "B three");
+        assert_eq!(fx.title(clone, "6"), "B two");
+        let related = |id: &str| {
+            let out = fx
+                .yman(clone)
+                .args(["show", id, "-n", "0"])
+                .output()
+                .unwrap();
+            let text = stdout(&out);
+            text.lines()
+                .find_map(|l| l.strip_prefix("related:").map(|r| r.trim().to_string()))
+                .unwrap_or_default()
+        };
+        assert_eq!(related("1"), "2");
+        assert_eq!(related("4"), "3", "A's reference arriving in the merge");
+        assert_eq!(related("5"), "6", "B's closed task, moved twice");
+    }
+}
