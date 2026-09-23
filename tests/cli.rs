@@ -4103,3 +4103,91 @@ fn second_round_renumber_leaves_no_reference_dangling() {
         assert_eq!(related("5"), "6", "B's closed task, moved twice");
     }
 }
+
+/// The first comment on a task creates its `d.md`. When another clone has
+/// retitled the task meanwhile, that file was added under a folder name that
+/// no longer exists, and git's default for a file added inside a renamed
+/// directory is to stop and ask. It belongs in the new folder, so it goes
+/// there, on whichever side the retitle happened.
+#[test]
+fn retitle_and_first_comment_merge() {
+    for retitler in ["a", "b"] {
+        let fx = Fx::new();
+        fx.yman(&fx.a).arg("init").assert().success();
+        fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+        fx.yman(&fx.a).arg("sync").assert().success();
+        fx.yman(&fx.b).arg("init").assert().success();
+
+        let (mover, other) = if retitler == "a" {
+            (&fx.a, &fx.b)
+        } else {
+            (&fx.b, &fx.a)
+        };
+        fx.yman(mover)
+            .args(["set", "1", "--title", "Repair login"])
+            .assert()
+            .success();
+        fx.yman(other)
+            .args(["comment", "1", "-m", "late note"])
+            .assert()
+            .success();
+        fx.yman(&fx.a).arg("sync").assert().success();
+        let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+        assert!(
+            out.status.success(),
+            "retitle on {retitler}: {}",
+            stderr(&out)
+        );
+        fx.yman(&fx.a).arg("sync").assert().success();
+
+        for clone in [&fx.a, &fx.b] {
+            assert_eq!(fx.task_dirs(clone).len(), 1, "retitle on {retitler}");
+            assert_eq!(fx.task_rel(clone, "1"), "5.1.repair-login");
+            let shown = stdout(&fx.yman(clone).args(["show", "1"]).output().unwrap());
+            assert!(shown.contains("late note"), "{shown}");
+        }
+    }
+}
+
+/// An attachment added against the old folder is `f/<name>`, one level down,
+/// and git leaves it behind under the old name even when told to follow
+/// directory renames — the merge succeeds with the task split in two. Sync
+/// moves it into the folder that carries the task, retitled or closed.
+#[test]
+fn moved_folder_and_attachment_merge() {
+    for verb in ["retitle", "close"] {
+        let fx = Fx::new();
+        fx.yman(&fx.a).arg("init").assert().success();
+        fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+        fx.yman(&fx.a).arg("sync").assert().success();
+        fx.yman(&fx.b).arg("init").assert().success();
+
+        let args: &[&str] = match verb {
+            "retitle" => &["set", "1", "--title", "Repair login"],
+            _ => &["done", "1"],
+        };
+        fx.yman(&fx.a).args(args).assert().success();
+        let src = fx.b.join("trace.txt");
+        fx.write(&src, "trace\n");
+        fx.yman(&fx.b)
+            .args(["attach", "1", src.to_str().unwrap()])
+            .assert()
+            .success();
+        fx.yman(&fx.a).arg("sync").assert().success();
+        let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+        assert!(out.status.success(), "{verb}: {}", stderr(&out));
+        fx.yman(&fx.a).arg("sync").assert().success();
+
+        for clone in [&fx.a, &fx.b] {
+            assert_eq!(fx.task_dirs(clone).len(), 1, "{verb}");
+            let dir = fx.task_dir(clone, "1");
+            assert_eq!(fx.read(&dir.join("f").join("trace.txt")), "trace\n");
+            let shown = stdout(&fx.yman(clone).args(["show", "1"]).output().unwrap());
+            assert!(
+                shown.contains("trace.txt") && !shown.contains("(missing)"),
+                "{shown}"
+            );
+            assert_eq!(fx.git(clone, &["-C", ".yman", "status", "--porcelain"]), "");
+        }
+    }
+}

@@ -46,6 +46,7 @@ interfere. GPG signing is deliberately left to the user's configuration.
 | `sync` snapshot | `yman: snapshot local changes` |
 | `sync` renumber | `yman: renumber 2->3, 7->8 (sync collision)` |
 | `sync` merge | `yman: merge origin refs/tasks/main` |
+| `sync` rejoin | `yman: rejoin files left under a moved folder` |
 
 `{title}` has `"` replaced by `'`. `{pairs}` is space-joined, e.g.
 `status=todo->doing priority=5->2 title tags=+ui,-auth comment` — a changed
@@ -405,10 +406,12 @@ The only command that uses the network. Preflight runs with `mutating = false`;
    out the re-init recipe.
 6. `base == remote` → nothing to merge. `base == local` → `merge --ff-only`.
 7. Otherwise **renumber collisions** (below), then
-   `merge --no-edit --no-verify`. `m.yml` goes through the field-wise merge
-   driver ([storage.md](storage.md#merging-myml)), so edits to different fields
-   of one task settle on their own; anything it cannot settle falls back to the
-   text merge. Conflicts print the unmerged files and exit 3.
+   `merge --no-edit --no-verify` with `merge.directoryRenames=true`. `m.yml`
+   goes through the field-wise merge driver
+   ([storage.md](storage.md#merging-myml)), so edits to different fields of one
+   task settle on their own; anything it cannot settle falls back to the text
+   merge. Conflicts print the unmerged files and exit 3. A clean merge is
+   followed by the **rejoin** below.
 8. Push, unless `--no-push`. A rejected push means origin moved: loop back to
    step 3, at most three attempts, then fail with `origin keeps moving`.
 9. Report `synced  pulled N, pushed N, renumbered N   refs/yman/local @ <sha>`.
@@ -442,6 +445,22 @@ that is behind moves, because the other side's id is already published.
   is absent from the merge base, so it never reached origin and no other
   clone has seen it. A reference on the remote side, including one arriving
   in the same merge, names the remote's task, which keeps its id.
+
+### Rejoining a moved folder
+
+A retitle or a close moves a task's folder, and a file the other clone added
+under the old name belongs in the new one. `merge.directoryRenames=true` has
+git move it — but only when something was also added directly in that folder,
+so a first comment's `d.md` follows and an attachment on its own, `f/<name>`,
+does not. The merge then succeeds with the task split across two folders.
+
+So after the merge, any folder that shares its id with exactly one folder
+carrying an `m.yml`, and has none itself, is emptied into that folder with
+`git mv`, printing `note: moved N file(s) left under <old> into <rel>`. A file
+whose destination already exists stays put, with
+`warning: <path> not moved; <dest> already exists`. After a clean merge the
+moves are committed as `yman: rejoin files left under a moved folder`; under
+`--continue` they go into the merge commit, ahead of its checks.
 
 ### `--continue` and `--abort`
 

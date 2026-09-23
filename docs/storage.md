@@ -336,10 +336,11 @@ Two things the writer does to keep that true:
 without a conflict. The pattern is `**`, not `*`, because a `*` does not cross a
 `/` and a closed task's discussion is one level deeper.
 
-`merge=union` settles concurrent comments only while the folder keeps its name.
-A retitle is a `git mv`, so a comment written on another clone against the old
-name arrives as modify/delete on a path the union driver is never asked about,
-and the merge stops with exit 3.
+A retitle or a close moves the folder, and a comment written on another clone
+against the old name still lands in the new one: an existing `d.md` follows the
+rename, and a first comment's new `d.md` follows the directory rename, which
+sync asks git to apply rather than stop on. Attachments need one more step; see
+[commands.md](commands.md#rejoining-a-moved-folder).
 
 ## 7. `config.toml`
 

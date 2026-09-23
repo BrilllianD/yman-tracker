@@ -73,6 +73,9 @@ fn resume(ctx: &mut Context, no_push: bool) -> Result<()> {
     if !still.is_empty() {
         return Err(MergePending::new(format!("still unmerged: {}", still.join(", "))).into());
     }
+    // Staged into the merge commit itself, and before the checks, which
+    // would otherwise read the left-behind folder as a duplicate id.
+    rejoin_split_folders(ctx)?;
     check_resolved_tasks(ctx)?;
 
     ctx.wt.ok(&["add", "-A"])?;
@@ -221,6 +224,10 @@ fn normal(ctx: &mut Context, no_push: bool) -> Result<()> {
                 } else {
                     totals.renumbered += renumber_collisions(ctx, &base)?;
                     merge_remote(ctx)?;
+                    if rejoin_split_folders(ctx)? > 0 {
+                        ctx.wt
+                            .commit("yman: rejoin files left under a moved folder")?;
+                    }
                 }
             }
         }
@@ -280,7 +287,12 @@ fn fetch(ctx: &Context, had_remote: bool) -> Result<()> {
 }
 
 fn merge_remote(ctx: &Context) -> Result<()> {
+    // A retitle or a close moves a task's whole folder. A file the other side
+    // added under the old folder — a first comment's `d.md`, an attachment —
+    // belongs in the new one, and git's default for that is to stop and ask.
     let out = ctx.wt.run(&[
+        "-c",
+        "merge.directoryRenames=true",
         "merge",
         "--no-edit",
         "--no-verify",
@@ -327,6 +339,62 @@ fn report_split_closes(ctx: &Context) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Git carries a file the other side added under a folder this side moved —
+/// a retitle, a close — only when something was also added directly in that
+/// folder. An attachment on its own is `f/<name>`, one level down, and stays
+/// behind under the old name, in a folder with no `m.yml`: the task is split
+/// in two and the merge reports success. Move whatever was left behind into
+/// the folder that carries the task. Staged, not committed.
+fn rejoin_split_folders(ctx: &Context) -> Result<usize> {
+    let mut by_id: HashMap<String, Vec<String>> = HashMap::new();
+    for (parent, name, folder) in task::task_dirs(&ctx.ydir)? {
+        let rel = match parent {
+            Some(p) => format!("{p}/{name}"),
+            None => name,
+        };
+        by_id.entry(folder.id).or_default().push(rel);
+    }
+    let mut moved = 0;
+    for rels in by_id.values().filter(|r| r.len() > 1) {
+        let (live, left): (Vec<&String>, Vec<&String>) = rels
+            .iter()
+            .partition(|rel| ctx.ydir.join(rel).join(task::META_FILE).exists());
+        // Two folders that both carry a task are a real conflict, and
+        // `duplicate_ids_gate` is what speaks up about it.
+        let [live] = live[..] else {
+            continue;
+        };
+        for old in left {
+            let files = ctx.wt.out(&["ls-files", "--", old])?;
+            let mut n = 0;
+            for file in files.lines().filter(|l| !l.trim().is_empty()) {
+                let Some(sub) = file.strip_prefix(old.as_str()) else {
+                    continue;
+                };
+                let dest = format!("{live}{sub}");
+                if ctx.ydir.join(&dest).exists() {
+                    eprintln!("warning: {file} not moved; {dest} already exists");
+                    continue;
+                }
+                if let Some(dir) = ctx.ydir.join(&dest).parent() {
+                    std::fs::create_dir_all(dir)?;
+                }
+                ctx.wt.ok(&["mv", "--", file, &dest])?;
+                n += 1;
+            }
+            // `git mv` leaves the emptied directories behind.
+            for dir in [ctx.ydir.join(old).join(task::FILES_DIR), ctx.ydir.join(old)] {
+                let _ = std::fs::remove_dir(dir);
+            }
+            if n > 0 {
+                eprintln!("note: moved {n} file(s) left under {old} into {live}");
+            }
+            moved += n;
+        }
+    }
+    Ok(moved)
 }
 
 /// Every task id in `rev`'s tree, read from the folder names alone.
