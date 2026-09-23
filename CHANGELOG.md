@@ -7,6 +7,13 @@ under [Releasing](README.md#releasing) in the README.
 
 ## [Unreleased]
 
+### Fixed
+
+- `docs/commands.md` and `docs/errors.md` were checked against the code and
+  corrected where they had drifted: the mutating-command list, the `init`
+  commits, `refresh` notes, exit codes after `yman git` and for
+  `no merge in progress`, and messages the tables were missing.
+
 ### Changed
 
 - The README now calls Windows untested, and `docs/storage.md` §5 records

@@ -18,12 +18,15 @@ Normative, as-built. Companion documents: [storage.md](storage.md),
    down.
 
 Mutating commands, for the purposes of step 2: `add`, `edit`, `set`, `start`,
-`done`, `move`, `cancel`, `reopen`, `prio`, `rm`, `attach`, `detach`, `comment`. `sync` is excluded because
-it handles `MERGE_HEAD` itself.
+`done`, `move`, `cancel`, `reopen`, `prio`, `rm`, `attach`, `detach`, `comment`,
+`tags rename` and `tags rm`. Bare `yman tags` is a listing and is not
+mutating. `sync` is excluded because it handles `MERGE_HEAD` itself.
 
 `guide`, `completions` and `man` run none of the three. They are
 documentation compiled into the binary and are answered before the repository
-is looked for, so they work from any directory.
+is looked for, so they work from any directory. `merge-driver` skips all
+three as well: git calls it from inside a merge with three temp files, and
+preflight would refuse on the `MERGE_HEAD` that is always present then.
 
 ## 2. Commit messages
 
@@ -33,7 +36,7 @@ interfere. GPG signing is deliberately left to the user's configuration.
 
 | Command | Subject |
 |---|---|
-| `init` | `yman: init (<scheme>)` |
+| `init` | `yman: init` (empty root commit, only when `refs/yman/local` does not exist yet), then `yman: init (<scheme>)` |
 | `add` | `task({id}): add "{title}"` |
 | `edit` | `task({id}): edit` |
 | `set`, `start`, `done`, `move`, `cancel`, `reopen`, `prio` | `task({id}): set {pairs}` |
@@ -43,6 +46,8 @@ interfere. GPG signing is deliberately left to the user's configuration.
 | `comment` | `task({id}): comment` |
 | `tags rename` | `yman: tags rename {old} -> {new} ({n} tasks)` |
 | `tags rm` | `yman: tags remove {tag} ({n} tasks)` |
+
+In both `tags` subjects `{n} tasks` is `1 task` when there is exactly one.
 | `sync` snapshot | `yman: snapshot local changes` |
 | `sync` renumber | `yman: renumber 2->3, 7->8 (sync collision)` |
 | `sync` merge | `yman: merge origin refs/tasks/main` |
@@ -63,10 +68,10 @@ caller asked for.
 
 ### `ls`
 
-Touches no git. Filters, then sorts by `(priority, status index, id)`, where the
-status index is the position in `config.statuses.list` and ids compare
-numerically when they are numbers, by numeric tail when they share a `prefix-`,
-lexically otherwise.
+Touches no git itself; only the lazy refresh of §1 may. Filters, then sorts by
+`(priority, status index, id)`, where the status index is the position in
+`config.statuses.list` and ids compare numerically when they are numbers, by
+numeric tail when they share a `prefix-`, lexically otherwise.
 
 Default filtering hides tasks in any **terminal** status — `statuses.terminal`,
 or the done status when that key is unset; `-a` includes them, and naming one
@@ -133,7 +138,8 @@ unparsable chunk appearing as `{raw}`; `discussion_total` is the count before
 `-n` trimmed anything. Unlike the text form nothing is omitted: an empty
 section is an empty array and an absent assignee is `null`, so a script never
 has to branch on a missing key. `dir` is relative to `.yman`, as in `ls --json`,
-where the text form prints an absolute path.
+where the text form's `folder:` line is relative to the repository root
+(`.yman/2.1.fix-login`).
 
 ### `status`
 
@@ -200,8 +206,8 @@ the commit subject (`yman: renumber 2->3, …`):
 ### `guide`
 
 Prints [agents.md](agents.md) — the short manual for scripts and agents — to
-stdout, byte for byte, via `include_str!`. Needs no repository. Every other
-`--help` ends by pointing at it.
+stdout, byte for byte, via `include_str!`. Needs no repository. The top-level
+`yman --help` ends by pointing at it; the per-command help pages do not.
 
 ### `completions`
 
@@ -220,6 +226,13 @@ exit 2. Needs no repository.
 (`yman-tags-rename.1`), and prints nothing. Needs no repository.
 
 ## 4. Writing
+
+### `init`
+
+Creates the tracker: the ref, the `.yman` worktree, the repository
+configuration and the first commits. Its flags, what it changes and the
+local-only case are specified in [setup.md §2](setup.md#2-yman-init) and
+[setup.md §3](setup.md#3-what-init-changes).
 
 ### `add`
 
@@ -336,7 +349,7 @@ so its line reads `<id>: tags -<old>` where the others read
 `no changes`.
 
 `tags rm <tag>` drops it. On a terminal it prompts
-`remove tag "<tag>" from <n> task(s)? [y/N] ` — asked only once the count is
+`remove tag "<tag>" from <n> tasks? [y/N] ` (`1 task` for one) on stdout — asked only once the count is
 known, since confirming a removal without knowing it touches forty tasks is not
 consent. Anything but `y`/`Y` aborts. Without a terminal and without `-f` it
 refuses with `refusing to remove without -f`, the same wording as `rm`.
@@ -386,11 +399,14 @@ name written into `d.md` only; the git committer is whatever git resolves.
 `refresh(quiet)` never touches the network. In order:
 
 1. Either ref missing, or both equal → nothing to do.
-2. `LOCAL` is not an ancestor of `REMOTE` → skip:
-   `local has unpushed commits; run: yman sync`. Only `yman refresh` and
-   `yman status` report this; the lazy path stays silent.
+2. `LOCAL` is not an ancestor of `REMOTE` → skip. Only `yman refresh`
+   reports it, as `note: local has unpushed commits; run: yman sync`; the lazy
+   path stays silent. `yman status` shows the same situation as
+   `ahead N, behind M` with `→ run: yman sync`.
 3. The worktree is dirty → skip, and print
    `note: .yman has uncommitted changes, refresh skipped` unless quiet.
+   `yman refresh` then also prints `note: worktree has uncommitted changes`,
+   so that command shows two notes for one event.
 4. Otherwise fast-forward (`merge --ff-only`) and report
    `refreshed: N new commit(s)` unless quiet.
 
@@ -426,7 +442,9 @@ processing both hooks. `remove` deletes only marked files; `status` reports
 
 ## 6. Sync
 
-The only command that uses the network. Preflight runs with `mutating = false`;
+One of two commands that use the network; the other is `init`, which fetches
+and pushes unless given `--offline` (see [setup.md §2](setup.md#2-yman-init)).
+Preflight runs with `mutating = false`;
 `sync` inspects `MERGE_HEAD` itself. Except for `--abort`, it first requires an
 `origin`: a local-only tracker (see [setup.md §2](setup.md#2-yman-init)) fails
 with `no "origin" remote; tasks are local only. Connect one: yman init --remote <url>`,
