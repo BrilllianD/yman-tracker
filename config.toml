@@ -1,0 +1,15 @@
+version = 1
+
+[ids]
+scheme = "seq"        # "random" | "seq" | "author"
+random_len = 4        # hex chars, random scheme only
+
+[statuses]
+list = ["todo", "doing", "done"]
+default = "todo"
+
+[priorities]
+default = 5           # 0..=9
+
+[slug]
+max_bytes = 200         # hard cap 240
