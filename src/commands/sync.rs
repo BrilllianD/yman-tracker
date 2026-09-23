@@ -464,7 +464,9 @@ fn renumber_collisions(ctx: &mut Context, base: &str) -> Result<usize> {
 
         let old_rel = t.rel();
         t.folder.id = new.clone();
-        let new_rel = t.folder.to_string();
+        // `rel`, not the bare folder: a closed task stays in its status
+        // directory.
+        let new_rel = t.rel();
         ctx.wt.ok(&["mv", "--", &old_rel, &new_rel])?;
         t.dir = ctx.ydir.join(&new_rel);
         t.touch();

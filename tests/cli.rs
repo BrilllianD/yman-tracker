@@ -829,6 +829,41 @@ fn seq_collision_renumber() {
     assert_eq!(fx.title(&fx.a, "3"), "B two");
 }
 
+/// A colliding task that was closed offline is renumbered inside its status
+/// directory, not lifted back to the top of `.yman`.
+#[test]
+fn collision_renumber_keeps_a_closed_task_in_its_status_folder() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v2_config(&fx.a);
+    fx.yman(&fx.a).args(["add", "A one"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+
+    // Both add offline and mint id 2; B closes its copy before syncing.
+    fx.yman(&fx.a).args(["add", "A two"]).assert().success();
+    fx.yman(&fx.b).args(["add", "B two"]).assert().success();
+    fx.yman(&fx.b).args(["done", "2"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stdout(&out).contains("renumbered 2 -> 3"),
+        "{}",
+        stdout(&out)
+    );
+
+    assert_eq!(fx.task_rel(&fx.b, "3"), "done/5.3.b-two");
+    assert_eq!(fx.status(&fx.b, "3"), "done");
+    assert!(!fx.b.join(".yman/5.3.b-two").exists());
+    assert_eq!(fx.task_rel(&fx.b, "2"), "5.2.a-two");
+    assert_eq!(fx.git(&fx.b.join(".yman"), &["status", "--porcelain"]), "");
+
+    fx.yman(&fx.a).arg("sync").assert().success();
+    assert_eq!(fx.task_rel(&fx.a, "3"), "done/5.3.b-two");
+}
+
 #[test]
 fn collision_renumber_rewrites_related() {
     let fx = Fx::new();
