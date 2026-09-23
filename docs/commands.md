@@ -110,8 +110,16 @@ the entry with it — is still listed, with ` (missing)` after the
 `f/<name>`, one per attachment and only in `show`; it never errors and never
 rewrites `m.yml`. `detach` drops such an entry as usual (§4).
 
-`-n N` keeps only the last N discussion entries (a chunk `d.md` could not
-parse counts as one) under the header `discussion (last N of M):`; `-n 0`
+The discussion is shown in timestamp order, not file order: `merge=union`
+places the other side's lines after ours in a conflicting hunk, so two
+comments written concurrently on two clones can sit in `d.md` out of time
+order. Only comments whose timestamp parses as RFC 3339 are reordered, among
+their own positions; a chunk `d.md` could not parse, and a comment with an
+unreadable timestamp, keep their place in the file. Comments from the same
+second keep file order. The file itself is never rewritten.
+
+`-n N` keeps only the last N discussion entries after that ordering (a chunk
+`d.md` could not parse counts as one) under the header `discussion (last N of M):`; `-n 0`
 drops the section. When N is not smaller than the number of entries the
 output is identical to the default, header included.
 

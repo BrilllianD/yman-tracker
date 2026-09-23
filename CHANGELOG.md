@@ -14,6 +14,12 @@ under [Releasing](README.md#releasing) in the README.
   writes every page to a directory. Both are generated from the CLI definition
   itself and work outside a repository.
 
+### Fixed
+
+- `show` prints the discussion in timestamp order, so two comments written
+  concurrently on two clones no longer appear out of order after a sync.
+  Unparsable chunks keep their place; `d.md` itself is unchanged.
+
 ### Changed
 
 - The yman skill formats a task list as a table and suggests what to take next.
