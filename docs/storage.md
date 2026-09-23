@@ -244,6 +244,12 @@ related:
   and sequences indented under their key are all accepted. A key repeated at
   the top level or inside an `attachments` item keeps its **last** occurrence,
   which is the half of a conflict a person usually means to keep.
+- A flow sequence is split on every `,` before its items are unquoted, so a
+  quoted item cannot contain a comma: `tags: ['a,b']` is rejected with
+  `unterminated single-quoted string: 'a` (and `["a,b"]` with its
+  double-quoted counterpart). The writer never produces flow form, so this
+  only bites a hand edit; write such an item as a block sequence
+  (`- 'a,b'`) instead.
 - A `status` outside `config.statuses.list` is reported, never a hard error, so
   editing the config cannot brick existing tasks. An *empty* `status` — bare,
   `null`, or whitespace — is a different thing: it reads as a missing field, so
