@@ -73,6 +73,10 @@ pub enum Cmd {
     Git(GitArgs),
     /// Print the short manual for scripts and agents (works anywhere)
     Guide,
+    /// Print a shell completion script (works anywhere)
+    Completions(CompletionsArgs),
+    /// Print the man page in roff, or write every page to a directory (works anywhere)
+    Man(ManArgs),
     /// git merge driver for m.yml (called by git, not by people)
     #[command(hide = true)]
     MergeDriver(MergeDriverArgs),
@@ -449,6 +453,20 @@ pub struct GitArgs {
 }
 
 #[derive(Args, Debug)]
+pub struct CompletionsArgs {
+    /// Shell to generate the script for
+    #[arg(value_enum)]
+    pub shell: clap_complete::Shell,
+}
+
+#[derive(Args, Debug)]
+pub struct ManArgs {
+    /// Write yman.1 and one page per subcommand into DIR instead of printing yman.1
+    #[arg(long, value_name = "DIR")]
+    pub dir: Option<std::path::PathBuf>,
+}
+
+#[derive(Args, Debug)]
 pub struct MergeDriverArgs {
     /// %O: the common ancestor's version
     pub base: String,
@@ -497,17 +515,25 @@ impl Cmd {
                 | Cmd::Hooks(_)
                 | Cmd::Git(_)
                 | Cmd::Guide
+                | Cmd::Completions(_)
+                | Cmd::Man(_)
                 | Cmd::MergeDriver(_)
         )
     }
 
-    /// Commands that do not need `.yman` to exist yet. `guide` and
-    /// `merge-driver` are listed for completeness; `main` answers both before
-    /// looking for a repository at all.
+    /// Commands that do not need `.yman` to exist yet. `guide`,
+    /// `completions`, `man` and `merge-driver` are listed for completeness;
+    /// `main` answers them before looking for a repository at all.
     pub fn skips_preflight(&self) -> bool {
         matches!(
             self,
-            Cmd::Init(_) | Cmd::Hooks(_) | Cmd::Git(_) | Cmd::Guide | Cmd::MergeDriver(_)
+            Cmd::Init(_)
+                | Cmd::Hooks(_)
+                | Cmd::Git(_)
+                | Cmd::Guide
+                | Cmd::Completions(_)
+                | Cmd::Man(_)
+                | Cmd::MergeDriver(_)
         )
     }
 }

@@ -169,7 +169,7 @@ without a filter on a large tracker.
 
 ## If `.yman` does not exist
 
-Every command except `init`, `hooks`, `git` and `guide` fails with
+Every command except `init`, `hooks`, `git`, `guide`, `completions` and `man` fails with
 `.yman is not initialized; run: yman init`. The common case is one command:
 
 ```sh

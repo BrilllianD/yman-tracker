@@ -13,8 +13,8 @@ repository — any subdirectory will do — or the command fails with
 `not inside a git repository`. There is no `-C <dir>` flag and no global
 configuration file outside the repository.
 
-Until `.yman` exists, every command except `init`, `hooks`, `git` and `guide`
-fails with `.yman is not initialized; run: yman init` (`commands.md` §1;
+Until `.yman` exists, every command except `init`, `hooks`, `git`, `guide`,
+`completions` and `man` fails with `.yman is not initialized; run: yman init` (`commands.md` §1;
 `merge-driver` is exempt too, but git calls that, not people).
 
 ## 2. `yman init`

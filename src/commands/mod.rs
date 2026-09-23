@@ -3,6 +3,7 @@
 pub mod add;
 pub mod attach;
 pub mod comment;
+pub mod completions;
 pub mod edit;
 pub mod git;
 pub mod guide;
@@ -120,6 +121,8 @@ pub fn dispatch(ctx: &mut Context, cmd: Cmd) -> Result<()> {
         Cmd::Status(a) => status::run(ctx, a),
         Cmd::Tags(a) => tags::run(ctx, a),
         Cmd::Guide => guide::run(),
+        Cmd::Completions(a) => completions::run(a),
+        Cmd::Man(a) => completions::run_man(a),
         // `main` answers this one before discovery; it never reaches dispatch.
         Cmd::MergeDriver(_) => unreachable!("merge-driver is dispatched in main"),
         Cmd::Refresh(a) => refresh::run(ctx, a),

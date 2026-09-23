@@ -54,6 +54,15 @@ cargo install --path .
 The binary is called `yman`. It must be on your `PATH` for the optional git
 hooks to find it.
 
+Shell completions and man pages come from the binary itself, for example:
+
+```sh
+yman completions bash > ~/.local/share/bash-completion/completions/yman
+yman completions zsh  > ~/.zfunc/_yman        # a directory on your $fpath
+yman completions fish > ~/.config/fish/completions/yman.fish
+yman man --dir ~/.local/share/man/man1
+```
+
 Then, in any repository with an `origin` you can push to:
 
 ```sh
@@ -309,6 +318,8 @@ yman sync [--continue] [--abort] [--no-push]
 yman hooks install|remove|status
 yman git [--] <args>...  # raw git, run inside .yman
 yman guide               # the short manual for scripts and agents; works anywhere
+yman completions <shell> # bash, zsh, fish, elvish or powershell; works anywhere
+yman man [--dir <dir>]   # the man page in roff, or every page written to <dir>
 ```
 
 ```console
