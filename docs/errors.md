@@ -50,7 +50,6 @@ commit.
 | Situation | Message |
 |---|---|
 | not in a repository | `not inside a git repository` |
-| no origin, no `--remote` | `main repo has no "origin" remote; pass --remote <url>` |
 | `.yman` missing | `.yman is not initialized; run: yman init` |
 | `.yman` HEAD wrong | `.yman worktree is not on refs/yman/local; run: yman init` |
 | `.yman` is someone else's directory | `.yman exists and is not a yman worktree; move it aside and rerun` |
@@ -94,6 +93,7 @@ commit.
 | `t.md` unparsable after an edit | `t.md invalid after edit: <why>; fix the file then run: yman edit <id>` |
 | invalid config | `invalid .yman/config.toml: <why>` |
 | origin holds a non-yman history | `refs/tasks/main on origin is not a yman history (missing or invalid config.toml): <why>` |
+| `sync` with no `origin` | `no "origin" remote; tasks are local only. Connect one: yman init --remote <url>` |
 | unrelated histories | `task history unrelated to origin refs/tasks/main; re-init from remote:  rm -rf .yman && git update-ref -d refs/yman/local && yman init` |
 | author prefix unresolvable | `author prefix unknown; run: git config yman.author <prefix>  (or set YMAN_AUTHOR)` |
 | author prefix not a legal id prefix | `author prefix "<p>" from <source> must be letters, digits, "_" or "-"` — `<source>` is `yman.author`, `$YMAN_AUTHOR` or `user.name initials` |
@@ -133,6 +133,7 @@ Never fatal, always stderr:
 | `warning: skipped N unreadable task folder(s): <rels>` | `tags`, `tags rename`, `tags rm` and `rm` walking every task |
 | `warning: <path> not moved; <dest> already exists` | `sync` rejoining a split folder found the same file on both sides |
 | `note: added remote "origin" -> <url>` | `init --remote` created the remote |
+| `note: no "origin" remote; tasks stay local until you run: yman init --remote <url>` | `init` in a repo with no `origin` and no `--remote` |
 | `note: .yman has uncommitted changes, refresh skipped` | refresh backed off |
 | `note: rewrote N reference(s) to renumbered ids` | a collision renumber moved ids other tasks related to |
 | `note: moved N file(s) left under <old> into <rel>` | a merge left files under a folder the other side had moved |

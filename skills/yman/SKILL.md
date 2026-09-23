@@ -174,6 +174,7 @@ Every command except `init`, `hooks`, `git`, `guide`, `completions` and `man` fa
 
 ```sh
 yman init --remote <url>     # omit --remote when the repo already has an origin
+yman init                    # no origin at all: a local-only tracker; sync refuses until --remote
 ```
 
 If `origin` already carries a task history, `init` adopts it — there is no

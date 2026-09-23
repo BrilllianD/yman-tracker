@@ -73,6 +73,10 @@ That is the only setup step. It creates `.yman/`, adds one fetch refspec to the
 repository config, and excludes `.yman/` from the code worktree. Everyone else
 on the project runs the same command and gets the existing tasks.
 
+A repository with no `origin` gets a local-only tracker: everything except
+`yman sync` works, and `yman init --remote <url>` connects it later. The next
+sync publishes the tasks you made in the meantime.
+
 ---
 
 ## Why it stays out of the way

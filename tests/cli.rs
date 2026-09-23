@@ -1867,34 +1867,65 @@ fn init_offline_touches_no_remote() {
     );
 }
 
+/// With no origin, `init` sets up a local-only tracker instead of refusing:
+/// every command but `sync` works, and `init --remote` connects it later.
 #[test]
-fn init_without_an_origin_needs_a_remote_url() {
+fn init_without_an_origin_stays_local() {
     let fx = Fx::new();
     fx.git(&fx.a, &["remote", "remove", "origin"]);
 
     let out = fx.yman(&fx.a).arg("init").output().unwrap();
-    assert!(!out.status.success());
+    assert!(out.status.success(), "{}", stderr(&out));
     assert_eq!(
         stderr(&out).trim(),
-        "error: main repo has no \"origin\" remote; pass --remote <url>"
+        "note: no \"origin\" remote; tasks stay local until you run: yman init --remote <url>"
+    );
+    assert!(
+        stdout(&out).contains("  remote:   none (local only)\n"),
+        "{}",
+        stdout(&out)
+    );
+    // No origin to hang the fetch refspec on.
+    let config = fx.read(&fx.a.join(".git/config"));
+    assert!(!config.contains("refs/tasks/main"), "{config}");
+
+    fx.yman(&fx.a).args(["add", "A task"]).assert().success();
+    let text = stdout(&fx.yman(&fx.a).arg("status").output().unwrap());
+    assert!(
+        text.contains("remote: none (no \"origin\"; tasks are local only)\n"),
+        "{text}"
+    );
+    let json = stdout(&fx.yman(&fx.a).args(["status", "--json"]).output().unwrap());
+    assert!(json.contains("\"behind\":0,\"origin\":false}"), "{json}");
+
+    let out = fx.yman(&fx.a).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(
+        stderr(&out).trim(),
+        "error: no \"origin\" remote; tasks are local only. Connect one: yman init --remote <url>"
     );
 
-    // With a URL, init creates the remote it is going to push to.
+    // Connecting it later: init takes the repair path, creates origin and
+    // the refspec, and the first sync publishes the local history.
     let out = fx
         .yman(&fx.a)
         .args(["init", "--remote", fx.remote.to_str().unwrap()])
         .output()
         .unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stdout(&out).starts_with("already initialized .yman"));
     assert_eq!(
         fx.git(&fx.a, &["config", "--get", "remote.origin.url"]),
         fx.remote.to_string_lossy()
     );
-    fx.yman(&fx.a).args(["add", "A task"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
     assert!(
-        !fx.git(&fx.remote, &["rev-parse", "refs/tasks/main"])
-            .is_empty()
+        fx.git(&fx.a, &["config", "--get-all", "remote.origin.fetch"])
+            .contains("+refs/tasks/main:refs/yman/remote")
+    );
+    fx.yman(&fx.a).arg("sync").assert().success();
+    assert_eq!(
+        fx.git(&fx.remote, &["rev-parse", "refs/tasks/main"]),
+        fx.git(&fx.a, &["rev-parse", "refs/yman/local"])
     );
 }
 
@@ -3718,7 +3749,7 @@ fn status_json_reports_refs_and_counts() {
     fx.git(&fx.a, &["update-ref", "-d", "refs/yman/remote"]);
     let text = stdout(&fx.yman(&fx.a).args(["status", "--json"]).output().unwrap());
     assert!(
-        text.contains("\"remote\":{\"ref\":\"refs/tasks/main\",\"fetched\":false,\"head\":null,\"ahead\":0,\"behind\":0}"),
+        text.contains("\"remote\":{\"ref\":\"refs/tasks/main\",\"fetched\":false,\"head\":null,\"ahead\":0,\"behind\":0,\"origin\":true}"),
         "{text}"
     );
     assert!(text.contains("\"refresh\":\"lazy\""), "{text}");

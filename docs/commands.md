@@ -144,10 +144,12 @@ whether the hooks are installed, the number of uncommitted changes under
 configured status.
 
 `--json` emits one object —
-`{local: {ref, head}, remote: {ref, fetched, head, ahead, behind}, refresh,
+`{local: {ref, head}, remote: {ref, fetched, head, ahead, behind, origin}, refresh,
 hooks, worktree: {dirty}, merge: {in_progress, unmerged}, tasks: {by_status,
 other, broken}}`. Before the first fetch `fetched` is `false`, `head` is `null`
-and both counters are `0`. The per-status counts are nested under `by_status`
+and both counters are `0`. `origin` is `false` for a local-only tracker, whose
+text form prints `remote: none (no "origin"; tasks are local only)` instead of
+`not fetched yet`. The per-status counts are nested under `by_status`
 so a status named `other` or `broken` cannot collide with the two totals beside
 it.
 
@@ -425,7 +427,10 @@ processing both hooks. `remove` deletes only marked files; `status` reports
 ## 6. Sync
 
 The only command that uses the network. Preflight runs with `mutating = false`;
-`sync` inspects `MERGE_HEAD` itself.
+`sync` inspects `MERGE_HEAD` itself. Except for `--abort`, it first requires an
+`origin`: a local-only tracker (see [setup.md §2](setup.md#2-yman-init)) fails
+with `no "origin" remote; tasks are local only. Connect one: yman init --remote <url>`,
+exit 1.
 
 ### Normal path
 

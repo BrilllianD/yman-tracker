@@ -41,6 +41,11 @@ pub fn run(ctx: &mut Context, a: SyncArgs) -> Result<()> {
     if a.abort {
         return abort(ctx);
     }
+    // Checked up front: git's own "'origin' does not appear to be a git
+    // repository" would only surface as "fetch failed".
+    if ctx.origin_url()?.is_none() {
+        bail!("no \"origin\" remote; tasks are local only. Connect one: yman init --remote <url>");
+    }
     if a.cont {
         return resume(ctx, a.no_push);
     }
