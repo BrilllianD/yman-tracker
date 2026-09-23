@@ -170,11 +170,22 @@ The lazy refresh still runs, silently.
 
 ### `log`
 
-`-n` defaults to 20. With an id, it collects every path the task has ever had by
-parsing `--diff-filter=R -M` rename records into a graph and walking backwards
-from the current one, then limits the log to those paths — so a task that
-changed priority or title, or moved into a status directory, keeps its full
-history.
+`-n` defaults to 20. With an id, the log is limited to the pathspecs
+`:(glob)[0-9].<id>.*/**` and `:(glob)*/[0-9].<id>.*/**`. The id is in the folder
+name through a priority change, a retitle and a move into or out of a status
+directory, so those keep the task's full history without consulting git's
+rename detection, and `-n` stops the walk once enough commits are found.
+
+A sync renumber is the one move that changes the id, and `log` reads it from
+the commit subject (`yman: renumber 2->3, …`):
+
+- For a task that *arrived* at its id by a renumber, the log continues from
+  the renumber's parent under the old id, and `-n` counts across both.
+- For a task that *kept* an id another task was renumbered away from, every
+  such renumber commit is excluded with `^<commit>`, together with its
+  ancestry: the moved task was not in the merge base, so all it did under the
+  id is behind the renumber, and none of the kept task's history is. An
+  excluded revision makes git walk the whole range before `-n` applies.
 
 ### `guide`
 

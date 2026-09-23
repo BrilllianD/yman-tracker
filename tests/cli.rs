@@ -686,6 +686,68 @@ fn log_follows_renames() {
     assert_eq!(log.lines().count(), 2, "{log}");
 }
 
+/// A sync renumber is the one rename that changes the id, so `log` follows it
+/// by its subject: the moved task keeps its history from before the move, and
+/// the task that kept the id shows none of it.
+#[test]
+fn log_follows_a_renumber() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Shared"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+
+    fx.yman(&fx.a).args(["add", "A two"]).assert().success();
+    fx.yman(&fx.a).args(["done", "2"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).args(["add", "B two"]).assert().success();
+    fx.yman(&fx.b)
+        .args(["set", "2", "--title", "B two, retitled"])
+        .assert()
+        .success();
+    fx.yman(&fx.b).args(["done", "2"]).assert().success();
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert!(
+        stdout(&out).contains("renumbered 2 -> 3"),
+        "{}",
+        stdout(&out)
+    );
+    fx.yman(&fx.b)
+        .args(["comment", "3", "-m", "after"])
+        .assert()
+        .success();
+
+    let log = stdout(&fx.yman(&fx.b).args(["log", "3"]).output().unwrap());
+    let subjects: Vec<&str> = log.lines().map(|l| l.split_once(' ').unwrap().1).collect();
+    assert_eq!(
+        subjects,
+        [
+            "task(3): comment",
+            "yman: renumber 2->3 (sync collision)",
+            "task(2): set status=todo->done",
+            "task(2): set title",
+            "task(2): add \"B two\"",
+        ],
+        "{log}"
+    );
+    // `-n` counts across the renumber.
+    let log = stdout(
+        &fx.yman(&fx.b)
+            .args(["log", "3", "-n", "3"])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(log.lines().count(), 3, "{log}");
+
+    let log = stdout(&fx.yman(&fx.b).args(["log", "2"]).output().unwrap());
+    let subjects: Vec<&str> = log.lines().map(|l| l.split_once(' ').unwrap().1).collect();
+    assert_eq!(
+        subjects,
+        ["task(2): set status=todo->done", "task(2): add \"A two\""],
+        "{log}"
+    );
+}
+
 // --------------------------------------------------------------------- sync
 
 #[test]
