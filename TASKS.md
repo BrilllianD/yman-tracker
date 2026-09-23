@@ -120,7 +120,7 @@ against 3802 rename records, for a task with 17 commits.
 
 ### Release process
 
-The crate is at `0.1.0` with no changelog and no tagged release.
+The crate is at `0.2.0`, tagged `v0.2.0`, but there is no changelog.
 
 - Done when: there is a `CHANGELOG.md`, a documented tagging convention, and a
   decision on whether the crate is published to crates.io. The binary is `yman`
