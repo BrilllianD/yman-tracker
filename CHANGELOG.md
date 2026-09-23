@@ -33,6 +33,9 @@ under [Releasing](README.md#releasing) in the README.
   fails halfway with `pathspec ... did not match any files`; the task is
   renamed inside its status directory instead of being moved to the top of
   `.yman`.
+- `yman sync` renumbering a colliding task that is closed, in a version 2
+  repository, keeps it in its status directory. It used to move the task to
+  the top of `.yman` while `m.yml` still said it was closed.
 
 ### Changed
 
