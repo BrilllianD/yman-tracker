@@ -63,16 +63,27 @@ convenience.
 - Conventional Commits: `feat:`, `fix:`, `test:`, `docs:`, `style:`. Subject in
   the imperative; body explains *why*, not what the diff already shows.
 - Work on a feature branch and merge it — do not commit straight to `main`.
-- Commit each task from `TASKS.md` as soon as it is finished, before starting
-  the next one: run the gate (`.claude/skills/verify`), commit the code, the
-  tests, the docs and the `TASKS.md` edit together, and say so. One task per
-  commit keeps the history reviewable and the working tree honest — do not let
-  finished tasks pile up uncommitted.
-- A finished task is deleted from `TASKS.md`, not annotated as done. The commit
-  that implements it removes its entry in the same diff, so the file only ever
-  lists open work. The history is the record of what was done; leaving completed
-  entries behind duplicates it and makes the backlog read longer than it is.
+- The backlog lives in this repository's own tracker: `yman ls` lists open
+  work, `yman show <id>` gives each entry's "Where" and "Done when". Claim a
+  task with `yman start <id>` before working on it.
+- Commit each task as soon as it is finished, before starting the next one:
+  run the gate (`.claude/skills/verify`), commit the code, the tests and the
+  docs together, then `yman done <id> -m "<commit>: <summary>"` and
+  `yman sync`, and say so. One task per commit keeps the history reviewable and
+  the working tree honest — do not let finished tasks pile up uncommitted.
 - `.git/hooks/pre-commit` rejects a commit when `cargo fmt --check` fails.
+
+## Out of scope
+
+Recorded so they are not re-proposed as tasks. Reopening any of these is a
+design decision, not a task.
+
+- git-lfs integration for attachments. Attachments go straight into git; the
+  5 MiB warning is the whole policy.
+- More than one `.yman` worktree per clone.
+- Colour output, a TUI, or a web UI.
+- A GitHub Issues bridge.
+- New dependencies added for convenience (see Dependencies above).
 
 ## Specification
 

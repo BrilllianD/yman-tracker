@@ -126,7 +126,7 @@ now_ms() {
 }
 
 # A `git` earlier on PATH that records every spawn, then execs the real one.
-# Process count is how TASKS.md states the performance goals, so it is what
+# Process count is how the backlog states the performance goals, so it is what
 # gets reported next to the wall-clock numbers.
 shim=$out/shim
 mkdir -p "$shim"
