@@ -52,7 +52,7 @@ important rows, not arbitrary ones.
 
 Other readers: `show <id>` (one id; `-n <N>` keeps the last N discussion
 entries, `-n 0` drops the discussion entirely; an attachment whose file was
-deleted outside yman is listed marked ` (missing)`, `"missing":true` in
+deleted outside yman is listed marked `(missing)`, `"missing":true` in
 `--json`), `path <id>` (prints the absolute
 folder path and nothing else, so `cd "$(yman path 14)"` works), `log [<id>]`
 (`-n`, default 20; with an id it follows the task across renames), `tags` (every
@@ -110,7 +110,7 @@ non-interactive form", not "retry".
 ## Streams and exit codes
 
 stdout carries data only — listings, `show`, `path`, `log`, `status`, and the
-one-line summaries. `error: `, `warning: `, `note: ` and pass-through git output
+one-line summaries. `error:`, `warning:`, `note:` and pass-through git output
 go to stderr. There is no colour.
 
 | Code | Meaning |
