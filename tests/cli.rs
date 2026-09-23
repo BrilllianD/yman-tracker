@@ -1645,6 +1645,37 @@ fn edit_rewrites_title_and_renames_folder() {
     assert_eq!(fx.git(&fx.a.join(".yman"), &["status", "--porcelain"]), "");
 }
 
+/// Retitling a closed task re-slugs it inside its status directory instead of
+/// lifting it back to the top of `.yman`.
+#[test]
+fn edit_retitle_keeps_a_closed_task_in_its_status_folder() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v2_config(&fx.a);
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).args(["done", "1"]).assert().success();
+
+    let editor = fx.editor_writing("ed-closed", "# Fix logout\n");
+    let out = fx
+        .yman(&fx.a)
+        .env("EDITOR", &editor)
+        .args(["edit", "1"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stdout(&out).contains("edited 1  done/5.1.fix-logout"),
+        "{}",
+        stdout(&out)
+    );
+
+    assert_eq!(fx.task_rel(&fx.a, "1"), "done/5.1.fix-logout");
+    assert!(!fx.a.join(".yman/5.1.fix-logout").exists());
+    assert!(!fx.a.join(".yman/done/5.1.fix-login").exists());
+    assert_eq!(fx.title(&fx.a, "1"), "Fix logout");
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["status", "--porcelain"]), "");
+}
+
 #[test]
 fn edit_body_only_keeps_the_folder() {
     let fx = Fx::new();

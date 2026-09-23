@@ -29,6 +29,10 @@ under [Releasing](README.md#releasing) in the README.
   asks for an assignee `ls` does not print, `rm -f` and the duplicate-id
   recovery are in all of them, and the README no longer says `init` adds one
   config line or that `sync` is the only command using the network.
+- `yman edit` retitling a closed task in a version 2 repository no longer
+  fails halfway with `pathspec ... did not match any files`; the task is
+  renamed inside its status directory instead of being moved to the top of
+  `.yman`.
 
 ### Changed
 

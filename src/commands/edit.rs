@@ -79,8 +79,10 @@ pub fn rename_for_title(ctx: &Context, t: &mut Task) -> Result<()> {
     }
     let old = t.rel();
     t.folder.slug = slug;
-    let new = t.folder.to_string();
-    ctx.wt.ok(&["mv", &old, &new])?;
+    // `rel`, not the bare folder: a closed task lives under its status
+    // directory and must stay there.
+    let new = t.rel();
+    ctx.wt.ok(&["mv", "--", &old, &new])?;
     t.dir = ctx.ydir.join(&new);
     Ok(())
 }
