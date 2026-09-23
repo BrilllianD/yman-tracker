@@ -19,6 +19,22 @@ yman done <id> -m "what changed"                  # close and explain in one cal
 yman add "Title" -m "body" -a <me> --relate <id>  # follow-up, linked to its parent
 ```
 
+## When asked for the task list
+
+1. Run `yman ls -l`: open tasks with their bodies, already sorted by priority,
+   status order and id. On a large tracker cap it with `-n`.
+2. Show the rows as a markdown table, `P | ID | Status | Title | Tags`, in the
+   order `ls` printed them. A `! <dir> broken <error>` row goes under the
+   table as-is, not dropped.
+3. Work out what can be taken next. Prefer the best priority; within it, a
+   `todo` task that is unassigned (or assigned to you) over one somebody else
+   already has in progress. Skip a task whose body or relations say it waits on
+   another open task.
+4. Read only the top one to three candidates with `yman show <id> -n 0`, for
+   their "Where", "Done when" and relations. Do not `show` every task.
+5. Finish with a short recommendation: which id to take, why, and roughly how
+   big it is.
+
 ## Reading
 
 `ls` prints one row per task and touches no git:
