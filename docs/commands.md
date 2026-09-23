@@ -82,10 +82,16 @@ listed regardless of filters. Column headers are printed only when stdout is
 a terminal. Trailing empty
 columns are omitted, and zero counts render blank rather than `0`.
 
+`-l` prints each task's body under its row, every line indented by four spaces
+and blank lines left empty, so a row is still the only line starting in column
+0. A task with no body gets no extra lines. The body is the one `ls` already
+read for `-q`, so `-l` costs no git either.
+
 `--json` emits one object per task —
 `{id, priority, status, title, tags, assignee, links, related, created, updated, attachments, comments, dir}` —
-and `{dir, error}` for broken folders. `dir` is relative to `.yman` and names the
-status directory for a closed task (`done/5.1.fix-login`). `attachments` and
+and `{dir, error}` for broken folders. With `-l` each task object also carries
+`body`, the same trimmed text `show --json` gives; without it the key is
+absent. `dir` is relative to `.yman` and names the status directory for a closed task (`done/5.1.fix-login`). `attachments` and
 `comments` are counts here, not lists, and the attachment count comes from
 `m.yml` alone: an entry whose file has been deleted outside yman still counts,
 because `ls` stats nothing under `f/`. Use `show` to see which one is gone. The

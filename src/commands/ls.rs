@@ -69,14 +69,14 @@ pub fn run(ctx: &mut Context, a: LsArgs) -> Result<()> {
     }
 
     if a.json {
-        print_json(&tasks, &broken);
+        print_json(&tasks, &broken, a.long);
     } else {
-        print_table(&tasks, &broken);
+        print_table(&tasks, &broken, a.long);
     }
     Ok(())
 }
 
-fn print_table(tasks: &[Task], broken: &[(String, String)]) {
+fn print_table(tasks: &[Task], broken: &[(String, String)], long: bool) {
     let mut rows: Vec<[String; 7]> = Vec::new();
     for t in tasks {
         rows.push([
@@ -120,8 +120,19 @@ fn print_table(tasks: &[Task], broken: &[(String, String)]) {
     if show_header {
         println!("{}", join_row(&header.map(String::from), &width));
     }
-    for row in &rows {
+    for (i, row) in rows.iter().enumerate() {
         println!("{}", join_row(row, &width));
+        // Indented so every row still starts in column 0 and a script can
+        // tell the two apart; blank body lines stay blank, not four spaces.
+        if long && let Some(t) = tasks.get(i) {
+            for line in t.body.trim_matches('\n').lines() {
+                if line.is_empty() {
+                    println!();
+                } else {
+                    println!("    {line}");
+                }
+            }
+        }
     }
 }
 
@@ -153,26 +164,27 @@ fn count(n: usize) -> String {
     if n == 0 { String::new() } else { n.to_string() }
 }
 
-fn print_json(tasks: &[Task], broken: &[(String, String)]) {
+fn print_json(tasks: &[Task], broken: &[(String, String)], long: bool) {
     let mut items: Vec<String> = Vec::new();
     for t in tasks {
-        items.push(
-            json::Object::new()
-                .str("id", t.id())
-                .raw("priority", t.priority().to_string())
-                .str("status", &t.meta.status)
-                .str("title", &t.title)
-                .raw("tags", json::strings(&t.meta.tags))
-                .opt("assignee", t.meta.assignee.as_deref())
-                .raw("links", json::strings(&t.meta.links))
-                .raw("related", json::strings(&t.meta.related))
-                .str("created", &format_ts(&t.meta.created))
-                .str("updated", &format_ts(&t.meta.updated))
-                .raw("attachments", t.attachment_count().to_string())
-                .raw("comments", t.comment_count().to_string())
-                .str("dir", &t.rel())
-                .finish(),
-        );
+        let mut obj = json::Object::new()
+            .str("id", t.id())
+            .raw("priority", t.priority().to_string())
+            .str("status", &t.meta.status)
+            .str("title", &t.title)
+            .raw("tags", json::strings(&t.meta.tags))
+            .opt("assignee", t.meta.assignee.as_deref())
+            .raw("links", json::strings(&t.meta.links))
+            .raw("related", json::strings(&t.meta.related))
+            .str("created", &format_ts(&t.meta.created))
+            .str("updated", &format_ts(&t.meta.updated))
+            .raw("attachments", t.attachment_count().to_string())
+            .raw("comments", t.comment_count().to_string())
+            .str("dir", &t.rel());
+        if long {
+            obj = obj.str("body", t.body.trim_matches('\n'));
+        }
+        items.push(obj.finish());
     }
     for (name, error) in broken {
         items.push(

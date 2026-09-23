@@ -45,6 +45,7 @@ lowercase:
 | `-q, --grep <TEXT>` | case-insensitive substring of title or body, not a regex |
 | `-a, --all` | include closed tasks, hidden by default |
 | `-n, --limit <N>` | first N rows, applied after sorting |
+| `-l, --long` | each task's body under its row, indented four spaces; `body` in `--json` |
 
 Sorting is by priority, then status order, then id — so `-n` keeps the most
 important rows, not arbitrary ones.

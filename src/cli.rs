@@ -190,6 +190,9 @@ pub struct LsArgs {
     /// Print at most N tasks, after sorting
     #[arg(short = 'n', long = "limit", value_name = "N")]
     pub limit: Option<usize>,
+    /// Also print each task's body: indented under its row, or as "body" in JSON
+    #[arg(short = 'l', long)]
+    pub long: bool,
     /// Print JSON instead of the table
     #[arg(long)]
     pub json: bool,

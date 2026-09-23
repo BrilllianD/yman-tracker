@@ -3101,6 +3101,53 @@ fn ls_filters_by_text_assignee_priority_and_limit() {
     assert_eq!(ls(&["-q", "nothing here"]), Vec::<String>::new());
 }
 
+/// `ls -l` prints each body indented under its row, blank lines kept blank,
+/// and adds `body` to the JSON; without it neither output changes.
+#[test]
+fn ls_long_prints_the_body() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args([
+            "add",
+            "Fix login",
+            "-p",
+            "1",
+            "-m",
+            "OAuth breaks.\n\nOn Safari.",
+        ])
+        .assert()
+        .success();
+    fx.yman(&fx.a)
+        .args(["add", "Write docs", "-p", "2"])
+        .assert()
+        .success();
+
+    let long = stdout(&fx.yman(&fx.a).args(["ls", "-l"]).output().unwrap());
+    let lines: Vec<&str> = long.lines().collect();
+    assert_eq!(lines.len(), 5, "{long}");
+    assert!(lines[0].starts_with("1  1  todo  Fix login"), "{long}");
+    assert_eq!(lines[1..4], ["    OAuth breaks.", "", "    On Safari."]);
+    assert!(lines[4].starts_with("2  2  todo  Write docs"), "{long}");
+
+    let short = stdout(&fx.yman(&fx.a).args(["ls"]).output().unwrap());
+    assert_eq!(short.lines().count(), 2, "{short}");
+
+    let json = stdout(
+        &fx.yman(&fx.a)
+            .args(["ls", "-l", "--json"])
+            .output()
+            .unwrap(),
+    );
+    assert!(
+        json.contains(r#""body":"OAuth breaks.\n\nOn Safari.""#),
+        "{json}"
+    );
+    assert!(json.contains(r#""body":"""#), "{json}");
+    let plain = stdout(&fx.yman(&fx.a).args(["ls", "--json"]).output().unwrap());
+    assert!(!plain.contains("\"body\""), "{plain}");
+}
+
 /// `show -n` keeps the newest entries and says how many it dropped; the
 /// default output does not change.
 #[test]
