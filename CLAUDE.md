@@ -15,6 +15,7 @@ cargo clippy --all-targets -- -D warnings   # must be clean; CI runs it too
 cargo fmt                                   # run before committing
 sh scripts/spike-symref.sh                  # re-proves the git invariant below
 cargo test --test cli <name>                # one integration scenario
+sh scripts/book.sh                          # docs site; fails on broken links
 ```
 
 `.github/workflows/ci.yml` runs the same four checks as the `verify` skill

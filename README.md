@@ -636,6 +636,7 @@ cargo test                                  # unit tests + the two-clone suite
 cargo clippy --all-targets -- -D warnings
 sh scripts/spike-symref.sh                  # the git invariant this rests on
 sh scripts/synthetic-project.sh             # a 1000-task repository, driven (~3 min)
+sh scripts/book.sh                          # the documentation site, into target/book
 ```
 
 The integration suite builds a bare remote and two clones in a temp directory
@@ -670,6 +671,7 @@ Layout:
 | `src/commands/` | one module per subcommand |
 | `scripts/spike-symref.sh` | checks the git behaviour the `.yman` worktree depends on |
 | `scripts/synthetic-project.sh` | builds a large repository and measures what commands cost on it |
+| `scripts/book.sh`, `book.toml`, `docs/SUMMARY.md` | the documentation site |
 | `skills/yman/` | the agent skill, and the evals that keep it honest |
 | `docs/` | the normative specification |
 
@@ -680,6 +682,16 @@ and [setup.md](docs/setup.md) for getting from no `.yman` to a working tracker â
 plus [agents.md](docs/agents.md), the short manual `yman guide` prints.
 They describe what the code does, so a disagreement between them and the code
 is a bug in one or the other.
+
+The same files are published as a documentation site at
+<https://brillliand.github.io/yman-tracker/>. `scripts/book.sh` copies them
+under `target/book-src`, rewrites the links that only work in the repository
+layout, builds with [mdBook](https://rust-lang.github.io/mdBook/) and fails on
+any local link or anchor that leads nowhere. It needs `mdbook` on `PATH`
+(`cargo install mdbook`, or a release binary); `mdbook serve` previews the
+result after a build, though edits to the sources need the script run again.
+`.github/workflows/pages.yml` builds it on every push and deploys it from
+`main`. Adding a page means adding it to `docs/SUMMARY.md`.
 
 ### Releasing
 

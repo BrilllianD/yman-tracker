@@ -7,6 +7,13 @@ under [Releasing](README.md#releasing) in the README.
 
 ## [Unreleased]
 
+### Added
+
+- A documentation site, built with mdBook from the README, `docs/` and the
+  changelog and published to GitHub Pages:
+  <https://brillliand.github.io/yman-tracker/>. `scripts/book.sh` builds it
+  locally and fails on broken links or anchors.
+
 ### Fixed
 
 - `docs/commands.md` and `docs/errors.md` were checked against the code and

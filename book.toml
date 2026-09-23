@@ -1,0 +1,19 @@
+# The documentation site. The pages are the files GitHub already renders —
+# README.md, docs/ and CHANGELOG.md — which scripts/book.sh copies under
+# target/ with a few links rewritten, so build with that script, not with a
+# bare `mdbook build`.
+
+[book]
+title = "yman"
+description = "A git-native task tracker that lives next to the code"
+authors = ["Bronnikov Aleksandr"]
+language = "en"
+src = "target/book-src"
+
+[build]
+build-dir = "target/book"
+create-missing = false
+
+[output.html]
+site-url = "/yman-tracker/"
+git-repository-url = "https://github.com/BrilllianD/yman-tracker"
