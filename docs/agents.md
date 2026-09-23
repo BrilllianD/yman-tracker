@@ -11,7 +11,7 @@
 
 ## Reading
 
-`ls` prints one row per task, no header unless stdout is a terminal:
+`ls` prints one row per task, header only on a terminal; `-l` adds the bodies:
 
     P  ID  STATUS  TITLE  TAGS  F  C
 
