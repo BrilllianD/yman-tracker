@@ -85,7 +85,7 @@ file answers. `tests/cli.rs` pins both numbers.
 | Location | Value | Purpose |
 |---|---|---|
 | `COMMON/info/exclude` | `.yman/` | keeps the code worktree's `git status` clean |
-| `remote.origin.fetch` (appended) | `+refs/tasks/main:refs/yman/remote` | a plain `git fetch` carries task commits |
+| `remote.origin.fetch` (appended) | `+refs/tasks/main:refs/yman/remote` | a plain `git fetch` carries task commits; only added when `origin` exists |
 | `yman.refresh` | `lazy` \| `manual` | see [commands.md](commands.md#refresh) |
 | `yman.author` | prefix string | only meaningful for the `author` id scheme |
 | `merge.ymanmeta.name` | `yman m.yml field-wise merge` | shown by git when the driver runs |

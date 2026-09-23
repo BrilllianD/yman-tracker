@@ -13,6 +13,9 @@ under [Releasing](README.md#releasing) in the README.
   elvish or PowerShell, and `yman man [--dir <dir>]` prints the man page or
   writes every page to a directory. Both are generated from the CLI definition
   itself and work outside a repository.
+- `yman init` in a repository with no `origin` sets up a local-only tracker
+  instead of refusing. `status` reports it, `sync` says to connect a remote,
+  and `yman init --remote <url>` does so later.
 
 ### Fixed
 

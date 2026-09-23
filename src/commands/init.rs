@@ -16,9 +16,12 @@ const MERGE_DRIVER: &str = "ymanmeta";
 
 pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
     let url = resolve_remote(ctx, a.remote.as_deref())?;
+    // No origin means a local-only tracker: nothing to fetch from or push to
+    // until one is added, and no `remote.origin.fetch` to hang the refspec on.
+    let offline = a.offline || url.is_none();
 
     match ctx.ydir_state() {
-        YdirState::Worktree => return repair(ctx, &a, &url),
+        YdirState::Worktree => return repair(ctx, &a, url.as_deref()),
         YdirState::StandaloneRepo => {
             bail!(
                 "{YDIR_NAME} is a standalone git repository, not a worktree; move it aside and rerun"
@@ -31,7 +34,7 @@ pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
     }
 
     ctx.exclude_add()?;
-    if !ctx.fetch_refspec_present()? {
+    if url.is_some() && !ctx.fetch_refspec_present()? {
         ctx.fetch_refspec_add()?;
     }
     let policy = a.refresh.map(|r| r.as_str()).unwrap_or("lazy");
@@ -44,7 +47,7 @@ pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
     // A previous `rm -rf .yman` leaves a stale worktree registration behind.
     ctx.main.run(&["worktree", "prune"])?;
 
-    if !a.offline {
+    if !offline {
         fetch_tasks(ctx, "fetch failed (see above); use --offline to skip")?;
     }
 
@@ -77,7 +80,7 @@ pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
         ctx.wt.ok(&["add", "-A"])?;
         ctx.wt.commit(&format!("yman: init ({scheme})"))?;
         ctx.config = Some(cfg);
-        if !a.offline && push(ctx)? == PushResult::Rejected {
+        if !offline && push(ctx)? == PushResult::Rejected {
             // Someone initialized the tracker between our fetch and our push.
             fetch_tasks(ctx, "fetch failed (see above); use --offline to skip")?;
             ctx.wt.ok(&["reset", "-q", "--hard", REMOTE])?;
@@ -96,14 +99,15 @@ pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
         hooks::install(ctx)?;
     }
 
-    summary(ctx, &url, "initialized")
+    summary(ctx, url.as_deref(), "initialized")
 }
 
 /// `.yman` is already a worktree: make sure the main-repo side is intact.
-fn repair(ctx: &mut Context, a: &InitArgs, url: &str) -> Result<()> {
+fn repair(ctx: &mut Context, a: &InitArgs, url: Option<&str>) -> Result<()> {
     ctx.check_worktree_head()?;
     ctx.exclude_add()?;
-    if !ctx.fetch_refspec_present()? {
+    // A local-only tracker gains its refspec here once origin exists.
+    if url.is_some() && !ctx.fetch_refspec_present()? {
         ctx.fetch_refspec_add()?;
     }
     if let Some(r) = a.refresh {
@@ -154,20 +158,26 @@ fn warn_scheme_ignored(ctx: &Context) {
 }
 
 /// The URL we report, creating `origin` when the user supplied one and the
-/// repo has none (push and fetch both address `origin` by name).
-fn resolve_remote(ctx: &Context, requested: Option<&str>) -> Result<String> {
+/// repo has none (push and fetch both address `origin` by name). `None` is a
+/// repo with no origin and no `--remote`: the tracker stays local.
+fn resolve_remote(ctx: &Context, requested: Option<&str>) -> Result<Option<String>> {
     match (ctx.origin_url()?, requested) {
         (Some(existing), Some(given)) if existing != given => {
             eprintln!("warning: origin already points at {existing}; --remote ignored");
-            Ok(existing)
+            Ok(Some(existing))
         }
-        (Some(existing), _) => Ok(existing),
+        (Some(existing), _) => Ok(Some(existing)),
         (None, Some(given)) => {
             ctx.main.ok(&["remote", "add", "origin", given])?;
             eprintln!("note: added remote \"origin\" -> {given}");
-            Ok(given.to_string())
+            Ok(Some(given.to_string()))
         }
-        (None, None) => bail!("main repo has no \"origin\" remote; pass --remote <url>"),
+        (None, None) => {
+            eprintln!(
+                "note: no \"origin\" remote; tasks stay local until you run: yman init --remote <url>"
+            );
+            Ok(None)
+        }
     }
 }
 
@@ -216,7 +226,7 @@ fn load_history_config(ctx: &Context) -> Result<Config> {
     })
 }
 
-fn summary(ctx: &Context, url: &str, verb: &str) -> Result<()> {
+fn summary(ctx: &Context, url: Option<&str>, verb: &str) -> Result<()> {
     let tasks = task::list(&ctx.ydir)?.len();
     let refresh = ctx
         .get_cfg("yman.refresh")?
@@ -228,7 +238,10 @@ fn summary(ctx: &Context, url: &str, verb: &str) -> Result<()> {
     };
     println!("{verb} {YDIR_NAME}");
     println!("  scheme:   {}", ctx.config().ids.scheme);
-    println!("  remote:   {url}  ({REMOTE_REF})");
+    match url {
+        Some(url) => println!("  remote:   {url}  ({REMOTE_REF})"),
+        None => println!("  remote:   none (local only)"),
+    }
     println!("  refresh:  {refresh}");
     println!("  hooks:    {hooks_state}");
     println!("  tasks:    {tasks}");

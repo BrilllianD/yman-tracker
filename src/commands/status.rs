@@ -11,6 +11,8 @@ struct Report {
     head: String,
     policy: String,
     hooks_installed: bool,
+    /// `false` for a local-only tracker: the repo has no `origin`.
+    origin: bool,
     /// `None` until the remote ref has been fetched at least once.
     remote: Option<Remote>,
     dirty: usize,
@@ -45,6 +47,7 @@ fn collect(ctx: &mut Context) -> Result<Report> {
         .get_cfg("yman.refresh")?
         .unwrap_or_else(|| "lazy".to_string());
     let hooks_installed = hooks::all_installed(ctx)?;
+    let origin = ctx.origin_url()?.is_some();
 
     let remote = match ctx.main.rev_parse(REMOTE)? {
         None => None,
@@ -106,6 +109,7 @@ fn collect(ctx: &mut Context) -> Result<Report> {
         head,
         policy,
         hooks_installed,
+        origin,
         remote,
         dirty,
         merge,
@@ -127,6 +131,7 @@ fn print_text(r: &Report) {
     );
 
     match &r.remote {
+        None if !r.origin => println!("remote: none (no \"origin\"; tasks are local only)"),
         None => println!("remote: {REMOTE_REF} not fetched yet"),
         Some(rm) => {
             let hint = if rm.ahead > 0 || rm.behind > 0 {
@@ -182,6 +187,7 @@ fn print_json(r: &Report) {
             .opt("head", None)
             .raw("ahead", "0")
             .raw("behind", "0")
+            .raw("origin", r.origin.to_string())
             .finish(),
         Some(rm) => json::Object::new()
             .str("ref", REMOTE_REF)
@@ -189,6 +195,7 @@ fn print_json(r: &Report) {
             .str("head", &rm.head)
             .raw("ahead", rm.ahead.to_string())
             .raw("behind", rm.behind.to_string())
+            .raw("origin", r.origin.to_string())
             .finish(),
     };
     let worktree = json::Object::new()

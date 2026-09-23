@@ -20,8 +20,8 @@ Until `.yman` exists, every command except `init`, `hooks`, `git`, `guide`,
 ## 2. `yman init`
 
 ```sh
-yman init                     # the repo already has an "origin"
-yman init --remote <url>      # it does not: create origin pointing there
+yman init                     # uses "origin"; with none, the tracker stays local
+yman init --remote <url>      # no origin yet: create one pointing there
 yman init --offline           # no network at all
 ```
 
@@ -34,9 +34,23 @@ yman init --offline           # no network at all
 | `--hooks` | also run `hooks install` |
 | `--refresh <lazy\|manual>` | the refresh policy, stored as git config `yman.refresh`; default `lazy` |
 
-Remote resolution happens first: with no `origin` and no `--remote`, `init`
-stops with `main repo has no "origin" remote; pass --remote <url>`. With both,
-the existing `origin` wins and `--remote` is ignored with a warning.
+Remote resolution happens first. With both an `origin` and `--remote`, the
+existing `origin` wins and `--remote` is ignored with a warning. With neither,
+`init` sets up a **local-only** tracker and says so on stderr:
+`note: no "origin" remote; tasks stay local until you run: yman init --remote <url>`.
+It behaves as if `--offline` were given, and adds no fetch refspec, since
+there is no `remote.origin.fetch` to add it to. Every command except `sync`
+works as usual; `status` reports `remote: none (no "origin"; tasks are local
+only)`.
+
+To connect a local-only tracker later, run `yman init --remote <url>`. It takes
+the repair path below, creates `origin` and the refspec, and the next
+`yman sync` publishes the local history. That works when the remote has no
+`refs/tasks/main` yet. If another clone already published a tracker there, the
+two histories are unrelated and `sync` refuses with the re-init message in
+[errors.md](errors.md). Adding `origin` by hand with `git remote add` works as
+well, though a plain `git fetch` will not carry task commits until `yman init`
+has added the refspec.
 
 `init` is idempotent. Run against an existing `.yman` worktree it takes the
 repair path — re-adds the exclude entry and the fetch refspec, re-registers the
@@ -50,7 +64,7 @@ In the **main repo**, all local and none of it committed:
 
 - `.yman/` added to `COMMON/info/exclude`;
 - the fetch refspec `+refs/tasks/main:refs/yman/remote` appended to
-  `remote.origin.fetch`;
+  `remote.origin.fetch`, when there is an `origin`;
 - `yman.refresh`, and `yman.author` when `--author` was given;
 - `merge.ymanmeta.name` and `merge.ymanmeta.driver`, pointing at the running
   binary by absolute path. This pairs with the `**/m.yml merge=ymanmeta` line
