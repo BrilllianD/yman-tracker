@@ -8,6 +8,8 @@
     yman done <id> -m "what changed"                  # close and explain in one call
     yman add "Title" -m "body" -a <me> --relate <id>  # follow-up, linked to its parent
     Never `edit` or `-e` (needs a terminal); change a body with `yman set <id> --body "..."`.
+    Task list asked for: `yman ls -l`, render as a table (P ID Status Title Tags),
+    `show <id> -n 0` the best 1-3 unclaimed tasks, recommend one and say why.
 
 ## Reading
 
@@ -48,13 +50,10 @@ On 3: `yman status` names the unmerged files under `.yman/`; edit them, remove
 the markers, then `yman sync --continue` (or `yman sync --abort`). Until then
 every mutating command exits 3.
 
-## Attribution
-
-Set `YMAN_ACTOR=<name>` and comments and attachments are recorded as yours.
-The git committer stays whoever git says it is.
-
-## Cost
+## Cost and attribution
 
 Plain output is the cheapest; `--json` repeats every key on every row, so use
 it only when the output goes into `jq`. Cap with `-n` (`show <id> -n 0` drops
 the discussion), and prefer one verb with `-m` over a verb then `comment`.
+Set `YMAN_ACTOR=<name>` and comments and attachments are recorded as yours;
+the git committer stays whoever git says it is.
