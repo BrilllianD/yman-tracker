@@ -185,9 +185,10 @@ reproduced on staging
 ```
 
 `.gitattributes` marks `**/d.md` as `merge=union`, so two people commenting on
-the same task at the same time merge cleanly instead of conflicting — as long
-as neither of them also retitled it, which renames the folder the comment was
-written against.
+the same task at the same time merge cleanly instead of conflicting. That holds
+when one of them retitled or closed the task meanwhile, too: a comment or an
+attachment written against the old folder name follows the task into the new
+one.
 
 `m.yml` gets a merge driver of its own, `merge=ymanmeta`, which merges the file
 one field at a time instead of one line at a time: a status change on one clone
