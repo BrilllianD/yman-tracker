@@ -650,6 +650,28 @@ semantics, [errors.md](docs/errors.md) for exit codes and the pinned messages.
 They describe what the code does, so a disagreement between the two is a bug in
 one of them.
 
+### Releasing
+
+Versions follow semver and are tagged `vX.Y.Z`. [CHANGELOG.md](CHANGELOG.md)
+collects user-visible changes under `[Unreleased]` as they land; a release
+freezes that section. To cut `X.Y.Z`:
+
+1. Branch `release/X.Y.Z` from `main`.
+2. In `CHANGELOG.md`, rename `[Unreleased]` to `[X.Y.Z] - YYYY-MM-DD`, open a
+   fresh empty `[Unreleased]` above it, and update the compare links at the
+   bottom.
+3. Bump `version` in `Cargo.toml`; `cargo build` updates `Cargo.lock`.
+4. Run the full gate (`cargo fmt --check`, clippy, `cargo test`,
+   `scripts/spike-symref.sh`) and `scripts/synthetic-project.sh`.
+5. Commit as `chore: release X.Y.Z` and merge into `main` with `--no-ff`.
+6. Tag the merge: `git tag -a vX.Y.Z -m "yman X.Y.Z"`, then push `main` and
+   the tag.
+
+The crate is not published to crates.io; install from a checkout with
+`cargo install --path .`. The package is `yman-tracker` and the binary `yman`.
+Both names were free on crates.io on 2026-09-23 — check again before
+publishing, since the choice cannot be taken back.
+
 ---
 
 ## License
