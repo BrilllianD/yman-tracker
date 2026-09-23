@@ -610,7 +610,7 @@ the error; fix the file and the task comes back. Nothing else is affected.
   17-commit task on the same repository, down from 400 ms when it rebuilt the
   rename graph. There is no index to make that cheaper.
 - One `.yman` worktree per clone.
-- Windows should work with `core.longpaths`, but is not tested.
+- Windows is untested. Deep task paths may need `core.longpaths`.
 - No colour, no TUI, no web UI, no GitHub Issues bridge.
 
 ---

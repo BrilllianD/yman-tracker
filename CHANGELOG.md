@@ -7,6 +7,12 @@ under [Releasing](README.md#releasing) in the README.
 
 ## [Unreleased]
 
+### Changed
+
+- The README now calls Windows untested, and `docs/storage.md` §5 records
+  the known case-insensitive and Unicode-normalization pitfalls on macOS and
+  Windows.
+
 ## [0.4.0] - 2026-09-23
 
 ### Added

@@ -179,6 +179,23 @@ A task in a terminal status (§7) is stored at
 
 Non-ASCII survives: `"Первая задача"` → `первая-задача`.
 
+### Case-insensitive and normalizing filesystems
+
+Only Linux is tested. Two cases are known to behave differently elsewhere, and
+nothing in the code guards against either:
+
+- **Case-insensitive filesystems** (the macOS and Windows defaults). Slugs
+  cannot collide, because `slugify` lowercases. Attachment names and `author`
+  prefixes are not lowercased, though. `attach` checks for an existing file
+  with an exact `exists()`, so `A.png` and `a.png` attached on Linux are two
+  files that one checkout on macOS or Windows cannot hold. Two prefixes that
+  differ only in case (`IV` and `iv`) mint ids that name distinct folders on
+  Linux and can fold into one elsewhere.
+- **Unicode normalization.** macOS stores names in NFD. A Cyrillic slug minted
+  on Linux (NFC) and `git mv`'d on macOS can come back as a different byte
+  sequence unless `core.precomposeunicode` is set, which git on macOS enables
+  by default in new repositories.
+
 ## 6. File formats
 
 ### `t.md`
