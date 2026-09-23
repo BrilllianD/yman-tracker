@@ -69,8 +69,9 @@ Then, in any repository with an `origin` you can push to:
 yman init
 ```
 
-That is the only setup step. It creates `.yman/`, adds one fetch refspec to the
-repository config, and excludes `.yman/` from the code worktree. Everyone else
+That is the only setup step. It creates `.yman/`, adds a fetch refspec, the
+refresh policy and the `m.yml` merge driver to the repository config, and
+excludes `.yman/` from the code worktree. Everyone else
 on the project runs the same command and gets the existing tasks.
 
 A repository with no `origin` gets a local-only tracker: everything except
@@ -107,13 +108,17 @@ many tasks you write.
 | The ref on the server | `refs/tasks/main` — never a branch |
 | Working copy of the tasks | `.yman/`, listed in `.git/info/exclude` |
 
-`yman init` appends exactly one line to the repository config:
+The setting that matters here is the fetch refspec `yman init` appends to the
+repository config:
 
 ```
 remote.origin.fetch = +refs/tasks/main:refs/yman/remote
 ```
 
 so an ordinary `git fetch` or `git pull` brings task commits along at no cost.
+(`init` also sets `yman.refresh` and registers the `m.yml` merge driver as
+`merge.ymanmeta.*`; [docs/setup.md](docs/setup.md#3-what-init-changes) lists
+everything it touches.)
 Pushing is always explicit — `git push origin refs/yman/local:refs/tasks/main`.
 `remote.origin.push` is never set, so your plain `git push` keeps doing exactly
 what it did before.
@@ -217,14 +222,14 @@ attachment — still conflict, and land in the file as the usual markers.
 ### Creating and reading
 
 ```sh
-yman add <title> [-p 0-9] [-s <status>] [-t <tag>]... [-m <body> | --body-file <path> | -e]
+yman add <title> [-p 0-9] [-s <status>] [-t <tag>]... [-m <body> | --body-file <path>] [-e]
          [-a <who>] [--link <url>]... [--relate <id>]...
 ```
 Creates a task and commits it. `-t`, `--link` and `--relate` repeat. Relating
 to an id this clone does not have warns on stderr and commits anyway — another
 clone may not have synced yet.
 `--body-file -` reads the body from stdin. `-e` opens `$EDITOR` on the new
-`t.md` first — whatever title you type there wins, and the folder is named after
+`t.md` first, starting from the `-m` body when both are given — whatever title you type there wins, and the folder is named after
 it.
 
 ```sh
@@ -279,7 +284,7 @@ yman cancel <id>...         # = set --status <cancel status>   (version 2)
 yman reopen <id>...         # a closed task back to the default status
 yman prio  <id>... <0-9>    # = set --priority
                             # every one of these also takes -m <comment>
-yman edit  <id>          # $VISUAL, else $EDITOR, else vi (only on a terminal)
+yman edit  <id>          # $VISUAL, else $EDITOR, else vi (vi only on a terminal)
 yman rm    <id> [-f]
 ```
 
@@ -310,12 +315,15 @@ yman comment <id> [-m <text>] [-e]
 
 `--name` renames a single file on the way in. `--force` replaces an attachment
 that already exists. Files over 5 MiB get a warning, never a refusal. With
-neither `-m` nor `-e`, `yman comment` reads the comment from stdin — so
-`git log -1 | yman comment 14` works.
+neither `-m` nor `-e`, `yman comment` reads the comment from stdin when stdin
+is not a terminal — so `git log -1 | yman comment 14` works; typed at a
+terminal, it fails with `empty comment`.
 
 ### Plumbing
 
 ```sh
+yman init [--remote <url>] [--offline] [--id-scheme random|seq|author]
+          [--author <prefix>] [--hooks] [--refresh lazy|manual]
 yman status [--json]     # where everything stands; never changes anything
 yman refresh [--quiet]   # fast-forward onto already-fetched task commits
 yman sync [--continue] [--abort] [--no-push]
@@ -333,6 +341,9 @@ remote: refs/tasks/main @ 9b8c7d6   ahead 2, behind 1   → run: yman sync
 worktree: clean
 tasks:   todo 4, doing 1, done 7
 ```
+
+`yman init` sets the tracker up, or joins one another clone already published;
+its flags and every change it makes are in [docs/setup.md](docs/setup.md).
 
 `yman status --json` reports the same facts — refs, ahead/behind, the merge
 state and the per-status counts — as one object, for a script that would
@@ -360,8 +371,10 @@ paste into a project's `CLAUDE.md`. The short version: filter with `ls -n`,
 skim bodies with `ls -l -n`, read with `show -n`, close with `done <id> -m`, never open an editor, and set
 `YMAN_ACTOR` so the work is attributed to the agent.
 
-For a harness that loads skills, [skills/yman/](skills/yman/) is the same
-material as a Claude Code skill, so it arrives without anyone pasting anything.
+For a harness that loads skills, [skills/yman/](skills/yman/) is the fuller
+version of the same rules as a Claude Code skill — the task-list procedure,
+the commands never to run and why, and recovery from each exit-3 case — so it
+arrives without anyone pasting anything.
 Copy the directory into any project that tracks its work with `yman`; it
 assumes nothing about where the yman source tree is. Setting a tracker up from
 scratch is [docs/setup.md](docs/setup.md).
@@ -468,7 +481,8 @@ account. The git committer is never changed by it.
 
 ## Sharing work: sync, refresh, hooks
 
-**`yman sync` is the only command that talks to the network.** It snapshots any
+**`yman sync` is the command that talks to the network** (`yman init` does
+too, once, unless given `--offline`). It snapshots any
 uncommitted edits in `.yman`, fetches, merges, and pushes:
 
 ```console
@@ -622,17 +636,12 @@ cargo test                                  # unit tests + the two-clone suite
 cargo clippy --all-targets -- -D warnings
 sh scripts/spike-symref.sh                  # the git invariant this rests on
 sh scripts/synthetic-project.sh             # a 1000-task repository, driven (~3 min)
+sh scripts/book.sh                          # the documentation site, into target/book
 ```
 
 The integration suite builds a bare remote and two clones in a temp directory
 and drives both through init, add, sync, id collisions, conflicts and hooks.
 Nothing touches the network or your real git configuration.
-
-`skills/yman/evals/run.sh` tests the agent-facing side: it hands a headless
-agent one prompt per case against a throwaway tracker, then grades the repo it
-leaves behind *and* the commands it reached for — so a run catches the skill
-drifting from the CLI, not just the CLI breaking. It spends real tokens, so it
-is not part of CI either; see [skills/yman/evals/](skills/yman/evals/).
 
 `scripts/synthetic-project.sh` covers what a suite of short-lived fixtures
 cannot: it builds four clones and a thousand tasks over a couple of thousand
@@ -642,6 +651,12 @@ The repository is regenerated rather than committed — it lands in
 `target/synthetic`, is kept so you can `cd` in and poke at it, and is replaced
 by the next `--force` run. Run it before a release; it is deliberately not part
 of CI.
+
+`skills/yman/evals/run.sh` tests the agent-facing side: it hands a headless
+agent one prompt per case against a throwaway tracker, then grades the repo it
+leaves behind *and* the commands it reached for — so a run catches the skill
+drifting from the CLI, not just the CLI breaking. It spends real tokens, so it
+is not part of CI either; see [skills/yman/evals/](skills/yman/evals/).
 
 Layout:
 
@@ -654,16 +669,29 @@ Layout:
 | `src/ids.rs` | id generation and what counts as taken |
 | `src/refresh.rs` | the fast-forward policy |
 | `src/commands/` | one module per subcommand |
-| `scripts/spike-symref.sh` | proves committing in the worktree moves `refs/yman/local` |
+| `scripts/spike-symref.sh` | checks the git behaviour the `.yman` worktree depends on |
 | `scripts/synthetic-project.sh` | builds a large repository and measures what commands cost on it |
+| `scripts/book.sh`, `book.toml`, `docs/SUMMARY.md` | the documentation site |
 | `skills/yman/` | the agent skill, and the evals that keep it honest |
 | `docs/` | the normative specification |
 
 `docs/` holds the normative, as-built specification — [storage.md](docs/storage.md)
 for the ref and on-disk contract, [commands.md](docs/commands.md) for per-command
-semantics, [errors.md](docs/errors.md) for exit codes and the pinned messages.
-They describe what the code does, so a disagreement between the two is a bug in
-one of them.
+semantics, [errors.md](docs/errors.md) for exit codes and the pinned messages,
+and [setup.md](docs/setup.md) for getting from no `.yman` to a working tracker —
+plus [agents.md](docs/agents.md), the short manual `yman guide` prints.
+They describe what the code does, so a disagreement between them and the code
+is a bug in one or the other.
+
+The same files are published as a documentation site at
+<https://brillliand.github.io/yman-tracker/>. `scripts/book.sh` copies them
+under `target/book-src`, rewrites the links that only work in the repository
+layout, builds with [mdBook](https://rust-lang.github.io/mdBook/) and fails on
+any local link or anchor that leads nowhere. It needs `mdbook` on `PATH`
+(`cargo install mdbook`, or a release binary); `mdbook serve` previews the
+result after a build, though edits to the sources need the script run again.
+`.github/workflows/pages.yml` builds it on every push and deploys it from
+`main`. Adding a page means adding it to `docs/SUMMARY.md`.
 
 ### Releasing
 

@@ -7,6 +7,29 @@ under [Releasing](README.md#releasing) in the README.
 
 ## [Unreleased]
 
+### Added
+
+- A documentation site, built with mdBook from the README, `docs/` and the
+  changelog and published to GitHub Pages:
+  <https://brillliand.github.io/yman-tracker/>. `scripts/book.sh` builds it
+  locally and fails on broken links or anchors.
+
+### Fixed
+
+- `docs/commands.md` and `docs/errors.md` were checked against the code and
+  corrected where they had drifted: the mutating-command list, the `init`
+  commits, `refresh` notes, exit codes after `yman git` and for
+  `no merge in progress`, and messages the tables were missing.
+- `docs/storage.md` and `docs/setup.md` were corrected the same way: what the
+  spike script actually enforces, how `t.md` and `m.yml` are written, where
+  hooks go, which commands use the network, and the filesystem notes added in
+  the previous entry, which overstated one gap and missed the Windows ones.
+- The three copies of the agent manual (`yman guide`, the skill and the
+  README's "Scripts and agents") agree again: the task-list rule no longer
+  asks for an assignee `ls` does not print, `rm -f` and the duplicate-id
+  recovery are in all of them, and the README no longer says `init` adds one
+  config line or that `sync` is the only command using the network.
+
 ### Changed
 
 - The README now calls Windows untested, and `docs/storage.md` §5 records

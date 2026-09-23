@@ -8,7 +8,8 @@ semantics, [storage.md](storage.md) for the ref and on-disk contract,
 ## 1. Prerequisites
 
 `yman` runs `git` as a subprocess; without it, every command fails with
-`git not found in PATH`. The current directory must be inside the project's git
+`git not found in PATH` except `guide`, `completions` and `man`, which are
+answered before any git process runs. The current directory must be inside the project's git
 repository — any subdirectory will do — or the command fails with
 `not inside a git repository`. There is no `-C <dir>` flag and no global
 configuration file outside the repository.
@@ -35,12 +36,13 @@ yman init --offline           # no network at all
 | `--refresh <lazy\|manual>` | the refresh policy, stored as git config `yman.refresh`; default `lazy` |
 
 Remote resolution happens first. With both an `origin` and `--remote`, the
-existing `origin` wins and `--remote` is ignored with a warning. With neither,
+existing `origin` wins. `--remote` is ignored, with a warning when its URL
+differs from `origin`'s and silently when it is the same. With neither,
 `init` sets up a **local-only** tracker and says so on stderr:
 `note: no "origin" remote; tasks stay local until you run: yman init --remote <url>`.
 It behaves as if `--offline` were given, and adds no fetch refspec, since
 there is no `remote.origin.fetch` to add it to. Every command except `sync`
-works as usual; `status` reports `remote: none (no "origin"; tasks are local
+works as usual (`sync --abort` still runs, since it needs no remote); `status` reports `remote: none (no "origin"; tasks are local
 only)`.
 
 To connect a local-only tracker later, run `yman init --remote <url>`. It takes
@@ -73,8 +75,9 @@ In the **main repo**, all local and none of it committed:
   exists.
 
 In **`.yman`** — only when the history is being created — `config.toml`,
-`.gitignore` and `.gitattributes`, committed as `yman: init (<scheme>)` and
-pushed.
+`.gitignore` and `.gitattributes`, committed as `yman: init (<scheme>)` on top
+of an empty root commit `yman: init`, and pushed unless the run is `--offline`
+or the tracker is local-only.
 
 ## 4. There is no clone command
 
@@ -93,12 +96,16 @@ whose `refs/tasks/main` is not a yman history fails with
 `refs/tasks/main on origin is not a yman history (missing or invalid
 config.toml)`.
 
-One `.yman` per clone. A second attempt fails with `refs/yman/local is already
-checked out in another worktree of this repo`.
+One `.yman` per clone. When git refuses the checkout, a second attempt fails
+with `refs/yman/local is already checked out in another worktree of this repo`.
+From a linked worktree of the project git may not refuse it (the worktree is
+added with `--detach`); see [storage.md §2](storage.md#2-the-ref-namespace).
 
 ## 5. Staying up to date
 
-`yman sync` is the only command that uses the network: fetch, merge, push.
+`yman sync` is the command that uses the network day to day: fetch, merge,
+push. The only other one is `init`, which fetches and pushes unless given
+`--offline`.
 `--no-push` stops before publishing; `--continue` and `--abort` finish or drop a
 conflicted merge (`commands.md` §6, and exit code 3 in `errors.md`).
 

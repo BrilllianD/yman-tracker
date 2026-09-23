@@ -14,6 +14,13 @@ This split is a contract, not a style choice: `cd $(yman path 14)` and
 `yman ls --json \| jq` must stay usable. Nothing decorative goes to stdout, and
 there is no colour anywhere.
 
+The code does not yet honour the table everywhere. Today's exceptions: the
+`rm` and `tags rm` confirmation prompts are written to stdout, and a few stderr
+lines carry no prefix — `refreshed: N new commit(s)`, the hook advice
+`hook <name> exists; add this line to it:` and the indented list of
+conflicting files `sync` prints. None of them appears on a command whose
+stdout is meant to be piped.
+
 ## Exit codes
 
 | Code | Meaning | Produced by |
@@ -23,6 +30,10 @@ there is no colour anywhere.
 | `2` | usage error | the argument parser, before anything runs |
 | `3` | a sync merge is unresolved | the `MergePending` marker error |
 | `4` | no task has the given id | the `NotFound` marker error, from `task::find` |
+
+`yman git` is outside this table: it exits with git's own code, which can be
+1, 128 or anything else git uses, so a `3` or `4` after it means nothing to
+yman.
 
 Messages that carry code 3, beyond the preflight and merge ones: a
 `sync --continue` that would leave two folders for one id reports
@@ -77,16 +88,17 @@ commit.
 | unknown attachment | `no attachment "<name>" on task <id>` |
 | attachment name already used | `attachment "<name>" already exists on task <id>; use --force` |
 | `--name` with several files | `--name only works with a single file` |
-| attachment source unusable | `cannot attach <path>: <why>` / `… not a regular file` |
-| attachment name with a separator | `attachment name "<name>" must not contain a path separator` |
+| attachment source unusable | `cannot attach <path>: <why>` / `… not a regular file` / `… no file name` |
+| attachment name with a separator, or `.` / `..` | `attachment name "<name>" must not contain a path separator` |
 | `add` onto an existing folder | `folder already exists: <dir>` |
 | empty comment (`comment`, or `-m` on `set` and the verbs) | `empty comment` |
 | `--body-file` cannot be read | `cannot read <path>: <why>` — `<why>` is the OS error text |
 | `cancel` with no cancel status | `no cancel status configured; set statuses.cancel in .yman/config.toml` |
 | `reopen` on an open task | `task <id> is not closed (status "<s>"); closed statuses: <terminal joined by ", ">` |
 | `rm` or `tags rm` with no terminal and no `-f` | `refusing to remove without -f` |
+| editor could not be started | `cannot run editor "<program>": <why>` |
 | editor failed | `editor exited with status N; file left as is` (or `editor was killed by a signal; …`) |
-| no editor resolvable | `no editor configured; set $EDITOR` |
+| no editor resolvable | `no editor configured; set $EDITOR` — currently unreachable, because the resolver falls back to `vi` |
 | neither `$VISUAL` nor `$EDITOR` set, stdin not a terminal | `no terminal for vi; set $EDITOR, or use -m / --body-file` |
 | `rm` or `tags rm` prompt declined | `aborted` |
 | `t.md` unparsable | `t.md must start with "# Title"` |
@@ -104,6 +116,8 @@ commit.
 | push rejected while finishing a merge | `origin moved while finishing the merge; run: yman sync` |
 | network step failed | `fetch failed` / `push failed` / `merge failed`, with git's stderr printed above |
 | `init` fetch failed | `fetch failed (see above); use --offline to skip` |
+| `hooks install` met a hook it does not own | `<n> hook(s) not installed: <names>`, after `hook <name> exists; add this line to it:` and the line itself on stderr for each |
+| `man --dir` cannot write | `cannot create <dir>: <why>` / `cannot write man pages to <dir>: <why>` |
 | `m.yml` merge driver could not fall back | `git merge-file failed`, with git's stderr printed above — reaches the user through git's own merge output |
 
 ### Exit-code-3 messages
@@ -115,7 +129,9 @@ commit.
 | merge produced conflicts | `conflicts in N file(s); edit them, remove markers, then: yman sync --continue  (or: yman sync --abort)` |
 | `--continue` with markers left | `still unmerged: <files>` |
 | `--continue` with an unloadable task | `conflict markers or invalid task in <dir>: <why>` |
-| `--continue`/`--abort` with nothing to finish | `no merge in progress` |
+
+`sync --continue` or `--abort` with nothing to finish reports
+`no merge in progress` with exit code 1, not 3: there is no merge pending.
 
 ## Warnings and notes
 
@@ -124,17 +140,20 @@ Never fatal, always stderr:
 | Message | When |
 |---|---|
 | `warning: id scheme is "<s>" (from config.toml); --id-scheme ignored` | `init` on an existing history with a conflicting flag |
-| `warning: origin already points at <url>; --remote ignored` | `init --remote` where origin already exists |
+| `warning: origin already points at <url>; --remote ignored` | `init --remote <url>` where origin already exists with a different URL; the same URL is accepted silently |
 | `warning: remote already had tasks; adopted remote state` | two clones initialized the tracker at once |
 | `warning: refs/tasks/main disappeared from origin; will recreate it` | the ref was deleted server-side |
 | `warning: <name> is N MiB; git is not great at large binaries` | attaching a file over 5 MiB |
 | `warning: installing into core.hooksPath=<p>` | hooks redirected away from `.git/hooks` |
-| `warning: task <id> does not exist here; relating anyway` | `set --relate` naming an id no folder here carries |
+| `warning: refresh failed: <why>` | the lazy refresh before a command failed; the command still runs |
+| `warning: task <id> does not exist here; relating anyway` | `add --relate` or `set --relate` naming an id no folder here carries |
 | `warning: skipped N unreadable task folder(s): <rels>` | `tags`, `tags rename`, `tags rm` and `rm` walking every task |
 | `warning: <path> not moved; <dest> already exists` | `sync` rejoining a split folder found the same file on both sides |
 | `note: added remote "origin" -> <url>` | `init --remote` created the remote |
 | `note: no "origin" remote; tasks stay local until you run: yman init --remote <url>` | `init` in a repo with no `origin` and no `--remote` |
 | `note: .yman has uncommitted changes, refresh skipped` | refresh backed off |
+| `note: worktree has uncommitted changes` | `yman refresh` backed off for the same reason; printed after the note above |
+| `note: local has unpushed commits; run: yman sync` | `yman refresh` found local ahead of or diverged from the remote |
 | `note: rewrote N reference(s) to renumbered ids` | a collision renumber moved ids other tasks related to |
 | `note: moved N file(s) left under <old> into <rel>` | a merge left files under a folder the other side had moved |
 | `note: dropped N reference(s) to <id>` | `rm` cleared the removed task out of other tasks' `related` |

@@ -1,4 +1,4 @@
-# yman for scripts and agents: the whole manual, for a reader that pays per byte
+# yman for scripts and agents: the short manual, for a reader that pays per token
 
 ## Paste into the project's CLAUDE.md
 
@@ -7,9 +7,10 @@
     yman set <id> --status doing -a <me> -m "on it"   # claim: status, assignee, note, one commit
     yman done <id> -m "what changed"                  # close and explain in one call
     yman add "Title" -m "body" -a <me> --relate <id>  # follow-up, linked to its parent
-    Never `edit` or `-e` (needs a terminal); change a body with `yman set <id> --body "..."`.
-    Task list asked for: `yman ls -l`, render as a table (P ID Status Title Tags),
-    `show <id> -n 0` the best 1-3 unclaimed tasks, recommend one and say why.
+    Never `edit` or `-e` (opens an editor); change a body with `yman set <id> --body "..."`.
+    `rm` and `tags rm` need `-f` off a terminal, or refuse: `refusing to remove without -f`.
+    Task list asked for: `yman ls -l -n 20`, render as a table (P ID Status Title Tags),
+    `show <id> -n 0` the best 1-3 (it has the assignee; `ls` does not), recommend one.
 
 ## Reading
 
@@ -20,10 +21,11 @@
 `P` is priority 0 (highest) to 9, `F` attachments, `C` comments; zero is
 blank and trailing empty columns are dropped. Filters AND together, `-t` and
 `-q` comparing lowercase: `-s <status>` `-t <tag>` `--assignee <who|->`
-`-p <0-9>` `-q <text>`; `-n <N>` caps rows after sorting, closed tasks need `-a`.
+`-p <0-9>` `-q <text>`; `-n <N>` caps rows after sorting; closed tasks need `-a`
+or `-s <closed status>`.
 
-`show <id>` prints a header block, the body, then `attachments:` and
-`discussion:`; empty sections are omitted, and `-n <N>` keeps the last N.
+`show <id>` prints a header, the body, then `attachments:` and `discussion:`;
+empty sections are omitted, `-n <N>` keeps the last N.
 `tags` lists every tag in use with its task count, closed tasks included. `ls`,
 `show`, `status` and `tags` take `--json`, which omits nothing: `[]` and `null`.
 
@@ -34,7 +36,7 @@ blank and trailing empty columns are dropped. Filters AND together, `-t` and
 comment in the same commit. `set <id>` changes any field: `--status`
 `--priority` `--title` `-a/--assignee` `--no-assignee` `--tag/--untag`
 `--link/--unlink` `--relate/--unrelate` `--body <text>` `--body-file <path|->`
-`-m <text>`. Every mutation is its own commit; there is nothing to save.
+`-m <text>`. Every mutation is its own commit; nothing to save.
 
 ## Streams and exit codes
 
@@ -47,13 +49,12 @@ stdout carries data only. Errors (`error: ...`), warnings and notes go to stderr
     4  no task has that id
 
 On 3: `yman status` names the unmerged files under `.yman/`; edit them, remove
-the markers, then `yman sync --continue` (or `yman sync --abort`). Until then
-every mutating command exits 3.
+the markers (or delete one of the folders a `duplicate task id` error names),
+then `yman sync --continue` (or `--abort`). Until then mutating commands exit 3.
 
 ## Cost and attribution
 
-Plain output is the cheapest; `--json` repeats every key on every row, so use
-it only when the output goes into `jq`. Cap with `-n` (`show <id> -n 0` drops
-the discussion), and prefer one verb with `-m` over a verb then `comment`.
-Set `YMAN_ACTOR=<name>` and comments and attachments are recorded as yours;
-the git committer stays whoever git says it is.
+Plain output is cheapest; `--json` repeats every key, so keep it for `jq`. Cap
+with `-n` (`show <id> -n 0` drops the discussion); one verb with `-m` beats a
+verb then `comment`. `YMAN_ACTOR=<name>` records comments and attachments as
+yours; the git committer stays whoever git says it is.
