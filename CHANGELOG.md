@@ -7,6 +7,13 @@ under [Releasing](README.md#releasing) in the README.
 
 ## [Unreleased]
 
+### Added
+
+- `yman completions <shell>` prints a completion script for bash, zsh, fish,
+  elvish or PowerShell, and `yman man [--dir <dir>]` prints the man page or
+  writes every page to a directory. Both are generated from the CLI definition
+  itself and work outside a repository.
+
 ### Changed
 
 - The yman skill formats a task list as a table and suggests what to take next.

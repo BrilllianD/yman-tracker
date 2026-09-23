@@ -30,10 +30,13 @@ fn main() {
 }
 
 fn run(cli: Cli) -> anyhow::Result<()> {
-    // Documentation, not a command on a repository: it must work from a
-    // fresh shell in any directory, so it is answered before discovery.
-    if matches!(cli.cmd, Cmd::Guide) {
-        return commands::guide::run();
+    // Documentation, not commands on a repository: they must work from a
+    // fresh shell in any directory, so they are answered before discovery.
+    match cli.cmd {
+        Cmd::Guide => return commands::guide::run(),
+        Cmd::Completions(a) => return commands::completions::run(a),
+        Cmd::Man(a) => return commands::completions::run_man(a),
+        _ => {}
     }
 
     // Git calls this one with three temp files, from inside a merge it is

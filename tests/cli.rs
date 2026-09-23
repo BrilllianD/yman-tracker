@@ -3483,6 +3483,77 @@ fn guide_needs_no_repository() {
     assert!(expected.lines().count() <= 60, "agents.md must stay short");
 }
 
+/// `completions` needs no repository, offers every subcommand `--help` lists,
+/// and keeps the hidden `merge-driver` out.
+#[test]
+fn completions_cover_every_subcommand() {
+    let fx = Fx::new();
+    let nowhere = tempfile::tempdir().unwrap();
+    let help = stdout(&fx.yman(nowhere.path()).arg("--help").output().unwrap());
+    let subcommands: Vec<&str> = help
+        .lines()
+        .skip_while(|l| *l != "Commands:")
+        .skip(1)
+        .take_while(|l| l.starts_with("  "))
+        .filter_map(|l| l.split_whitespace().next())
+        .collect();
+    assert!(subcommands.contains(&"completions"), "{help}");
+
+    for (shell, head) in [
+        ("bash", "_yman() {"),
+        ("zsh", "#compdef yman"),
+        ("fish", "# Print an optspec"),
+    ] {
+        let out = fx
+            .yman(nowhere.path())
+            .args(["completions", shell])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{shell}: {}", stderr(&out));
+        assert_eq!(stderr(&out), "", "{shell}");
+        let script = stdout(&out);
+        assert!(script.starts_with(head), "{shell}: {script}");
+        for sub in &subcommands {
+            assert!(script.contains(sub), "{shell} lacks {sub}");
+        }
+        assert!(!script.contains("merge-driver"), "{shell}");
+    }
+
+    let out = fx
+        .yman(nowhere.path())
+        .args(["completions", "tcsh"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+}
+
+/// `man` prints yman.1 anywhere; `--dir` writes it and the per-subcommand
+/// pages it refers to, without one for the hidden `merge-driver`.
+#[test]
+fn man_prints_and_writes_pages() {
+    let fx = Fx::new();
+    let nowhere = tempfile::tempdir().unwrap();
+    let out = fx.yman(nowhere.path()).arg("man").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let page = stdout(&out);
+    assert!(page.contains(".TH yman 1"), "{page}");
+    assert!(page.contains("yman\\-ls(1)"), "{page}");
+
+    let dir = nowhere.path().join("man1");
+    let out = fx
+        .yman(nowhere.path())
+        .args(["man", "--dir"])
+        .arg(&dir)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "");
+    for name in ["yman.1", "yman-ls.1", "yman-tags-rename.1"] {
+        assert!(dir.join(name).is_file(), "{name}");
+    }
+    assert!(!dir.join("yman-merge-driver.1").exists());
+}
+
 /// `show --json` is one object: the header fields, the body, the attachments
 /// and the discussion, with `-n` trimming the discussion but not the count.
 #[test]
