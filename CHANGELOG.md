@@ -13,6 +13,10 @@ under [Releasing](README.md#releasing) in the README.
   corrected where they had drifted: the mutating-command list, the `init`
   commits, `refresh` notes, exit codes after `yman git` and for
   `no merge in progress`, and messages the tables were missing.
+- `docs/storage.md` and `docs/setup.md` were corrected the same way: what the
+  spike script actually enforces, how `t.md` and `m.yml` are written, where
+  hooks go, which commands use the network, and the filesystem notes added in
+  the previous entry, which overstated one gap and missed the Windows ones.
 
 ### Changed
 

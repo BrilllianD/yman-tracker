@@ -42,20 +42,28 @@ git worktree add --detach .yman refs/yman/local
 git -C .yman symbolic-ref HEAD refs/yman/local
 ```
 
-`scripts/spike-symref.sh` proves the three properties this depends on, and is
+`scripts/spike-symref.sh` exercises the properties this depends on, and is
 re-runnable:
 
 1. `git commit` inside the worktree moves `refs/yman/local`, and HEAD stays
-   symbolic. No `update-ref` fixup is needed.
-2. `git branch -a` never mentions the ref.
+   symbolic. No `update-ref` fixup is needed. The script **reports** this
+   rather than enforcing it: it fails only when the ref did not advance at
+   all, prints `FALLBACK` when the ref and HEAD disagree, and prints
+   `<detached>` without failing when HEAD lost its symbolic ref.
+2. `git branch -a` never mentions the ref. Enforced.
 3. `git merge --ff-only` works against a ref built with `commit-tree`.
+   Enforced.
+4. The main worktree's `git status` stays clean. Enforced.
 
 The consequence for everything else: `git status`, `git log`, `git diff`, branch
 pickers and CI never see task history, while `git log --all`, `git show-ref` and
 `git worktree list` do.
 
-Only one `.yman` per clone is supported. A second `worktree add` against the
-same ref is rejected by git and reported as such.
+Only one `.yman` per clone is supported. When git refuses the checkout,
+`init` reports `refs/yman/local is already checked out in another worktree of
+this repo; …`. The worktree is added with `--detach`, though, and git only
+guards branches against a second checkout, so from a linked worktree of the
+project a second `.yman` is not known to be refused; nothing else checks.
 
 ### Refs are read from disk, with `git` as the fallback
 
@@ -86,7 +94,7 @@ file answers. `tests/cli.rs` pins both numbers.
 |---|---|---|
 | `COMMON/info/exclude` | `.yman/` | keeps the code worktree's `git status` clean |
 | `remote.origin.fetch` (appended) | `+refs/tasks/main:refs/yman/remote` | a plain `git fetch` carries task commits; only added when `origin` exists |
-| `yman.refresh` | `lazy` \| `manual` | see [commands.md](commands.md#refresh) |
+| `yman.refresh` | `lazy` \| `manual` | see [commands.md §5](commands.md#5-refresh) |
 | `yman.author` | prefix string | only meaningful for the `author` id scheme |
 | `merge.ymanmeta.name` | `yman m.yml field-wise merge` | shown by git when the driver runs |
 | `merge.ymanmeta.driver` | `"<yman>" merge-driver %O %A %B` | see [Merging `m.yml`](#merging-myml) |
@@ -108,9 +116,10 @@ ROOT/
     config                      # + fetch refspec, yman.refresh, yman.author,
                                 #   merge.ymanmeta.*
     info/exclude                # + ".yman/"
-    refs/yman/{local,remote}
+    refs/yman/{local,remote}    # remote only once fetched; absent when local-only
     worktrees/-yman/            # git-managed; HEAD, index, MERGE_HEAD
-    hooks/{post-merge,post-checkout}   # optional, `yman hooks install`
+    hooks/{post-merge,post-checkout}   # optional, `yman hooks install`;
+                                #   core.hooksPath instead when set
   .yman/
     .git                        # file: "gitdir: <COMMON>/worktrees/-yman"
     .gitignore                  # *.swp  *~  .#*  *.orig
@@ -181,20 +190,28 @@ Non-ASCII survives: `"Первая задача"` → `первая-задача
 
 ### Case-insensitive and normalizing filesystems
 
-Only Linux is tested. Two cases are known to behave differently elsewhere, and
-nothing in the code guards against either:
+Only Linux is tested. The one guard in the code is for terminal statuses:
+two that differ only in ASCII case are rejected (§7), because they would be one
+directory. Everything else below is known to behave differently off Linux and
+is not checked:
 
 - **Case-insensitive filesystems** (the macOS and Windows defaults). Slugs
   cannot collide, because `slugify` lowercases. Attachment names and `author`
-  prefixes are not lowercased, though. `attach` checks for an existing file
-  with an exact `exists()`, so `A.png` and `a.png` attached on Linux are two
-  files that one checkout on macOS or Windows cannot hold. Two prefixes that
-  differ only in case (`IV` and `iv`) mint ids that name distinct folders on
-  Linux and can fold into one elsewhere.
-- **Unicode normalization.** macOS stores names in NFD. A Cyrillic slug minted
-  on Linux (NFC) and `git mv`'d on macOS can come back as a different byte
+  prefixes are not lowercased, though. `A.png` and `a.png` attached on Linux
+  are two files that one checkout on macOS or Windows cannot hold. There,
+  `attach --force a.png` over an existing `A.png` overwrites the file (the
+  `exists()` check folds case) but adds a second `m.yml` entry (entries are
+  matched exactly). Two prefixes that differ only in case (`IV` and `iv`) mint
+  ids that name distinct folders on Linux and can fold into one elsewhere.
+- **Unicode normalization.** HFS+ stores names in NFD; APFS, the macOS default
+  since 2017, keeps whatever form it is given. A Cyrillic slug minted on Linux
+  (NFC) and `git mv`'d on an HFS+ volume can come back as a different byte
   sequence unless `core.precomposeunicode` is set, which git on macOS enables
   by default in new repositories.
+- **Windows names.** A terminal status called `con`, `nul`, `aux` or another
+  reserved device name passes validation but cannot be a directory there.
+  Attachment names are checked only for `/`, `\`, `.` and `..`, so `:`, `*`,
+  `?`, `"`, `<`, `>` and `|` get through and break a Windows checkout.
 
 ## 6. File formats
 
@@ -206,11 +223,13 @@ nothing in the code guards against either:
 Free-form body. May be empty.
 ```
 
-The title is the first `^#\s+…` line, scanning from the top and skipping blank
-lines. Anything non-blank before it is a parse error
+The title is the first non-blank line, which after trimming must be `#`,
+whitespace, then a non-empty title (so `   # Title` is accepted). Blank lines
+before it are skipped; anything else non-blank is a parse error
 (`t.md must start with "# Title"`). The body is everything after the title line
-with one leading blank line stripped, and is written back verbatim — `#`, `---`
-and code fences inside it are preserved.
+with one leading blank line stripped. On write, leading and trailing newlines
+of the body are dropped and exactly one `\n` ends the file; otherwise the body
+is kept as is — `#`, `---` and code fences inside it are preserved.
 
 ### `m.yml`
 
@@ -240,7 +259,7 @@ related:
 - `tags` entries written by yman are trimmed, lowercased and free of
   whitespace, commas and control characters (see
   [commands.md §4](commands.md#add)). The reader enforces none of that: a
-  hand-written `Tags: [UI]` loads as it stands, and `ls -t` and `yman tags`
+  hand-written `tags: [UI]` loads as it stands, and `ls -t` and `yman tags`
   fold case so it still matches and still counts.
 - Unknown top-level keys survive a rewrite. The reader keeps the lines a key
   owns verbatim and the writer replays them after `related`, so a field a newer
@@ -251,9 +270,15 @@ related:
 - `m.yml` is read and written by hand in `src/yml.rs`; there is no YAML
   crate. The writer emits exactly the shape above: block sequences at column
   zero, `[]` for an empty list, `null` for an absent `assignee`, and a scalar
-  quoted only when the plain form would read back as a number, a boolean or
-  null. A value containing newlines becomes a literal block (`|-`, `|`,
-  `|+`). The preserved unknown blocks follow, which is why a hand-edited file
+  plain unless that would not read back as the same string. It is
+  single-quoted when empty, when it would read back as a number, a boolean or
+  null, when it has leading or trailing whitespace, starts with `---` or
+  `...`, starts with a YAML indicator (`#,[]{}&*!|>'"%@` and the backtick, or
+  `-`, `?`, `:` followed by a space or nothing), or contains `: `, ` #` or a
+  trailing `:`. It is double-quoted when it holds an unprintable character. A
+  value containing newlines becomes a literal block (`|-`, `|`, `|+`), or a
+  double-quoted scalar when a line ends in a blank, which a block would
+  lose. The preserved unknown blocks follow, which is why a hand-edited file
   that interleaved one comes back with it moved to the end.
 - The reader is deliberately wider than the writer, because people edit this
   file and resolve merge conflicts in it: comments, flow sequences
