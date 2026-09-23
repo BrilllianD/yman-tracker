@@ -1144,6 +1144,34 @@ fn concurrent_comments_union() {
     }
 }
 
+/// A union merge can leave two concurrent comments out of time order in
+/// `d.md`; `show` prints them by timestamp, and `-n` keeps the latest.
+#[test]
+fn show_orders_the_discussion_by_time() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.write(
+        &fx.a.join(".yman/5.1.fix-login/d.md"),
+        "## 2026-09-16T10:07:00Z — A\n\nlater\n\n\
+         ## 2026-09-16T10:05:00Z — B\n\nearlier\n\n",
+    );
+
+    let out = stdout(&fx.yman(&fx.a).args(["show", "1"]).output().unwrap());
+    let earlier = out.find("earlier").expect(&out);
+    let later = out.find("later\n").expect(&out);
+    assert!(earlier < later, "{out}");
+
+    let json = stdout(
+        &fx.yman(&fx.a)
+            .args(["show", "1", "--json", "-n", "1"])
+            .output()
+            .unwrap(),
+    );
+    assert!(json.contains(r#""author":"A""#), "{json}");
+    assert!(!json.contains(r#""author":"B""#), "{json}");
+}
+
 #[test]
 fn remote_deleted_ref() {
     let fx = Fx::new();

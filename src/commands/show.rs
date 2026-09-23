@@ -9,10 +9,11 @@ pub fn run(ctx: &mut Context, a: ShowArgs) -> Result<()> {
     let t = task::find(&ctx.ydir, &a.id)?;
 
     // Both output forms trim the discussion the same way: `-n` keeps the last
-    // N entries, and `total` is what the file held before trimming.
+    // N entries in time order, and `total` is what the file held before
+    // trimming.
     let dpath = t.dir.join(task::DISCUSSION_FILE);
     let text = std::fs::read_to_string(&dpath).unwrap_or_default();
-    let mut entries = discussion::parse(&text);
+    let mut entries = discussion::sort_by_time(discussion::parse(&text));
     let total = entries.len();
     // Only the trimmed case changes the header, so the default output
     // stays byte-identical. Raw chunks count as entries.

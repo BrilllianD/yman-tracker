@@ -110,6 +110,40 @@ pub fn parse(text: &str) -> Vec<Entry> {
     entries
 }
 
+/// Put comments in timestamp order. `merge=union` appends the other side's
+/// lines after ours in a conflicting hunk, so two comments written
+/// concurrently on two clones can land in the file out of time order.
+///
+/// Only comments whose timestamp parses move, and only among their own
+/// positions: a raw chunk, or a comment with a hand-mangled timestamp, keeps
+/// its place in the file because there is nothing to order it by. The sort
+/// is stable, so comments from the same second keep file order.
+pub fn sort_by_time(entries: Vec<Entry>) -> Vec<Entry> {
+    let key = |e: &Entry| match e {
+        Entry::Comment { ts, .. } => DateTime::parse_from_rfc3339(ts).ok(),
+        Entry::Raw(_) => None,
+    };
+    let mut dated = Vec::new();
+    let mut slots: Vec<Option<Entry>> = Vec::new();
+    for e in entries {
+        if key(&e).is_some() {
+            dated.push(e);
+            slots.push(None);
+        } else {
+            slots.push(Some(e));
+        }
+    }
+    dated.sort_by_cached_key(key);
+    let mut dated = dated.into_iter();
+    slots
+        .into_iter()
+        .map(|slot| {
+            slot.or_else(|| dated.next())
+                .expect("one dated entry per empty slot")
+        })
+        .collect()
+}
+
 /// Header is `## {ts} — {author}`; the em dash is the separator, and the
 /// timestamp carries no whitespace. A `## ` line that does not match this is
 /// prose — a quoted heading inside a comment — and stays part of its chunk.
@@ -263,6 +297,39 @@ mod tests {
             assert!(matches!(&entries[0], Entry::Comment { author, .. } if author == "Ivan"));
             assert!(matches!(&entries[1], Entry::Comment { author, .. } if author == "Anna"));
         }
+    }
+
+    #[test]
+    fn comments_sort_by_time_around_fixed_chunks() {
+        // A union merge put B's 10:05 comment after A's 10:07 one. The raw
+        // chunk and the comment with an unreadable timestamp stay put.
+        let text = "\
+note on top
+
+## 2026-09-16T10:07:00Z — A
+
+later
+
+## not-a-time — C
+
+undated
+
+## 2026-09-16T10:05:00Z — B
+
+earlier
+
+## 2026-09-16T10:05:00Z — D
+
+same second, after B
+";
+        let order: Vec<String> = sort_by_time(parse(text))
+            .into_iter()
+            .map(|e| match e {
+                Entry::Comment { author, .. } => author,
+                Entry::Raw(raw) => raw,
+            })
+            .collect();
+        assert_eq!(order, ["note on top", "B", "C", "D", "A"]);
     }
 
     #[test]
