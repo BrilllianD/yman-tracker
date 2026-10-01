@@ -146,6 +146,8 @@ Never fatal, always stderr:
 | `warning: <name> is N MiB; git is not great at large binaries` | attaching a file over 5 MiB |
 | `warning: installing into core.hooksPath=<p>` | hooks redirected away from `.git/hooks` |
 | `warning: refresh failed: <why>` | the lazy refresh before a command failed; the command still runs |
+| `warning: origin has new task commits; run: yman sync` | `yman.autosync = push` and the push after a change was rejected; nothing is merged, the change stays committed |
+| `warning: autosync failed: <why>; run: yman sync` | `yman.autosync = push` and the push after a change failed (offline, auth); the command still succeeds |
 | `warning: task <id> does not exist here; relating anyway` | `add --relate` or `set --relate` naming an id no folder here carries |
 | `warning: skipped N unreadable task folder(s): <rels>` | `tags`, `tags rename`, `tags rm` and `rm` walking every task |
 | `warning: <path> not moved; <dest> already exists` | `sync` rejoining a split folder found the same file on both sides |
@@ -153,6 +155,7 @@ Never fatal, always stderr:
 | `note: no "origin" remote; tasks stay local until you run: yman init --remote <url>` | `init` in a repo with no `origin` and no `--remote` |
 | `note: .yman has uncommitted changes, refresh skipped` | refresh backed off |
 | `note: worktree has uncommitted changes` | `yman refresh` backed off for the same reason; printed after the note above |
+| `note: pushed N task commit(s)` | `yman.autosync = push` published a change |
 | `note: local has unpushed commits; run: yman sync` | `yman refresh` found local ahead of or diverged from the remote |
 | `note: rewrote N reference(s) to renumbered ids` | a collision renumber moved ids other tasks related to |
 | `note: moved N file(s) left under <old> into <rel>` | a merge left files under a folder the other side had moved |

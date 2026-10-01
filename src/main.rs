@@ -1,3 +1,4 @@
+mod autosync;
 mod cli;
 mod commands;
 mod config;
@@ -64,5 +65,15 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         }
     }
 
-    commands::dispatch(&mut ctx, cli.cmd)
+    let mutating = cli.cmd.is_mutating();
+    commands::dispatch(&mut ctx, cli.cmd)?;
+
+    if mutating {
+        // The change is already committed; publishing it is a bonus, so a
+        // failure here is a warning, never the command's exit code.
+        if let Err(err) = autosync::after_mutation(&ctx) {
+            eprintln!("warning: autosync failed: {err:#}; run: yman sync");
+        }
+    }
+    Ok(())
 }

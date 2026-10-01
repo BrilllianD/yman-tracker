@@ -324,6 +324,7 @@ terminal, it fails with `empty comment`.
 ```sh
 yman init [--remote <url>] [--offline] [--id-scheme random|seq|author]
           [--author <prefix>] [--hooks] [--refresh lazy|manual]
+          [--autosync off|push]
 yman status [--json]     # where everything stands; never changes anything
 yman refresh [--quiet]   # fast-forward onto already-fetched task commits
 yman sync [--continue] [--abort] [--no-push]
@@ -368,8 +369,10 @@ Everything a script would want to read goes to stdout.
 reader that pays per token: which calls to make, what `ls` columns mean, the
 exit codes, and how to recover from a stuck sync. It starts with a block to
 paste into a project's `CLAUDE.md`. The short version: filter with `ls -n`,
-skim bodies with `ls -l -n`, read with `show -n`, close with `done <id> -m`, never open an editor, and set
-`YMAN_ACTOR` so the work is attributed to the agent.
+skim bodies with `ls -l -n`, read with `show -n`, close with `done <id> -m`,
+run `yman sync` before a status change and after it (the after is automatic
+under `yman.autosync = push`), never open an editor, and set `YMAN_ACTOR` so
+the work is attributed to the agent.
 
 For a harness that loads skills, [skills/yman/](skills/yman/) is the fuller
 version of the same rules as a Claude Code skill — the task-list procedure,
@@ -465,6 +468,7 @@ else the initials of your `user.name`.
 | Key | Values | Set by |
 |---|---|---|
 | `yman.refresh` | `lazy` (default), `manual` | `yman init --refresh` |
+| `yman.autosync` | `off` (default), `push` | `yman init --autosync` |
 | `yman.author` | letters, digits, `_` or `-` | `yman init --author` |
 
 Two environment variables, easy to confuse:
@@ -482,7 +486,8 @@ account. The git committer is never changed by it.
 ## Sharing work: sync, refresh, hooks
 
 **`yman sync` is the command that talks to the network** (`yman init` does
-too, once, unless given `--offline`). It snapshots any
+too, once, unless given `--offline`, and so does every change under
+`yman.autosync = push`, below). It snapshots any
 uncommitted edits in `.yman`, fetches, merges, and pushes:
 
 ```console
@@ -490,6 +495,15 @@ $ yman sync
 snapshotted 1 local change(s)
 synced  pulled 3, pushed 2, renumbered 0   refs/yman/local @ 3f2a1c9
 ```
+
+Publishing your own changes can happen without a sync too. With
+`yman init --autosync push` (stored as `yman.autosync`), every command that
+changes a task pushes it to origin once it has committed, and says so on
+stderr with `note: pushed N task commit(s)`. It only pushes: when someone else
+pushed first it warns `origin has new task commits; run: yman sync` and leaves
+the merge to you, and when the network is down it warns and the command still
+succeeds. This is the setting to turn on when agents work the backlog, since
+they close tasks and rarely remember to sync.
 
 Getting *other* people's tasks does not need a sync at all, because they arrive
 with any ordinary fetch:
@@ -596,6 +610,10 @@ task lives in `.yman/<status>/`. Shell bookmarks to the old location break;
 **A task shows as broken.** Its `t.md` lost its `# Title`, or its `m.yml` will
 not parse — usually a hand-edit or a merge resolved carelessly. `yman ls` shows
 the error; fix the file and the task comes back. Nothing else is affected.
+
+**Your tasks are not on origin.** Nothing ran `yman sync`: `yman status`
+shows `ahead N`. Run `yman sync`, or `yman init --autosync push` so every change
+publishes itself.
 
 **Tasks are not appearing after someone else pushed.** You have not fetched
 (`yman refresh` never uses the network on its own), or `yman.refresh` is

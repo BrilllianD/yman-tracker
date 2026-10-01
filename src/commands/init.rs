@@ -39,6 +39,9 @@ pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
     }
     let policy = a.refresh.map(|r| r.as_str()).unwrap_or("lazy");
     ctx.set_cfg("yman.refresh", policy)?;
+    if let Some(s) = a.autosync {
+        ctx.set_cfg("yman.autosync", s.as_str())?;
+    }
     if let Some(author) = &a.author {
         ctx.set_cfg("yman.author", author)?;
     }
@@ -114,6 +117,9 @@ fn repair(ctx: &mut Context, a: &InitArgs, url: Option<&str>) -> Result<()> {
         ctx.set_cfg("yman.refresh", r.as_str())?;
     } else if ctx.get_cfg("yman.refresh")?.is_none() {
         ctx.set_cfg("yman.refresh", "lazy")?;
+    }
+    if let Some(s) = a.autosync {
+        ctx.set_cfg("yman.autosync", s.as_str())?;
     }
     if let Some(author) = &a.author {
         ctx.set_cfg("yman.author", author)?;

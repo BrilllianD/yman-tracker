@@ -34,6 +34,7 @@ yman init --offline           # no network at all
 | `--offline` | do not fetch and do not push |
 | `--hooks` | also run `hooks install` |
 | `--refresh <lazy\|manual>` | the refresh policy, stored as git config `yman.refresh`; default `lazy` |
+| `--autosync <off\|push>` | push after every change, stored as git config `yman.autosync`; unset means `off` |
 
 Remote resolution happens first. With both an `origin` and `--remote`, the
 existing `origin` wins. `--remote` is ignored, with a warning when its URL
@@ -56,7 +57,7 @@ has added the refspec.
 
 `init` is idempotent. Run against an existing `.yman` worktree it takes the
 repair path — re-adds the exclude entry and the fetch refspec, re-registers the
-merge driver, applies `--refresh`, `--author` and `--hooks` if given — and
+merge driver, applies `--refresh`, `--autosync`, `--author` and `--hooks` if given — and
 reports `already initialized .yman`. A `.yman` that is a plain directory or a
 standalone repository is never touched; the command says so and stops.
 
@@ -67,7 +68,8 @@ In the **main repo**, all local and none of it committed:
 - `.yman/` added to `COMMON/info/exclude`;
 - the fetch refspec `+refs/tasks/main:refs/yman/remote` appended to
   `remote.origin.fetch`, when there is an `origin`;
-- `yman.refresh`, and `yman.author` when `--author` was given;
+- `yman.refresh`, `yman.autosync` when `--autosync` was given, and
+  `yman.author` when `--author` was given;
 - `merge.ymanmeta.name` and `merge.ymanmeta.driver`, pointing at the running
   binary by absolute path. This pairs with the `**/m.yml merge=ymanmeta` line
   in `.gitattributes`, which travels in the history while the config does not —
@@ -105,7 +107,8 @@ added with `--detach`); see [storage.md §2](storage.md#2-the-ref-namespace).
 
 `yman sync` is the command that uses the network day to day: fetch, merge,
 push. The only other one is `init`, which fetches and pushes unless given
-`--offline`.
+`--offline` — and, when `yman.autosync = push`, every changing command, which
+pushes (never fetches or merges) once it has committed (`commands.md` §1).
 `--no-push` stops before publishing; `--continue` and `--abort` finish or drop a
 conflicted merge (`commands.md` §6, and exit code 3 in `errors.md`).
 

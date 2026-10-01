@@ -9,6 +9,20 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Added
 
+- `yman init --autosync push` (git config `yman.autosync`): every command that
+  changes a task pushes it to origin once it has committed, and reports
+  `note: pushed N task commit(s)` on stderr. It never fetches or merges; when
+  origin has moved it warns `origin has new task commits; run: yman sync`, and
+  a failed push is a warning, never the command's exit code. `yman status`
+  shows `autosync: push` when it is on, and `status --json` always carries
+  `"autosync"`.
+- The agent manual (`yman guide`, the skill and the README's "Scripts and
+  agents") now says when to run `yman sync`: before any status change, so an
+  agent sees another clone's claim or close before overwriting it, and after
+  claiming and closing, to publish. Before, it described `sync` but never
+  asked for it, so agents left task history unpushed. The `claim-task` and
+  `close-task` skill evals check both.
+
 - A documentation site, built with mdBook from the README, `docs/` and the
   changelog and published to GitHub Pages:
   <https://brillliand.github.io/yman-tracker/>. `scripts/book.sh` builds it

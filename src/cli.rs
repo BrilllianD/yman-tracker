@@ -116,6 +116,22 @@ impl RefreshPolicy {
     }
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+#[value(rename_all = "lower")]
+pub enum AutosyncPolicy {
+    Off,
+    Push,
+}
+
+impl AutosyncPolicy {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AutosyncPolicy::Off => "off",
+            AutosyncPolicy::Push => "push",
+        }
+    }
+}
+
 #[derive(Args, Debug)]
 pub struct InitArgs {
     /// How task ids are generated (stored in config.toml)
@@ -136,6 +152,9 @@ pub struct InitArgs {
     /// When to pick up already-fetched remote task commits
     #[arg(long, value_name = "WHEN")]
     pub refresh: Option<RefreshPolicy>,
+    /// Push task commits to origin after every change
+    #[arg(long, value_name = "WHEN")]
+    pub autosync: Option<AutosyncPolicy>,
 }
 
 #[derive(Args, Debug)]
