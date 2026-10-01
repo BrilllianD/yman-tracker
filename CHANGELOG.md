@@ -16,6 +16,12 @@ under [Releasing](README.md#releasing) in the README.
   one, closed tasks included, and `show --json` always carries `related_by`.
   `related` stays one-way and nothing is stored; `show` reads every `m.yml`
   once to find them.
+- The agent manual (`yman guide`, the skill and the README's "Scripts and
+  agents") describes plans: an epic task, steps that `--relate` it, priority
+  for order, and `blocked` plus a relation to the blocker for a step that
+  waits. `ls --related` and `related by:` read the one-way relation from
+  either end, so an epic is never edited when a step is added. The guide's
+  line cap in `tests/cli.rs` rose from 60 to 72 to fit the section.
 - `yman init --autosync push` (git config `yman.autosync`): every command that
   changes a task pushes it to origin once it has committed, and reports
   `note: pushed N task commit(s)` on stderr. It never fetches or merges; when

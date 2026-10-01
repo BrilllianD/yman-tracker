@@ -39,6 +39,16 @@ comment in the same commit. `set <id>` changes any field: `--status`
 `--link/--unlink` `--relate/--unrelate` `--body <text>` `--body-file <path|->`
 `-m <text>`. Every mutation is its own commit; nothing to save.
 
+## Plans
+
+An epic is an ordinary task (tag `epic`); its steps are `add ... --relate <epic>`.
+One-way is enough: `ls --related <epic>` lists its open steps (`-a` for
+progress, `-n 3` for what is next) and `show <epic>` has `related by:`. Order
+with priority. A step that waits relates to its blocker too and sits in status
+`blocked` (needs it in `statuses.list`); after closing a task,
+`ls -s blocked --related <id>` finds what waited on it. Close the epic last,
+when `ls --related <epic>` prints nothing.
+
 ## Streams and exit codes
 
 stdout carries data only. Errors (`error: ...`), warnings and notes go to stderr.

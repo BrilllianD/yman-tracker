@@ -376,7 +376,10 @@ paste into a project's `CLAUDE.md`. The short version: filter with `ls -n`,
 skim bodies with `ls -l -n`, read with `show -n`, close with `done <id> -m`,
 run `yman sync` before a status change and after it (the after is automatic
 under `yman.autosync = push`), never open an editor, and set `YMAN_ACTOR` so
-the work is attributed to the agent.
+the work is attributed to the agent. Big work is a plan: an epic task plus
+steps that `--relate` it, listed from the epic with `ls --related <id>` and
+seen from it as `related by:` in `show`, so the epic is never edited; a step
+that waits sits in `blocked` and relates to what it waits on.
 
 For a harness that loads skills, [skills/yman/](skills/yman/) is the fuller
 version of the same rules as a Claude Code skill — the task-list procedure,
