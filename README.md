@@ -387,8 +387,17 @@ version of the same rules as a Claude Code skill — the task-list procedure,
 the commands never to run and why, and recovery from each exit-3 case — so it
 arrives without anyone pasting anything.
 Copy the directory into any project that tracks its work with `yman`; it
-assumes nothing about where the yman source tree is. Setting a tracker up from
-scratch is [docs/setup.md](docs/setup.md).
+assumes nothing about where the yman source tree is. `cargo install` puts only
+the binary on `PATH`, but the crate ships the skill, unpacked under the
+registry cache:
+
+```sh
+src=$(ls -d ~/.cargo/registry/src/*/yman-tracker-$(yman --version | cut -d' ' -f2)/skills/yman)
+cp -r "$src" .claude/skills/        # this project
+cp -r "$src" ~/.claude/skills/      # every project
+```
+
+Setting a tracker up from scratch is [docs/setup.md](docs/setup.md).
 
 ---
 
