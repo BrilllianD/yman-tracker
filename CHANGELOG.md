@@ -13,6 +13,12 @@ under [Releasing](README.md#releasing) in the README.
   `Cargo.toml` gained the registry metadata and an `exclude` list, and the
   release steps in the README end with `cargo publish`.
 
+### Changed
+
+- The README says where a `cargo install` leaves the skill (the crate's
+  unpacked source under `~/.cargo/registry/src/`) and how to copy it into a
+  project or into `~/.claude/skills/`.
+
 ## [0.5.0] - 2026-10-01
 
 ### Added
