@@ -3288,6 +3288,59 @@ fn ls_filters_by_text_assignee_priority_and_limit() {
     assert_eq!(ls(&["-q", "nothing here"]), Vec::<String>::new());
 }
 
+/// `ls --related <id>` keeps the tasks whose own `related` list carries the
+/// id — the steps of a plan — and ANDs with the rest; an unknown id is an
+/// empty listing, not a warning.
+#[test]
+fn ls_filters_by_related() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Epic"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Step one", "-p", "2", "--relate", "1"])
+        .assert()
+        .success();
+    fx.yman(&fx.a)
+        .args([
+            "add", "Step two", "-p", "4", "--relate", "1", "--relate", "2",
+        ])
+        .assert()
+        .success();
+    fx.yman(&fx.a).args(["add", "Unrelated"]).assert().success();
+    fx.yman(&fx.a).args(["done", "2"]).assert().success();
+
+    let ls = |args: &[&str]| -> (Vec<String>, String) {
+        let mut full = vec!["ls"];
+        full.extend_from_slice(args);
+        let out = fx.yman(&fx.a).args(&full).output().unwrap();
+        let ids = stdout(&out)
+            .lines()
+            .map(|l| l.split_whitespace().nth(1).unwrap().to_string())
+            .collect();
+        (ids, stderr(&out))
+    };
+
+    assert_eq!(ls(&["--related", "1"]).0, ["3"], "closed step hidden");
+    assert_eq!(
+        ls(&["--related", "1", "-a"]).0,
+        ["2", "3"],
+        "sorted by priority"
+    );
+    assert_eq!(ls(&["--related", "2", "-s", "todo"]).0, ["3"]);
+    assert_eq!(ls(&["--related", "1", "-a", "-n", "1"]).0, ["2"]);
+    assert_eq!(ls(&["--related", "1", "-p", "4"]).0, ["3"], "ANDs with -p");
+    let (ids, err) = ls(&["--related", "99"]);
+    assert_eq!(ids, Vec::<String>::new());
+    assert_eq!(err, "", "an unknown id is not a warning");
+    let json = stdout(
+        &fx.yman(&fx.a)
+            .args(["ls", "--related", "1", "--json"])
+            .output()
+            .unwrap(),
+    );
+    assert!(json.contains(r#""related":["1","2"]"#), "{json}");
+}
+
 /// `ls -l` prints each body indented under its row, blank lines kept blank,
 /// and adds `body` to the JSON; without it neither output changes.
 #[test]

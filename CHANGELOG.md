@@ -9,6 +9,9 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Added
 
+- `yman ls --related <id>` keeps the tasks whose `related` list carries that
+  id, so the steps of a plan can be listed from their epic without editing
+  it. It ANDs with the other filters; an id nothing relates to lists nothing.
 - `yman init --autosync push` (git config `yman.autosync`): every command that
   changes a task pushes it to origin once it has committed, and reports
   `note: pushed N task commit(s)` on stderr. It never fetches or merges; when

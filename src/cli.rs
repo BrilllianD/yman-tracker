@@ -210,6 +210,9 @@ pub struct LsArgs {
     /// Only tasks at this priority
     #[arg(short = 'p', long, value_name = "N", value_parser = clap::value_parser!(u8).range(0..=9))]
     pub priority: Option<u8>,
+    /// Only tasks whose related list contains ID
+    #[arg(long, value_name = "ID")]
+    pub related: Option<String>,
     /// Print at most N tasks, after sorting
     #[arg(short = 'n', long = "limit", value_name = "N")]
     pub limit: Option<usize>,

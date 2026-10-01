@@ -22,8 +22,8 @@
 `P` is priority 0 (highest) to 9, `F` attachments, `C` comments; zero is
 blank and trailing empty columns are dropped. Filters AND together, `-t` and
 `-q` comparing lowercase: `-s <status>` `-t <tag>` `--assignee <who|->`
-`-p <0-9>` `-q <text>`; `-n <N>` caps rows after sorting; closed tasks need `-a`
-or `-s <closed status>`.
+`-p <0-9>` `--related <id>` `-q <text>`; `-n <N>` caps rows after sorting;
+closed tasks need `-a` or `-s <closed status>`.
 
 `show <id>` prints a header, the body, then `attachments:` and `discussion:`;
 empty sections are omitted, `-n <N>` keeps the last N.

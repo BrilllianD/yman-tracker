@@ -85,6 +85,7 @@ lowercase:
 | `-t, --tag <TAG>` | tasks carrying **all** the given tags |
 | `--assignee <WHO>` | `-` means unassigned |
 | `-p, --priority <N>` | 0 to 9 |
+| `--related <ID>` | tasks whose `related` list carries ID (the steps of a plan); unknown ID lists nothing |
 | `-q, --grep <TEXT>` | case-insensitive substring of title or body, not a regex |
 | `-a, --all` | include closed tasks, hidden by default (or name one with `-s`) |
 | `-n, --limit <N>` | first N rows, applied after sorting |

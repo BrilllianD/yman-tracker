@@ -42,12 +42,24 @@ pub fn run(ctx: &mut Context, a: LsArgs) -> Result<()> {
                     Some(who) => t.meta.assignee.as_deref() == Some(who),
                 };
                 let keep_priority = a.priority.is_none_or(|p| p == t.priority());
+                // Exact match, like `--relate` writes it: an unknown id is an
+                // empty listing, not a warning, so reads stay quiet.
+                let keep_related = a
+                    .related
+                    .as_deref()
+                    .is_none_or(|id| t.meta.related.iter().any(|r| r == id));
                 // Plain substring, lowercased on both sides: no regex crate,
                 // and an agent's query is a word or two, not a pattern.
                 let keep_text = needle.as_deref().is_none_or(|n| {
                     t.title.to_lowercase().contains(n) || t.body.to_lowercase().contains(n)
                 });
-                if keep_status && keep_tags && keep_assignee && keep_priority && keep_text {
+                if keep_status
+                    && keep_tags
+                    && keep_assignee
+                    && keep_priority
+                    && keep_related
+                    && keep_text
+                {
                     tasks.push(t);
                 }
             }

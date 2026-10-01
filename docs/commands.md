@@ -89,7 +89,9 @@ lowercase on both sides — the tag yman writes is lowercase anyway, and one
 written into `m.yml` by hand is still found. An invalid tag at `-t` is the same
 error `add` gives.
 `--assignee WHO` keeps one assignee (`-` keeps the unassigned), `-p N` one
-priority, and `-q TEXT` the tasks whose title or body contains the text,
+priority, `--related ID` the tasks whose own `related` list carries that id
+(exactly as `--relate` wrote it; an id nothing relates to is an empty listing,
+not a warning), and `-q TEXT` the tasks whose title or body contains the text,
 compared lowercase; all of these AND together with the status and tag
 filters. `-n N` keeps the first N rows **after** sorting. None of the filters
 touches git or reads anything `ls` did not already read. Broken folders are
