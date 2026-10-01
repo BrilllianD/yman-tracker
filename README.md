@@ -267,7 +267,10 @@ yman show <id> [-n N] [--json]   # everything about one task; -n keeps the last 
 yman path <id>     # just the absolute path:  cd $(yman path 14)
 yman log [<id>] [-n N]
 ```
-`yman log <id>` follows the task across every rename it has been through.
+`yman show` lists the task's own `related` ids and, as `related by:`, the tasks
+that relate to it (`related_by` in `--json`), so an epic sees its steps without
+being edited. `yman log <id>` follows the task across every rename it has been
+through.
 
 ### Changing things
 

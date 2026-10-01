@@ -95,9 +95,10 @@ Sorting is by priority, then status order, then id — so `-n` keeps the most
 important rows, not arbitrary ones.
 
 Other readers: `show <id>` (one id; `-n <N>` keeps the last N discussion
-entries, `-n 0` drops the discussion entirely; an attachment whose file was
-deleted outside yman is listed marked `(missing)`, `"missing":true` in
-`--json`), `path <id>` (prints the absolute
+entries, `-n 0` drops the discussion entirely; `related by:` lists the tasks
+whose `related` carries this id, closed ones included, `related_by` in
+`--json`; an attachment whose file was deleted outside yman is listed marked
+`(missing)`, `"missing":true` in `--json`), `path <id>` (prints the absolute
 folder path and nothing else, so `cd "$(yman path 14)"` works), `log [<id>]`
 (`-n`, default 20; with an id it follows the task across renames), `tags` (every
 tag with its task count, closed tasks included) and `status`.
@@ -202,7 +203,8 @@ yours. It does not change the git committer, which stays whatever git says it is
 Plain output is the cheapest thing yman prints. `--json` repeats every key on
 every row, so reach for it only when the output goes into `jq`. Cap with `-n`,
 use `show <id> -n 0` when you only need the header and body, and never run
-`ls` without `-n` or a filter on a large tracker.
+`ls` without `-n` or a filter on a large tracker. `show` reads every task once
+for `related by`; `ls --related <id>` costs the same and lists more.
 
 ## If `.yman` does not exist
 
