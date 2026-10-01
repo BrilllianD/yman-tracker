@@ -9,6 +9,19 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Added
 
+- `yman ls --related <id>` keeps the tasks whose `related` list carries that
+  id, so the steps of a plan can be listed from their epic without editing
+  it. It ANDs with the other filters; an id nothing relates to lists nothing.
+- `yman show` prints `related by:`, the tasks whose `related` carries this
+  one, closed tasks included, and `show --json` always carries `related_by`.
+  `related` stays one-way and nothing is stored; `show` reads every `m.yml`
+  once to find them.
+- The agent manual (`yman guide`, the skill and the README's "Scripts and
+  agents") describes plans: an epic task, steps that `--relate` it, priority
+  for order, and `blocked` plus a relation to the blocker for a step that
+  waits. `ls --related` and `related by:` read the one-way relation from
+  either end, so an epic is never edited when a step is added. The guide's
+  line cap in `tests/cli.rs` rose from 60 to 72 to fit the section.
 - `yman init --autosync push` (git config `yman.autosync`): every command that
   changes a task pushes it to origin once it has committed, and reports
   `note: pushed N task commit(s)` on stderr. It never fetches or merges; when

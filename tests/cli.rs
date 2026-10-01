@@ -3288,6 +3288,99 @@ fn ls_filters_by_text_assignee_priority_and_limit() {
     assert_eq!(ls(&["-q", "nothing here"]), Vec::<String>::new());
 }
 
+/// `show <id>` prints `related by:` — the tasks whose `related` carries this
+/// id, in id order, closed ones included — and omits the line when there are
+/// none; `--json` always carries `related_by`.
+#[test]
+fn show_prints_back_references() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Epic"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Step one", "--relate", "1"])
+        .assert()
+        .success();
+    fx.yman(&fx.a)
+        .args(["add", "Step two", "--relate", "1", "--relate", "2"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).args(["done", "2"]).assert().success();
+
+    let show = |id: &str| stdout(&fx.yman(&fx.a).args(["show", id]).output().unwrap());
+    let epic = show("1");
+    assert!(epic.contains("\nrelated by: 2, 3\nfolder:"), "{epic}");
+    assert!(!epic.contains("\nrelated:  "), "{epic}");
+    let two = show("2");
+    assert!(two.contains("\nrelated:  1\nrelated by: 3\n"), "{two}");
+    let three = show("3");
+    assert!(three.contains("\nrelated:  1, 2\nfolder:"), "{three}");
+    assert!(!three.contains("related by:"), "{three}");
+
+    let json = stdout(
+        &fx.yman(&fx.a)
+            .args(["show", "1", "--json"])
+            .output()
+            .unwrap(),
+    );
+    assert!(
+        json.contains(r#""related":[],"related_by":["2","3"]"#),
+        "{json}"
+    );
+}
+
+/// `ls --related <id>` keeps the tasks whose own `related` list carries the
+/// id — the steps of a plan — and ANDs with the rest; an unknown id is an
+/// empty listing, not a warning.
+#[test]
+fn ls_filters_by_related() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Epic"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Step one", "-p", "2", "--relate", "1"])
+        .assert()
+        .success();
+    fx.yman(&fx.a)
+        .args([
+            "add", "Step two", "-p", "4", "--relate", "1", "--relate", "2",
+        ])
+        .assert()
+        .success();
+    fx.yman(&fx.a).args(["add", "Unrelated"]).assert().success();
+    fx.yman(&fx.a).args(["done", "2"]).assert().success();
+
+    let ls = |args: &[&str]| -> (Vec<String>, String) {
+        let mut full = vec!["ls"];
+        full.extend_from_slice(args);
+        let out = fx.yman(&fx.a).args(&full).output().unwrap();
+        let ids = stdout(&out)
+            .lines()
+            .map(|l| l.split_whitespace().nth(1).unwrap().to_string())
+            .collect();
+        (ids, stderr(&out))
+    };
+
+    assert_eq!(ls(&["--related", "1"]).0, ["3"], "closed step hidden");
+    assert_eq!(
+        ls(&["--related", "1", "-a"]).0,
+        ["2", "3"],
+        "sorted by priority"
+    );
+    assert_eq!(ls(&["--related", "2", "-s", "todo"]).0, ["3"]);
+    assert_eq!(ls(&["--related", "1", "-a", "-n", "1"]).0, ["2"]);
+    assert_eq!(ls(&["--related", "1", "-p", "4"]).0, ["3"], "ANDs with -p");
+    let (ids, err) = ls(&["--related", "99"]);
+    assert_eq!(ids, Vec::<String>::new());
+    assert_eq!(err, "", "an unknown id is not a warning");
+    let json = stdout(
+        &fx.yman(&fx.a)
+            .args(["ls", "--related", "1", "--json"])
+            .output()
+            .unwrap(),
+    );
+    assert!(json.contains(r#""related":["1","2"]"#), "{json}");
+}
+
 /// `ls -l` prints each body indented under its row, blank lines kept blank,
 /// and adds `body` to the JSON; without it neither output changes.
 #[test]
@@ -3605,7 +3698,7 @@ fn guide_needs_no_repository() {
         std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/agents.md")).unwrap();
     assert_eq!(stdout(&out), expected);
     assert_eq!(stderr(&out), "");
-    assert!(expected.lines().count() <= 60, "agents.md must stay short");
+    assert!(expected.lines().count() <= 72, "agents.md must stay short");
 }
 
 /// `completions` needs no repository, offers every subcommand `--help` lists,
@@ -3735,6 +3828,7 @@ fn show_json_carries_the_whole_task() {
         "{text}"
     );
     assert!(text.contains("\"related\":[\"1\"]"), "{text}");
+    assert!(text.contains("\"related_by\":[]"), "{text}");
     assert!(text.contains("\"body\":\"Body text\""), "{text}");
     assert!(text.contains("\"dir\":\"5.2.fix-login\""), "{text}");
     assert!(text.contains("\"name\":\"screenshot.png\""), "{text}");
@@ -3752,6 +3846,7 @@ fn show_json_carries_the_whole_task() {
     assert!(bare.contains("\"assignee\":null"), "{bare}");
     assert!(bare.contains("\"tags\":[]"), "{bare}");
     assert!(bare.contains("\"links\":[]"), "{bare}");
+    assert!(bare.contains("\"related_by\":[\"2\"]"), "{bare}");
     assert!(bare.contains("\"attachments\":[]"), "{bare}");
     assert!(bare.contains("\"discussion\":[]"), "{bare}");
     assert!(bare.contains("\"discussion_total\":0"), "{bare}");

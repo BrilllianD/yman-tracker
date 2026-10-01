@@ -55,7 +55,9 @@ sync with: carry on without it.
    `todo` task that is unassigned (or assigned to you) over one somebody else
    already has in progress. `ls` rows carry no assignee: take it from the
    `show` in step 4, or list the unassigned ones with `yman ls --assignee -`.
-   Skip a task whose body or relations say it waits on another open task.
+   Skip a `blocked` task and one whose body or relations say it waits on
+   another open task. An epic (tag `epic`) is closed last: offer its open
+   steps, `yman ls --related <id>`, instead.
 4. Read only the top one to three candidates with `yman show <id> -n 0`, for
    their "Where", "Done when" and relations. Do not `show` every task.
 5. Finish with a short recommendation: which id to take, why, and roughly how
@@ -85,6 +87,7 @@ lowercase:
 | `-t, --tag <TAG>` | tasks carrying **all** the given tags |
 | `--assignee <WHO>` | `-` means unassigned |
 | `-p, --priority <N>` | 0 to 9 |
+| `--related <ID>` | tasks whose `related` list carries ID (the steps of a plan); unknown ID lists nothing |
 | `-q, --grep <TEXT>` | case-insensitive substring of title or body, not a regex |
 | `-a, --all` | include closed tasks, hidden by default (or name one with `-s`) |
 | `-n, --limit <N>` | first N rows, applied after sorting |
@@ -94,9 +97,10 @@ Sorting is by priority, then status order, then id — so `-n` keeps the most
 important rows, not arbitrary ones.
 
 Other readers: `show <id>` (one id; `-n <N>` keeps the last N discussion
-entries, `-n 0` drops the discussion entirely; an attachment whose file was
-deleted outside yman is listed marked `(missing)`, `"missing":true` in
-`--json`), `path <id>` (prints the absolute
+entries, `-n 0` drops the discussion entirely; `related by:` lists the tasks
+whose `related` carries this id, closed ones included, `related_by` in
+`--json`; an attachment whose file was deleted outside yman is listed marked
+`(missing)`, `"missing":true` in `--json`), `path <id>` (prints the absolute
 folder path and nothing else, so `cd "$(yman path 14)"` works), `log [<id>]`
 (`-n`, default 20; with an id it follows the task across renames), `tags` (every
 tag with its task count, closed tasks included) and `status`.
@@ -133,6 +137,34 @@ carrying a tag in one commit.
 
 Prefer one verb carrying `-m` over a verb followed by a separate `comment`: half
 the calls, half the commits.
+
+## Plans
+
+A plan is an ordinary task, the **epic**, plus **steps** that relate to it.
+`related` is one-way and untyped: direction and status carry the meaning, and
+`ls --related` and `show`'s `related by:` read it from either end, so adding a
+step never edits the epic.
+
+```sh
+yman add "Ship sync v2" -t epic -p 2 -m "Goal: ... Done when: yman ls --related <id> prints nothing"
+yman add "Fetch before merge" -p 2 --relate 30 -m "Where: ... Done when: ..."   # 30 is the epic
+yman ls --related 30 -n 3      # what is next: open steps, best priority first
+yman ls --related 30 -a        # progress: every step with its status
+yman show 30 -n 0              # the goal, and `related by:` naming the steps
+```
+
+- Order steps with priority. A step that must wait relates to the step it
+  waits on **as well as** the epic, sits in status `blocked`, and says
+  `Waits on <id>` in its body. `blocked` has to be in `statuses.list`
+  (version 2 config); without it keep the body line, which the task-list rule
+  already honours.
+- After closing a step, `yman ls -s blocked --related <id>` lists what waited
+  on it; `yman move <id>... todo -m "unblocked"` those with nothing else open.
+- Close the epic last, when `yman ls --related <epic>` prints nothing, with a
+  `done -m` that sums up the result. Nest plans by relating an epic to a
+  bigger one.
+- The link is always `--relate`: a renumber rewrites `related` and never the
+  prose, so an id in a body is a hint for people, not a relation.
 
 ## Never do this
 
@@ -201,7 +233,8 @@ yours. It does not change the git committer, which stays whatever git says it is
 Plain output is the cheapest thing yman prints. `--json` repeats every key on
 every row, so reach for it only when the output goes into `jq`. Cap with `-n`,
 use `show <id> -n 0` when you only need the header and body, and never run
-`ls` without `-n` or a filter on a large tracker.
+`ls` without `-n` or a filter on a large tracker. `show` reads every task once
+for `related by`; `ls --related <id>` costs the same and lists more.
 
 ## If `.yman` does not exist
 

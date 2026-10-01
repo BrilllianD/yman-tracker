@@ -234,14 +234,15 @@ it.
 
 ```sh
 yman ls [-s <status>]... [-t <tag>]... [-a] [--assignee <who>] [-p 0-9]
-        [-q <text>] [-n <N>] [-l] [--json]
+        [--related <id>] [-q <text>] [-n <N>] [-l] [--json]
 yman tags [--json]
 yman tags rename <old> <new>
 yman tags rm <tag> [-f]
 ```
 Lists tasks sorted by priority, then status order, then id. Tasks in a closed
 status are hidden unless you pass `-a` or name that status with `-s`. `-t`
-requires *all* the tags given and matches case-insensitively. `--assignee -` means unassigned, `-q` is a
+requires *all* the tags given and matches case-insensitively. `--assignee -` means unassigned,
+`--related <id>` keeps the tasks that relate to that id, `-q` is a
 case-insensitive search over title and body, `-n` caps the rows after sorting,
 and `-l` prints each task's body indented under its row.
 Column headers appear only when stdout is a terminal, so `yman ls | grep` stays
@@ -266,7 +267,10 @@ yman show <id> [-n N] [--json]   # everything about one task; -n keeps the last 
 yman path <id>     # just the absolute path:  cd $(yman path 14)
 yman log [<id>] [-n N]
 ```
-`yman log <id>` follows the task across every rename it has been through.
+`yman show` lists the task's own `related` ids and, as `related by:`, the tasks
+that relate to it (`related_by` in `--json`), so an epic sees its steps without
+being edited. `yman log <id>` follows the task across every rename it has been
+through.
 
 ### Changing things
 
@@ -372,7 +376,10 @@ paste into a project's `CLAUDE.md`. The short version: filter with `ls -n`,
 skim bodies with `ls -l -n`, read with `show -n`, close with `done <id> -m`,
 run `yman sync` before a status change and after it (the after is automatic
 under `yman.autosync = push`), never open an editor, and set `YMAN_ACTOR` so
-the work is attributed to the agent.
+the work is attributed to the agent. Big work is a plan: an epic task plus
+steps that `--relate` it, listed from the epic with `ls --related <id>` and
+seen from it as `related by:` in `show`, so the epic is never edited; a step
+that waits sits in `blocked` and relates to what it waits on.
 
 For a harness that loads skills, [skills/yman/](skills/yman/) is the fuller
 version of the same rules as a Claude Code skill — the task-list procedure,

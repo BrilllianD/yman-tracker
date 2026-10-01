@@ -89,7 +89,9 @@ lowercase on both sides — the tag yman writes is lowercase anyway, and one
 written into `m.yml` by hand is still found. An invalid tag at `-t` is the same
 error `add` gives.
 `--assignee WHO` keeps one assignee (`-` keeps the unassigned), `-p N` one
-priority, and `-q TEXT` the tasks whose title or body contains the text,
+priority, `--related ID` the tasks whose own `related` list carries that id
+(exactly as `--relate` wrote it; an id nothing relates to is an empty listing,
+not a warning), and `-q TEXT` the tasks whose title or body contains the text,
 compared lowercase; all of these AND together with the status and tag
 filters. `-n N` keeps the first N rows **after** sorting. None of the filters
 touches git or reads anything `ls` did not already read. Broken folders are
@@ -116,7 +118,14 @@ writer is `src/json.rs`: the escaping is hand-rolled and there is no
 ### `show`
 
 Prints the header block, then the body, then `attachments` and `discussion`.
-Empty sections are omitted entirely, including `links` and `related`.
+Empty sections are omitted entirely, including `links`, `related` and
+`related by`.
+
+`related by:` is the other end of the one-way `related` field: the ids of
+every task whose `related` carries this one, in id order, closed tasks
+included. It is computed by reading every `m.yml` in the tracker — the one
+place `show` pays for a full scan — and is never stored. A broken folder
+cannot relate to anything and is skipped, as in `rm`.
 
 An attachment whose file is gone — deleted outside yman, since `detach` takes
 the entry with it — is still listed, with ` (missing)` after the
@@ -138,8 +147,8 @@ drops the section. When N is not smaller than the number of entries the
 output is identical to the default, header included.
 
 `--json` emits one object —
-`{id, priority, status, title, tags, assignee, links, related, created, updated,
-dir, body, attachments, discussion, discussion_total}`. `attachments` is
+`{id, priority, status, title, tags, assignee, links, related, related_by,
+created, updated, dir, body, attachments, discussion, discussion_total}`. `attachments` is
 `[{name, added, by, missing}]`, where `missing` is the same existence check the
 text form marks, always present as `true` or `false`; `discussion` is
 `[{ts, author, text}]`, with an

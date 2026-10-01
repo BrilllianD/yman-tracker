@@ -389,8 +389,8 @@ fn dir_of(ydir: &Path, parent: &Option<String>, name: &str) -> PathBuf {
 ///
 /// The id is in the folder name, so the match is decided from directory names
 /// alone and only the winning folder is read. `list` would read `t.md` and
-/// `m.yml` for every task on disk, which every `show`, `set`, `comment` and
-/// `attach` would then pay for.
+/// `m.yml` for every task on disk, which every `set`, `comment` and `attach`
+/// would then pay for. `show` pays it once anyway, for `related by`.
 pub fn find(ydir: &Path, id: &str) -> Result<Task> {
     let mut hits: Vec<(Option<String>, String)> = task_dirs(ydir)?
         .into_iter()

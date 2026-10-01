@@ -22,11 +22,11 @@
 `P` is priority 0 (highest) to 9, `F` attachments, `C` comments; zero is
 blank and trailing empty columns are dropped. Filters AND together, `-t` and
 `-q` comparing lowercase: `-s <status>` `-t <tag>` `--assignee <who|->`
-`-p <0-9>` `-q <text>`; `-n <N>` caps rows after sorting; closed tasks need `-a`
-or `-s <closed status>`.
+`-p <0-9>` `--related <id>` `-q <text>`; `-n <N>` caps rows after sorting;
+closed tasks need `-a` or `-s <closed status>`.
 
-`show <id>` prints a header, the body, then `attachments:` and `discussion:`;
-empty sections are omitted, `-n <N>` keeps the last N.
+`show <id>` prints a header (`related by:` = tasks relating to it), the body,
+then `attachments:` and `discussion:`; empty sections omitted, `-n <N>` keeps the last N.
 `tags` lists every tag in use with its task count, closed tasks included. `ls`,
 `show`, `status` and `tags` take `--json`, which omits nothing: `[]` and `null`.
 
@@ -38,6 +38,16 @@ comment in the same commit. `set <id>` changes any field: `--status`
 `--priority` `--title` `-a/--assignee` `--no-assignee` `--tag/--untag`
 `--link/--unlink` `--relate/--unrelate` `--body <text>` `--body-file <path|->`
 `-m <text>`. Every mutation is its own commit; nothing to save.
+
+## Plans
+
+An epic is an ordinary task (tag `epic`); its steps are `add ... --relate <epic>`.
+One-way is enough: `ls --related <epic>` lists its open steps (`-a` for
+progress, `-n 3` for what is next) and `show <epic>` has `related by:`. Order
+with priority. A step that waits relates to its blocker too and sits in status
+`blocked` (needs it in `statuses.list`); after closing a task,
+`ls -s blocked --related <id>` finds what waited on it. Close the epic last,
+when `ls --related <epic>` prints nothing.
 
 ## Streams and exit codes
 
