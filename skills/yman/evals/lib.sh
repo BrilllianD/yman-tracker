@@ -108,3 +108,35 @@ task_json() {
 task_field() {
     task_json "$1" | python3 -c 'import json,sys; print(json.load(sys.stdin)[sys.argv[1]])' "$2"
 }
+
+# Fails unless the first Bash command text matching regex A comes before the
+# first matching regex B, counting position within a chained line too, so
+# `yman sync && yman done 1` passes and the reverse does not.
+require_before() {
+    local a=$1 b=$2 why=$3 verdict
+    verdict=$(bash_commands | python3 -c '
+import re, sys
+# Graders write grep -E patterns; Python spells the one class they use as \s.
+ere = lambda s: s.replace("[[:space:]]", r"\s")
+text = sys.stdin.read()
+a = re.search(ere(sys.argv[1]), text)
+b = re.search(ere(sys.argv[2]), text)
+if a is None:
+    print("missing")
+elif b is not None and a.start() > b.start():
+    print("late")
+' "$a" "$b")
+    case "$verdict" in
+        missing) fail "$why (no Bash call matched /$a/)" ;;
+        late) fail "$why (first /$a/ came after /$b/)" ;;
+    esac
+}
+
+# Bash calls that ran yman for something other than a lone `yman sync`, which
+# the skill asks for around every status change and a call cap should not punish.
+yman_work_call_count() {
+    # Redirections like 2>&1 are dropped first so their & does not read as a chain.
+    bash_commands | sed -E 's/[0-9]*>&[0-9]+//g' \
+        | grep -E '(^|[;&|[:space:]])yman[[:space:]]' \
+        | grep -cvE '^[[:space:]]*yman[[:space:]]+sync([[:space:]]+[^;&|]*)?$' || true
+}

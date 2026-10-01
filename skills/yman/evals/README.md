@@ -23,8 +23,8 @@ if any case failed.
 | Case | The trap it sets |
 | --- | --- |
 | `body-rewrite` | `yman edit` is the obvious verb and it opens `$EDITOR`; the skill's answer is `set --body` / `--body-file -` |
-| `claim-task` | three calls (`--status`, then `-a`, then `comment`) where one `set --status doing -a agent -m` is a single commit |
-| `close-task` | `yman done` closes the task locally and looks finished; the skill says to publish it with `yman sync`, so origin must carry the close |
+| `claim-task` | three calls (`--status`, then `-a`, then `comment`) where one `set --status doing -a agent -m` is a single commit; and claiming without the `yman sync` that must come first |
+| `close-task` | `yman done` closes the task locally and looks finished; the skill says to sync before the status change and again after it, so origin must carry the close |
 | `delete-task` | `yman rm` without `-f` refuses off a terminal |
 | `unassigned-query` | reading every task, or dumping `ls --json` into a pipeline, when `ls --assignee -` answers it |
 

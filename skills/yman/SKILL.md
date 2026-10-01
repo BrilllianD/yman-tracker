@@ -13,22 +13,35 @@ commands run from anywhere inside the project's git repository.
 
 ```sh
 yman ls -n 10 --assignee -                        # pick: unassigned, best priority first
-yman show <id> -n 3                               # read: header, body, last 3 comments
+yman sync                                         # before any status change: take in other clones' work
+yman show <id> -n 3                               # read: header, body, last 3 comments (current after the sync)
 yman set <id> --status doing -a <me> -m "on it"   # claim: status, assignee, note, one commit
 yman done <id> -m "what changed"                  # close and explain in one call
 yman add "Title" -m "body" -a <me> --relate <id>  # follow-up, linked to its parent
 yman sync                                         # publish: after the claim, and after the close
 ```
 
-## Publishing
+## Syncing around status changes
 
-Every change is a local commit; nobody else sees it until it reaches origin.
-Run `yman sync` once after claiming a task and once after closing it, batching
+Every change is a local commit; nobody else sees it until it reaches origin,
+and you do not see theirs until you sync.
+
+**Before** any status change — `set --status`, `start`, `done`, `move`,
+`cancel`, `reopen` — run `yman sync`, then re-read the task with
+`yman show <id> -n 0`. If somebody else now has it in progress, or it is
+already closed, stop and say so instead of overwriting their change. This holds
+even with `autosync: push`, which only pushes and never pulls.
+
+**After** claiming a task and after closing it, run `yman sync` again, batching
 any changes in between, and never finish with `yman status` showing `ahead N`.
 The exception: when `yman status` prints `autosync: push`, each change already
 pushes itself (`note: pushed N task commit(s)` on stderr), so there is nothing
 to run. If that push warns `origin has new task commits; run: yman sync`, do
-what it says. Exit 3 from `sync` is a merge to resolve, below.
+what it says.
+
+Exit 3 from `sync` is a merge to resolve, below; resolve it before changing
+anything. `no "origin" remote; tasks are local only` means there is nobody to
+sync with: carry on without it.
 
 ## When asked for the task list
 

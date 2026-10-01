@@ -70,8 +70,8 @@ replaced). Adding a crate needs a reason beyond convenience.
   `README.md`.
 - Work on a feature branch and merge it — do not commit straight to `main`.
 - The backlog lives in this repository's own tracker: `yman ls` lists open
-  work, `yman show <id>` gives each entry's "Where" and "Done when". Claim a
-  task with `yman start <id>` before working on it.
+  work, `yman show <id>` gives each entry's "Where" and "Done when". Run
+  `yman sync`, then claim a task with `yman start <id>` before working on it.
 - Commit each task as soon as it is finished, before starting the next one:
   run the gate (`.claude/skills/verify`), commit the code, the tests and the
   docs together, then `yman done <id> -m "<commit>: <summary>"` and

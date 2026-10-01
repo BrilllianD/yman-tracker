@@ -17,9 +17,11 @@ under [Releasing](README.md#releasing) in the README.
   shows `autosync: push` when it is on, and `status --json` always carries
   `"autosync"`.
 - The agent manual (`yman guide`, the skill and the README's "Scripts and
-  agents") now says when to run `yman sync`: after claiming a task and after
-  closing it. Before, it described `sync` but never asked for it, so agents
-  left task history unpushed. A `close-task` skill eval checks for it.
+  agents") now says when to run `yman sync`: before any status change, so an
+  agent sees another clone's claim or close before overwriting it, and after
+  claiming and closing, to publish. Before, it described `sync` but never
+  asked for it, so agents left task history unpushed. The `claim-task` and
+  `close-task` skill evals check both.
 
 - A documentation site, built with mdBook from the README, `docs/` and the
   changelog and published to GitHub Pages:

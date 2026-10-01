@@ -7,7 +7,7 @@
     yman set <id> --status doing -a <me> -m "on it"   # claim: status, assignee, note, one commit
     yman done <id> -m "what changed" && yman sync     # close, explain, publish
     yman add "Title" -m "body" -a <me> --relate <id>  # follow-up, linked to its parent
-    Changes stay local until `yman sync`; skip it when `yman status` shows `autosync: push`.
+    `yman sync` before a status change (re-`show`; stop if taken) and after (unless `autosync: push`).
     Never `edit` or `-e` (opens an editor); change a body with `yman set <id> --body "..."`.
     `rm` and `tags rm` need `-f` off a terminal, or refuse: `refusing to remove without -f`.
     Task list asked for: `yman ls -l -n 20`, render as a table (P ID Status Title Tags),

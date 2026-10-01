@@ -370,8 +370,9 @@ reader that pays per token: which calls to make, what `ls` columns mean, the
 exit codes, and how to recover from a stuck sync. It starts with a block to
 paste into a project's `CLAUDE.md`. The short version: filter with `ls -n`,
 skim bodies with `ls -l -n`, read with `show -n`, close with `done <id> -m`,
-publish with `yman sync` (unless `yman.autosync` is `push`), never open an
-editor, and set `YMAN_ACTOR` so the work is attributed to the agent.
+run `yman sync` before a status change and after it (the after is automatic
+under `yman.autosync = push`), never open an editor, and set `YMAN_ACTOR` so
+the work is attributed to the agent.
 
 For a harness that loads skills, [skills/yman/](skills/yman/) is the fuller
 version of the same rules as a Claude Code skill — the task-list procedure,
