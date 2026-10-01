@@ -3,6 +3,14 @@ name = "yman-tracker"
 version = "0.5.0"
 edition = "2024"
 license = "MIT"
+description = "Git-native task tracker: tasks live in a ref outside refs/heads, travel through the project's own remote, never show up in git branch"
+repository = "https://github.com/BrilllianD/yman-tracker"
+homepage = "https://brillliand.github.io/yman-tracker/"
+documentation = "https://brillliand.github.io/yman-tracker/"
+readme = "README.md"
+keywords = ["git", "task", "tracker", "todo", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+exclude = [".github/", ".claude/", ".idea/", ".yman/", "book.toml", "CLAUDE.md", "skills/yman/evals/"]
 
 [[bin]]
 name = "yman"

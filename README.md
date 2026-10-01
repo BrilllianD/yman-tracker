@@ -48,7 +48,8 @@ $ yman ls
 Requires a Rust toolchain and a `git` binary, 2.42 or newer.
 
 ```sh
-cargo install --path .
+cargo install yman-tracker      # from crates.io
+cargo install --path .          # from a checkout
 ```
 
 The binary is called `yman`. It must be on your `PATH` for the optional git
@@ -734,11 +735,12 @@ freezes that section. To cut `X.Y.Z`:
 5. Commit as `chore: release X.Y.Z` and merge into `main` with `--no-ff`.
 6. Tag the merge: `git tag -a vX.Y.Z -m "yman X.Y.Z"`, then push `main` and
    the tag.
+7. `cargo publish --dry-run`, then `cargo publish`. A published version can be
+   yanked but never replaced, so the dry run is the last look.
 
-The crate is not published to crates.io; install from a checkout with
-`cargo install --path .`. The package is `yman-tracker` and the binary `yman`.
-Both names were free on crates.io on 2026-09-23 — check again before
-publishing, since the choice cannot be taken back.
+The package on crates.io is `yman-tracker` and the binary `yman`. `exclude`
+in `Cargo.toml` keeps the agent configuration, the CI workflow and the skill
+evals out of the tarball; `cargo package --list` shows what ships.
 
 ---
 

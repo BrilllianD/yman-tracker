@@ -7,6 +7,12 @@ under [Releasing](README.md#releasing) in the README.
 
 ## [Unreleased]
 
+### Added
+
+- Published to crates.io as `yman-tracker`: `cargo install yman-tracker`.
+  `Cargo.toml` gained the registry metadata and an `exclude` list, and the
+  release steps in the README end with `cargo publish`.
+
 ## [0.5.0] - 2026-10-01
 
 ### Added
