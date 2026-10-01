@@ -7,6 +7,8 @@ under [Releasing](README.md#releasing) in the README.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-01
+
 ### Added
 
 - Published to crates.io as `yman-tracker`: `cargo install yman-tracker`.
@@ -171,7 +173,8 @@ First tagged release.
 - Refs are read from disk instead of by spawning `git`.
 - A task is looked up from folder names alone.
 
-[Unreleased]: https://github.com/BrilllianD/yman-tracker/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/BrilllianD/yman-tracker/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/BrilllianD/yman-tracker/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/BrilllianD/yman-tracker/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/BrilllianD/yman-tracker/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/BrilllianD/yman-tracker/compare/v0.2.0...v0.3.0
