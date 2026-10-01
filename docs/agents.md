@@ -5,8 +5,9 @@
     yman ls -n 10 --assignee -                        # pick: unassigned, best priority first
     yman show <id> -n 3                               # read: header, body, last 3 comments
     yman set <id> --status doing -a <me> -m "on it"   # claim: status, assignee, note, one commit
-    yman done <id> -m "what changed"                  # close and explain in one call
+    yman done <id> -m "what changed" && yman sync     # close, explain, publish
     yman add "Title" -m "body" -a <me> --relate <id>  # follow-up, linked to its parent
+    Changes stay local until `yman sync`; skip it when `yman status` shows `autosync: push`.
     Never `edit` or `-e` (opens an editor); change a body with `yman set <id> --body "..."`.
     `rm` and `tags rm` need `-f` off a terminal, or refuse: `refusing to remove without -f`.
     Task list asked for: `yman ls -l -n 20`, render as a table (P ID Status Title Tags),
@@ -54,7 +55,6 @@ then `yman sync --continue` (or `--abort`). Until then mutating commands exit 3.
 
 ## Cost and attribution
 
-Plain output is cheapest; `--json` repeats every key, so keep it for `jq`. Cap
-with `-n` (`show <id> -n 0` drops the discussion); one verb with `-m` beats a
-verb then `comment`. `YMAN_ACTOR=<name>` records comments and attachments as
-yours; the git committer stays whoever git says it is.
+Plain output is cheapest; keep `--json` for `jq`. Cap with `-n` (`show <id> -n 0`
+drops the discussion); one verb with `-m` beats a verb then `comment`.
+`YMAN_ACTOR=<name>` names you on comments and attachments; the git committer is unchanged.

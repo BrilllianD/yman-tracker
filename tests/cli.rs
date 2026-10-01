@@ -4449,3 +4449,113 @@ fn moved_folder_and_attachment_merge() {
         }
     }
 }
+
+/// What origin holds for the task ref, read straight off the bare remote.
+fn origin_tasks(fx: &Fx) -> String {
+    fx.git(&fx.remote, &["rev-parse", "refs/tasks/main"])
+}
+
+/// `yman.autosync = push` publishes each change as it is made; the push is
+/// reported on stderr, so stdout is the command's own.
+#[test]
+fn autosync_push_publishes_each_change() {
+    let fx = Fx::new();
+    let out = fx
+        .yman(&fx.a)
+        .args(["init", "--autosync", "push"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(fx.git(&fx.a, &["config", "yman.autosync"]), "push");
+
+    let out = fx.yman(&fx.a).args(["add", "Fix login"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stdout(&out).starts_with("added 1  "), "{}", stdout(&out));
+    assert!(!stdout(&out).contains("pushed"), "{}", stdout(&out));
+    assert_eq!(stderr(&out).trim(), "note: pushed 1 task commit(s)");
+    assert_eq!(
+        origin_tasks(&fx),
+        fx.git(&fx.a, &["rev-parse", "refs/yman/local"])
+    );
+
+    // A change that commits nothing has nothing to push and says nothing.
+    let out = fx
+        .yman(&fx.a)
+        .args(["set", "1", "--priority", "5"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stderr(&out), "");
+
+    let text = stdout(&fx.yman(&fx.a).arg("status").output().unwrap());
+    assert!(
+        text.contains("(refresh: lazy, autosync: push, hooks: not installed)"),
+        "{text}"
+    );
+    assert!(text.contains("ahead 0, behind 0"), "{text}");
+    let text = stdout(&fx.yman(&fx.a).args(["status", "--json"]).output().unwrap());
+    assert!(text.contains("\"autosync\":\"push\""), "{text}");
+}
+
+/// Unset means off: changes stay local until `yman sync`.
+#[test]
+fn autosync_is_off_by_default() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let before = origin_tasks(&fx);
+
+    let out = fx.yman(&fx.a).args(["add", "Fix login"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stderr(&out), "");
+    assert_eq!(origin_tasks(&fx), before);
+
+    let text = stdout(&fx.yman(&fx.a).args(["status", "--json"]).output().unwrap());
+    assert!(text.contains("\"autosync\":\"off\""), "{text}");
+}
+
+/// When origin has moved, autosync does not merge: the change stays
+/// committed, the command succeeds, and the user is pointed at `yman sync`.
+#[test]
+fn autosync_never_merges_when_origin_moved() {
+    let fx = Fx::new();
+    fx.yman(&fx.a)
+        .args(["init", "--autosync", "push"])
+        .assert()
+        .success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    fx.yman(&fx.b).args(["add", "From B"]).assert().success();
+    fx.yman(&fx.b).arg("sync").assert().success();
+    let theirs = origin_tasks(&fx);
+
+    let out = fx.yman(&fx.a).args(["add", "From A"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(
+        stderr(&out).trim(),
+        "warning: origin has new task commits; run: yman sync"
+    );
+    assert_eq!(origin_tasks(&fx), theirs);
+    let text = stdout(&fx.yman(&fx.a).arg("status").output().unwrap());
+    assert!(!text.contains("merge:"), "{text}");
+
+    // The ordinary sync then settles it.
+    fx.yman(&fx.a).arg("sync").assert().success();
+    assert_eq!(
+        origin_tasks(&fx),
+        fx.git(&fx.a, &["rev-parse", "refs/yman/local"])
+    );
+}
+
+/// A local-only tracker has nowhere to push; autosync stays quiet.
+#[test]
+fn autosync_without_an_origin_is_silent() {
+    let fx = Fx::new();
+    fx.git(&fx.a, &["remote", "remove", "origin"]);
+    fx.yman(&fx.a)
+        .args(["init", "--autosync", "push"])
+        .assert()
+        .success();
+
+    let out = fx.yman(&fx.a).args(["add", "Fix login"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stderr(&out), "");
+}

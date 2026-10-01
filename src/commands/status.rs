@@ -10,6 +10,7 @@ use anyhow::Result;
 struct Report {
     head: String,
     policy: String,
+    autosync: String,
     hooks_installed: bool,
     /// `false` for a local-only tracker: the repo has no `origin`.
     origin: bool,
@@ -46,6 +47,9 @@ fn collect(ctx: &mut Context) -> Result<Report> {
     let policy = ctx
         .get_cfg("yman.refresh")?
         .unwrap_or_else(|| "lazy".to_string());
+    let autosync = ctx
+        .get_cfg("yman.autosync")?
+        .unwrap_or_else(|| "off".to_string());
     let hooks_installed = hooks::all_installed(ctx)?;
     let origin = ctx.origin_url()?.is_some();
 
@@ -108,6 +112,7 @@ fn collect(ctx: &mut Context) -> Result<Report> {
     Ok(Report {
         head,
         policy,
+        autosync,
         hooks_installed,
         origin,
         remote,
@@ -125,8 +130,14 @@ fn print_text(r: &Report) {
     } else {
         "not installed"
     };
+    // Shown only when on, so the line most trackers print stays as it was.
+    let autosync = if r.autosync == "off" {
+        String::new()
+    } else {
+        format!(", autosync: {}", r.autosync)
+    };
     println!(
-        ".yman  {LOCAL} @ {}   (refresh: {}, hooks: {hooks_state})",
+        ".yman  {LOCAL} @ {}   (refresh: {}{autosync}, hooks: {hooks_state})",
         r.head, r.policy
     );
 
@@ -223,6 +234,7 @@ fn print_json(r: &Report) {
             .raw("local", local)
             .raw("remote", remote)
             .str("refresh", &r.policy)
+            .str("autosync", &r.autosync)
             .raw("hooks", r.hooks_installed.to_string())
             .raw("worktree", worktree)
             .raw("merge", merge)

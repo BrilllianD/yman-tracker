@@ -5,7 +5,7 @@ Normative, as-built. Companion documents: [storage.md](storage.md),
 
 ## 1. What runs before a command body
 
-`main` does three things in order (`src/main.rs`):
+`main` does three things in order before the body, and one after it (`src/main.rs`):
 
 1. **Discover** the repository. Failure is `not inside a git repository`.
 2. **Preflight**, for every command except `init`, `hooks` and `git`:
@@ -16,16 +16,25 @@ Normative, as-built. Companion documents: [storage.md](storage.md),
    except `init`, `sync`, `refresh`, `status`, `hooks` and `git`. A failure here
    is downgraded to a `warning:` on stderr and never takes the real command
    down.
+4. **Autosync**, after a *mutating* command succeeded, when `yman.autosync` is
+   `push` and there is an `origin`: one push of `refs/yman/local` to
+   `refs/tasks/main`, skipped when `LOCAL` already equals `REMOTE`. It never
+   fetches or merges. A push reports `note: pushed N task commit(s)`; a rejected
+   push (origin moved) prints
+   `warning: origin has new task commits; run: yman sync`; any other failure
+   prints `warning: autosync failed: <why>; run: yman sync`. None of these
+   change the exit code: the change is already committed.
 
 Mutating commands, for the purposes of step 2: `add`, `edit`, `set`, `start`,
 `done`, `move`, `cancel`, `reopen`, `prio`, `rm`, `attach`, `detach`, `comment`,
 `tags rename` and `tags rm`. Bare `yman tags` is a listing and is not
-mutating. `sync` is excluded because it handles `MERGE_HEAD` itself.
+mutating. `sync` is excluded because it handles `MERGE_HEAD` itself. The
+same list decides when step 4 runs.
 
-`guide`, `completions` and `man` run none of the three. They are
+`guide`, `completions` and `man` run none of these steps. They are
 documentation compiled into the binary and are answered before the repository
 is looked for, so they work from any directory. `merge-driver` skips all
-three as well: git calls it from inside a merge with three temp files, and
+of them as well: git calls it from inside a merge with three temp files, and
 preflight would refuse on the `MERGE_HEAD` that is always present then.
 
 ## 2. Commit messages
