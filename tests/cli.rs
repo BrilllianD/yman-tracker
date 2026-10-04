@@ -2135,6 +2135,59 @@ fn init_refuses_a_foreign_yman_directory() {
     assert!(fx.a.join(".yman/.git").is_dir());
 }
 
+/// `cd $(yman path <id>)` lands inside `.yman`, whose toplevel is `.yman`
+/// itself. Discovery has to climb back out to the project, or every command
+/// asks for an `init` that would nest a second worktree inside the first.
+#[test]
+fn commands_work_from_inside_a_task_folder() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let dir = stdout(&fx.yman(&fx.a).args(["path", "1"]).output().unwrap());
+    let dir = std::path::PathBuf::from(dir.trim());
+
+    let out = fx.yman(&dir).args(["show", "1"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stdout(&out).contains("Fix login"), "{}", stdout(&out));
+    fx.yman(&dir)
+        .args(["add", "From inside"])
+        .assert()
+        .success();
+    assert!(fx.has_task(&fx.a, "2"));
+
+    let out = fx.yman(&dir).arg("init").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stdout(&out).starts_with("already initialized .yman"),
+        "{}",
+        stdout(&out)
+    );
+    assert!(!fx.a.join(".yman/.yman").exists());
+    assert!(!dir.join(".yman").exists());
+}
+
+/// git guards only branches against a second checkout, and `.yman` is added
+/// with `--detach`, so from a linked worktree of the project nothing but
+/// `init` itself stands between the user and a second `.yman`.
+#[test]
+fn init_refuses_a_second_yman_from_a_linked_worktree() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let wt = fx.tmp.path().join("wt");
+    fx.git(
+        &fx.a,
+        &["worktree", "add", "-q", "-b", "side", wt.to_str().unwrap()],
+    );
+
+    let out = fx.yman(&wt).arg("init").output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(
+        stderr(&out).trim(),
+        "error: refs/yman/local is already checked out in another worktree of this repo; only one .yman per clone is supported"
+    );
+    assert!(!wt.join(".yman").exists());
+}
+
 /// Preflight tells the user to run `init` when `.yman` lost its symbolic
 /// HEAD, so `init` has to be what puts it back.
 #[test]
