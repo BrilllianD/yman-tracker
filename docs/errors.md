@@ -103,11 +103,13 @@ commit.
 | `rm` or `tags rm` with no terminal and no `-f` | `refusing to remove without -f` |
 | editor could not be started | `cannot run editor "<program>": <why>` |
 | editor failed | `editor exited with status N; file left as is` (or `editor was killed by a signal; …`) |
+| editor failed during `add -e` | `editor exited with status N; task not added` (or `editor was killed by a signal; …`) — the new folder is removed |
 | no editor resolvable | `no editor configured; set $EDITOR` — currently unreachable, because the resolver falls back to `vi` |
 | neither `$VISUAL` nor `$EDITOR` set, stdin not a terminal | `no terminal for vi; set $EDITOR, or use -m / --body-file` |
 | `rm` or `tags rm` prompt declined | `aborted` |
 | `t.md` unparsable | `t.md must start with "# Title"` |
 | `t.md` unparsable after an edit | `t.md invalid after edit: <why>; fix the file then run: yman edit <id>` |
+| `t.md` unparsable after `add -e` | `t.md invalid after edit: <why>; task not added` — the new folder is removed |
 | invalid config | `invalid .yman/config.toml: <why>` |
 | origin holds a non-yman history | `refs/tasks/main on origin is not a yman history (missing or invalid config.toml): <why>` |
 | `sync` with no `origin` | `no "origin" remote; tasks are local only. Connect one: yman init --remote <url>` |

@@ -2091,6 +2091,68 @@ fn add_with_editor_uses_the_edited_title() {
     assert_eq!(fx.git(&fx.a.join(".yman"), &["status", "--porcelain"]), "");
 }
 
+/// An aborted `add -e` leaves nothing behind: no folder for `ls` to list, no
+/// dirt to block the lazy refresh, nothing for the next `sync` to publish.
+#[test]
+fn add_with_a_failing_editor_leaves_no_task() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let head = fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]);
+
+    let out = fx
+        .yman(&fx.a)
+        .env("EDITOR", "false")
+        .args(["add", "Placeholder", "-e"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(
+        stderr(&out).trim(),
+        "error: editor exited with status 1; task not added"
+    );
+    assert_eq!(stdout(&out), "");
+
+    assert!(fx.task_dirs(&fx.a).is_empty(), "{:?}", fx.task_dirs(&fx.a));
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["status", "--porcelain"]), "");
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]), head);
+    let ls = stdout(&fx.yman(&fx.a).args(["ls", "-a"]).output().unwrap());
+    assert!(!ls.contains("Placeholder"), "{ls}");
+    // The id was never committed, so it is not spent.
+    let out = fx.yman(&fx.a).args(["add", "Real"]).output().unwrap();
+    assert!(
+        stdout(&out).contains("added 1  5.1.real"),
+        "{}",
+        stdout(&out)
+    );
+}
+
+/// Same when the editor exits 0 but leaves a `t.md` that does not parse.
+#[test]
+fn add_with_an_unparsable_edit_leaves_no_task() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let head = fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]);
+
+    let editor = fx.editor_writing("ed-add-broken", "no heading at all\n");
+    let out = fx
+        .yman(&fx.a)
+        .env("EDITOR", &editor)
+        .args(["add", "Placeholder", "-e"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(
+        stderr(&out).trim(),
+        "error: t.md invalid after edit: t.md must start with \"# Title\"; task not added"
+    );
+
+    assert!(fx.task_dirs(&fx.a).is_empty(), "{:?}", fx.task_dirs(&fx.a));
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["status", "--porcelain"]), "");
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]), head);
+    let ls = stdout(&fx.yman(&fx.a).args(["ls", "-a"]).output().unwrap());
+    assert!(!ls.contains("Placeholder"), "{ls}");
+}
+
 #[test]
 fn comment_from_editor_and_from_stdin() {
     let fx = Fx::new();

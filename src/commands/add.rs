@@ -5,9 +5,9 @@ use crate::repo::Context;
 use crate::sections;
 use crate::tags;
 use crate::task::{self, FolderName, Meta, Task};
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow, bail};
 
-use super::edit::open_editor;
+use super::edit::run_editor;
 use super::quote_title;
 
 /// What every task created by one `add` shares: all of it but the title
@@ -135,8 +135,23 @@ fn create(ctx: &mut Context, spec: &Spec, title: String, body: String) -> Result
     t.write_meta()?;
 
     if spec.edit {
-        open_editor(&t.dir.join(task::MD_FILE))?;
-        let edited = task::load(&ctx.ydir, &t.dir)?;
+        let edited = run_editor(&t.dir.join(task::MD_FILE), "task not added").and_then(|()| {
+            task::load(&ctx.ydir, &t.dir)
+                .map_err(|e| anyhow!("t.md invalid after edit: {e:#}; task not added"))
+        });
+        let edited = match edited {
+            Ok(edited) => edited,
+            Err(e) => {
+                // Nothing is tracked or committed yet, so the folder is all
+                // there is to undo. Left behind, `ls` would list it, the
+                // lazy refresh would skip a dirty tree, and the next `sync`
+                // would snapshot and publish the task the user abandoned.
+                if let Err(rm) = std::fs::remove_dir_all(&t.dir) {
+                    eprintln!("warning: cannot remove {}: {rm}", t.rel());
+                }
+                return Err(e);
+            }
+        };
         t.title = edited.title;
         t.body = edited.body;
         // The title may have changed; the folder is not tracked yet, so this

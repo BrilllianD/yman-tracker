@@ -305,7 +305,11 @@ in `statuses.list` (see `set`). The body comes from `-m`,
 or from `--body-file PATH` (`-` reads stdin); the two exclude each other and
 `-e`. With `-e`, the editor opens before the
 first commit, so a title typed there renames the folder by plain rename — the
-placeholder never enters git history.
+placeholder never enters git history. If the editor cannot be started, exits
+non-zero or is killed, or leaves a `t.md` that no longer parses, the new folder
+is removed and nothing is committed: `editor exited with status N; task not
+added`, or `t.md invalid after edit: <why>; task not added`. The id is not
+spent, and what was typed in the editor is lost with the folder.
 
 `--sections PATH` (`-` reads stdin) creates one task per section of a markdown
 file instead of one from a title; it excludes the title, `-m`, `--body-file`
@@ -336,7 +340,8 @@ Opens `$VISUAL`, else `$EDITOR`, else `vi`, split on whitespace so
 terminal; otherwise the command fails at once with
 `no terminal for vi; set $EDITOR, or use -m / --body-file` rather than leaving
 a `vi` waiting on a pipe. The same rule covers `add -e` and `comment -e`. A
-non-zero editor exit aborts and leaves the file alone. If the file no longer parses, the command fails but **does not revert the
+non-zero editor exit aborts and leaves the file alone (under `add -e` it
+removes the new folder instead; see `add`). If the file no longer parses, the command fails but **does not revert the
 user's text**; the next `sync` snapshots it. When nothing changed, it prints
 `no changes` and commits nothing. A changed title re-slugs the folder with
 `git mv`.

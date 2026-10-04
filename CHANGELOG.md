@@ -9,6 +9,9 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- An `add -e` whose editor fails, or whose edited `t.md` does not parse, no
+  longer leaves an untracked task folder behind for `ls` to list and the next
+  `sync` to publish. The folder is removed and the error says `task not added`.
 - An id a sync renumber moved a task to is no longer handed out again after
   that task is removed. The history scan read the renumber's `git mv` as a
   rename, not an add.
