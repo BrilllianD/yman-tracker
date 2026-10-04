@@ -28,6 +28,13 @@ pub fn resolve_editor() -> Result<String> {
 
 /// Split on whitespace so `EDITOR="code --wait"` works.
 pub fn open_editor(path: &Path) -> Result<()> {
+    run_editor(path, "file left as is")
+}
+
+/// `open_editor`, with `aftermath` telling the user what a failed editor run
+/// did to their work: `add -e` removes the folder it created, so it says
+/// "task not added" rather than "file left as is".
+pub fn run_editor(path: &Path, aftermath: &str) -> Result<()> {
     let spec = resolve_editor()?;
     let mut parts = spec.split_whitespace();
     let Some(program) = parts.next() else {
@@ -40,8 +47,8 @@ pub fn open_editor(path: &Path) -> Result<()> {
         .map_err(|e| anyhow::anyhow!("cannot run editor \"{program}\": {e}"))?;
     match status.code() {
         Some(0) => Ok(()),
-        Some(n) => bail!("editor exited with status {n}; file left as is"),
-        None => bail!("editor was killed by a signal; file left as is"),
+        Some(n) => bail!("editor exited with status {n}; {aftermath}"),
+        None => bail!("editor was killed by a signal; {aftermath}"),
     }
 }
 
