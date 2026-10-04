@@ -2004,6 +2004,72 @@ fn comment_from_editor_and_from_stdin() {
 
 // -------------------------------------------- init variants and id schemes
 
+/// Environment that makes git speak German, or `None` when this machine
+/// cannot. The system locale is tried first, then one built with `localedef`
+/// into the fixture's tempdir and found through `LOCPATH`.
+fn german_git(fx: &Fx) -> Option<Vec<(&'static str, String)>> {
+    let speaks = |env: &[(&str, String)]| {
+        let mut cmd = std::process::Command::new("git");
+        cmd.current_dir(fx.tmp.path())
+            .args(["rev-parse"])
+            .env("GIT_CEILING_DIRECTORIES", fx.tmp.path());
+        for (k, v) in env {
+            cmd.env(k, v);
+        }
+        let err = stderr(&cmd.output().ok()?);
+        Some(!err.is_empty() && !err.contains("not a git repository"))
+    };
+    let mut env = vec![
+        ("LC_ALL", "de_DE.UTF-8".to_string()),
+        ("LANG", "de_DE.UTF-8".to_string()),
+    ];
+    if speaks(&env) == Some(true) {
+        return Some(env);
+    }
+    let dir = fx.tmp.path().join("locale");
+    std::fs::create_dir_all(&dir).ok()?;
+    std::process::Command::new("localedef")
+        .args(["-i", "de_DE", "-f", "UTF-8"])
+        .arg(dir.join("de_DE.UTF-8"))
+        .output()
+        .ok()?;
+    env.push(("LOCPATH", dir.to_string_lossy().into_owned()));
+    (speaks(&env) == Some(true)).then_some(env)
+}
+
+/// Several decisions read git's English messages. Under a German git, init
+/// against an origin with no tasks must still treat `couldn't find remote ref`
+/// as "nothing yet", and an identical re-attach must stay a no-op.
+#[test]
+fn a_localized_git_does_not_change_behaviour() {
+    let fx = Fx::new();
+    let Some(env) = german_git(&fx) else {
+        eprintln!("skipped: git cannot be made to speak German here");
+        return;
+    };
+    let yman = |args: &[&str]| {
+        let mut cmd = fx.yman(&fx.a);
+        cmd.args(args);
+        for (k, v) in &env {
+            cmd.env(k, v);
+        }
+        cmd.output().unwrap()
+    };
+
+    let out = yman(&["init"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let out = yman(&["add", "Fix login"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let src = fx.tmp.path().join("log.txt");
+    fx.write(&src, "same bytes\n");
+    let src = src.to_str().unwrap();
+    assert!(yman(&["attach", "1", src]).status.success());
+    let out = yman(&["attach", "1", src, "--force"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let out = yman(&["sync"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+}
+
 #[test]
 fn init_offline_touches_no_remote() {
     let fx = Fx::new();

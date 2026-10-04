@@ -55,6 +55,10 @@ impl Git {
         for key in LEAKY_ENV {
             cmd.env_remove(key);
         }
+        // Control flow matches git's English messages ("couldn't find remote
+        // ref", "nothing to commit"), so a localized git must not translate
+        // them. Under the C locale gettext ignores `LANGUAGE` as well.
+        cmd.env("LC_ALL", "C");
         cmd
     }
 
