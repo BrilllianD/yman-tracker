@@ -63,6 +63,7 @@ commit.
 | not in a repository | `not inside a git repository` |
 | `.yman` missing | `.yman is not initialized; run: yman init` |
 | `.yman` HEAD wrong | `.yman worktree is not on refs/yman/local; run: yman init` |
+| `init` cannot re-attach HEAD without losing work | `.yman HEAD has commits or changes not on refs/yman/local; resolve them with yman git, then rerun: yman init` |
 | `.yman` is someone else's directory | `.yman exists and is not a yman worktree; move it aside and rerun` |
 | `.yman` is a standalone repo | `.yman is a standalone git repository, not a worktree; move it aside and rerun` |
 | ref already checked out | `refs/yman/local is already checked out in another worktree of this repo; only one .yman per clone is supported` |
@@ -159,6 +160,7 @@ Never fatal, always stderr:
 | `warning: <path> not moved; <dest> already exists` | `sync` rejoining a split folder found the same file on both sides |
 | `note: added remote "origin" -> <url>` | `init --remote` created the remote |
 | `note: no "origin" remote; tasks stay local until you run: yman init --remote <url>` | `init` in a repo with no `origin` and no `--remote` |
+| `note: re-attached .yman HEAD to refs/yman/local` | `init` repaired a `.yman` HEAD that had lost its symbolic ref |
 | `note: .yman has uncommitted changes, refresh skipped` | refresh backed off |
 | `note: worktree has uncommitted changes` | `yman refresh` backed off for the same reason; printed after the note above |
 | `note: pushed N task commit(s)` | `yman.autosync = push` published a change |
