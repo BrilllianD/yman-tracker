@@ -1,0 +1,6 @@
+# small code nits found by the audit
+
+A CRLF `t.md` keeps a leading `\r\n` in the body because only `\n` is stripped, so `show --json` carries `\r` and a rewrite keeps a stray blank line, against `docs/storage.md` §6; a UTF-8 BOM makes `t.md` fail `must start with "# Title"` and turns `status` in `m.yml` into an unknown key. `comment_count` counts unparsable `d.md` chunks as comments, which §6 says it must not. `tags rename` replaces only the first folded match, so `[UI, ui]` renamed to `x` gives `[x, ui]`. `default_wt_gitdir` builds `worktrees/yman` by hand although git's name is `-yman`, contradicting `docs/storage.md` §1 and the CLAUDE.md gotcha; it is unreachable today but wrong. `--body-file` and `--sections` are declared as `String` so clap offers no path completion; they need `value_hint = ValueHint::FilePath`. `tags --json rename a b` and `sync --abort --no-push` are accepted with the extra flag silently ignored.
+
+- Where: `src/task.rs` (`t.md` reader, `comment_count`), `src/yml.rs` (BOM), `src/commands/tags.rs` (`rename`), `src/repo.rs` (`default_wt_gitdir`), `src/cli.rs` (`value_hint`, `args_conflicts_with_subcommands`, `conflicts_with`).
+- Done when: each is fixed with a unit or integration test, or removed, and the gate is green.
