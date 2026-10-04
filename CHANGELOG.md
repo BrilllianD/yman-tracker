@@ -9,6 +9,14 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- A multi-id verb that fails part-way (`yman done 32 99`) now prints the close
+  report — epic warning, `no longer waits` notes — for the ids it did commit
+  before returning the error; it used to drop it. `yman rm` of an open
+  blocker now prints the `no longer waits` note for a blocked task it freed,
+  as closing the blocker would. `yman attach` checks every source before
+  copying any, so a missing second file or two sources with the same name
+  (now `attachment "<name>" given more than once`) no longer leave an
+  untracked copy of the first one under `f/`.
 - `yman hooks` now finds the hooks directory the way git does, through
   `rev-parse --git-path hooks`. A `core.hooksPath` of `~/.githooks` used to be
   taken literally, so the hooks landed in `<project>/~/.githooks` where git

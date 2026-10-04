@@ -428,6 +428,62 @@ fn attach_detach() {
     );
 }
 
+/// `attach` checks every source before copying any, so a failure on a later
+/// file leaves neither an untracked copy of an earlier one nor a commit.
+#[test]
+fn attach_validates_every_source_before_copying() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let ydir = fx.a.join(".yman");
+    let head = fx.git(&ydir, &["rev-parse", "HEAD"]);
+    let a = fx.tmp.path().join("a/x.png");
+    let b = fx.tmp.path().join("b/x.png");
+    fx.write(&a, "first");
+    fx.write(&b, "second");
+    let missing = fx.tmp.path().join("missing.png");
+
+    let untouched = |out: &std::process::Output| {
+        assert_eq!(out.status.code(), Some(1), "{}", stderr(out));
+        assert_eq!(stdout(out), "", "nothing was attached");
+        assert!(!fx.task_dir(&fx.a, "1").join("f").exists());
+        assert_eq!(fx.git(&ydir, &["status", "--porcelain"]), "");
+        assert_eq!(fx.git(&ydir, &["rev-parse", "HEAD"]), head);
+    };
+
+    // Two sources with the same file name: --force does not make it one.
+    for force in [false, true] {
+        let mut args = vec!["attach", "1", a.to_str().unwrap(), b.to_str().unwrap()];
+        if force {
+            args.push("--force");
+        }
+        let out = fx.yman(&fx.a).args(&args).output().unwrap();
+        untouched(&out);
+        assert_eq!(
+            stderr(&out).trim(),
+            "error: attachment \"x.png\" given more than once"
+        );
+    }
+
+    // A missing second file.
+    let out = fx
+        .yman(&fx.a)
+        .args([
+            "attach",
+            "1",
+            a.to_str().unwrap(),
+            missing.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    untouched(&out);
+    assert!(
+        stderr(&out).starts_with(&format!("error: cannot attach {}: ", missing.display())),
+        "{}",
+        stderr(&out)
+    );
+}
+
 /// The entry in `m.yml` outlives its file when someone deletes it outside
 /// yman. `show` says so rather than rendering the entry as if the file were
 /// still there; `ls` keeps counting it, because it stats nothing under `f/`.
@@ -3436,6 +3492,42 @@ fn rm_drops_references_to_the_removed_task() {
     assert_eq!(stderr(&out).trim(), "", "{}", stderr(&out));
 }
 
+/// Removing an open task a blocked task was waiting on frees it exactly as
+/// closing it would: the same note, nothing moved. A second open blocker keeps
+/// a waiter quiet, and removing an epic frees nothing.
+#[test]
+fn rm_notes_what_the_removal_freed() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v2_config(&fx.a);
+    for args in [
+        &["add", "Blocker"][..],                                         // 1
+        &["add", "Other blocker"],                                       // 2
+        &["add", "Waits on 1", "--waits-on", "1"],                       // 3
+        &["add", "Waits on both", "--waits-on", "1", "--waits-on", "2"], // 4
+        &["add", "Epic", "-t", "epic"],                                  // 5
+        &["add", "Step", "--relate", "5", "-s", "blocked"],              // 6
+    ] {
+        fx.yman(&fx.a).args(args).assert().success();
+    }
+
+    let out = fx.yman(&fx.a).args(["rm", "1", "-f"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "removed 1\n", "stdout stays data");
+    assert_eq!(
+        stderr(&out),
+        "note: dropped 2 reference(s) to 1\n\
+         note: 3 no longer waits on anything open: yman move 3 todo\n"
+    );
+    assert_eq!(fx.status(&fx.a, "3"), "blocked", "a note, not a move");
+    assert_eq!(fx.status(&fx.a, "4"), "blocked");
+
+    // An epic is a container: removing it frees its blocked step of nothing.
+    let out = fx.yman(&fx.a).args(["rm", "5", "-f"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stderr(&out), "note: dropped 1 reference(s) to 5\n");
+}
+
 #[test]
 fn set_tags_keep_their_order_and_dedupe() {
     let fx = Fx::new();
@@ -6016,6 +6108,50 @@ fn closing_an_epic_with_open_steps_warns() {
     run(&["cancel", "8"]);
     let (_, err) = run(&["done", "9", "7"]);
     assert_eq!(err, "");
+}
+
+/// A multi-id verb that fails part-way still reports what the ids before the
+/// failure freed: they are committed, so their close report is owed. The exit
+/// code is the failing id's.
+#[test]
+fn a_multi_id_close_that_fails_part_way_still_reports() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v2_config(&fx.a);
+    for args in [
+        &["add", "Blocker"][..],              // 1
+        &["add", "Waits", "--waits-on", "1"], // 2
+        &["add", "Epic", "-t", "epic"],       // 3
+        &["add", "Step", "--relate", "3"],    // 4
+    ] {
+        fx.yman(&fx.a).args(args).assert().success();
+    }
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["done", "1", "3", "99"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(4), "{}", stderr(&out));
+    assert_eq!(
+        stdout(&out),
+        "1: status todo -> done\n3: status todo -> done\n",
+        "stdout stays data"
+    );
+    let err: Vec<&str> = std::str::from_utf8(&out.stderr)
+        .unwrap()
+        .lines()
+        .filter(|l| !l.starts_with("note: task folder is now "))
+        .collect();
+    assert_eq!(
+        err,
+        [
+            "warning: 3 closed with open tasks relating to it: 4",
+            "note: 2 no longer waits on anything open: yman move 2 todo",
+            "error: task 99 not found",
+        ]
+    );
+    assert_eq!(fx.status(&fx.a, "1"), "done", "the close stands");
 }
 
 /// `add --sections FILE` creates one task per `# Title` section, its body the
