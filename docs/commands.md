@@ -23,10 +23,11 @@ Normative, as-built. Companion documents: [storage.md](storage.md),
 4. **Autosync**, after a *mutating* command succeeded, when `yman.autosync` is
    `push` and there is an `origin`: one push of `refs/yman/local` to
    `refs/tasks/main`, skipped when `LOCAL` already equals `REMOTE`. It never
-   fetches or merges. A push reports `note: pushed N task commit(s)`; a rejected
-   push (origin moved) prints
-   `warning: origin has new task commits; run: yman sync`; any other failure
-   prints `warning: autosync failed: <why>; run: yman sync`. None of these
+   fetches or merges. A push reports `note: pushed N task commit(s)`; a push
+   rejected because origin moved (the race in [`sync`](#6-sync) step 8) prints
+   `warning: origin has new task commits; run: yman sync`; any other failure,
+   a push origin refused included, prints git's stderr and then
+   `warning: autosync failed: <why>; run: yman sync`. None of these
    change the exit code: the change is already committed.
 
 Mutating commands, for the purposes of step 2: `add`, `edit`, `set`, `start`,
@@ -610,8 +611,20 @@ exit 1.
    task settle on their own; anything it cannot settle falls back to the text
    merge. Conflicts print the unmerged files and exit 3. A clean merge is
    followed by the **rejoin** below.
-8. Push, unless `--no-push`. A rejected push means origin moved: loop back to
-   step 3, at most three attempts, then fail with `origin keeps moving`.
+8. Push, unless `--no-push`, with `--porcelain`, and read git's verdict from
+   the `refs/tasks/main` line on stdout. Four reasons on a `!` line mean
+   origin moved after our fetch — the race: `[rejected] (fetch first)`,
+   `[rejected] (non-fast-forward)`, and the two ways receive-pack's own
+   compare-and-swap fails because the ref changed between its advertisement
+   and its update, `[remote rejected] (incorrect old value provided)` and, for
+   a push that creates the ref, `[remote rejected] (reference already
+   exists)`. Older git reports both as `failed to update ref`. A race loops back
+   to step 3, at most three attempts, then fails with `origin keeps moving`.
+   Any other `!` — `pre-receive hook declined`, a protected or denied ref, and
+   the ambiguous `failed to update ref` and `failed to lock`, which can mean a
+   moved ref but also a server-side fault — is a refusal: it is not retried,
+   and fails with `push failed` after git's stderr and its
+   ` ! [remote rejected] refs/yman/local -> refs/tasks/main (<reason>)` line.
 9. Report `synced  pulled N, pushed N, renumbered N   refs/yman/local @ <sha>`.
 
 After a successful push, `REMOTE` is set to `LOCAL`, so `status` and `refresh`

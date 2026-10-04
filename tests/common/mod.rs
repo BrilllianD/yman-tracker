@@ -287,7 +287,7 @@ impl Fx {
     /// An `$EDITOR` that overwrites whatever file it is handed with
     /// `content`, so editor-driven commands can be driven from a test.
     pub fn editor_writing(&self, name: &str, content: &str) -> PathBuf {
-        self.editor_script(
+        self.script(
             name,
             &format!("cat > \"$1\" <<'YMAN_FIXTURE_EOF'\n{content}YMAN_FIXTURE_EOF\n"),
         )
@@ -295,10 +295,78 @@ impl Fx {
 
     /// An `$EDITOR` that leaves the file alone and exits with `code`.
     pub fn editor_failing(&self, name: &str, code: i32) -> PathBuf {
-        self.editor_script(name, &format!("exit {code}\n"))
+        self.script(name, &format!("exit {code}\n"))
     }
 
-    fn editor_script(&self, name: &str, body: &str) -> PathBuf {
+    /// Stand in for `program` (`receive-pack` or `upload-pack`) whenever
+    /// `clone` talks to origin, through `remote.origin.receivepack` or
+    /// `remote.origin.uploadpack`. The script runs `body` first, then the real
+    /// program, so `body` can move origin's refs at exactly the point another
+    /// clone's push would: after this clone's last fetch, before its push sees
+    /// the ref advertisement. It runs inside git spawned by the local
+    /// transport, so it uses absolute paths and sets its own identity.
+    ///
+    /// `body` sees `$R` (the bare remote), `$MARK` (a path that does not exist
+    /// until `body` creates it, for "only the first time") and `$ID` (an
+    /// author/committer environment prefix for `commit-tree`). Every run
+    /// appends a line to the returned log, so a scenario can count attempts.
+    pub fn wrap_origin_program(&self, clone: &Path, program: &str, body: &str) -> PathBuf {
+        let log = self.tmp.path().join(format!("{program}.log"));
+        let script = self.script(
+            &format!("wrap-{program}"),
+            &format!(
+                "{}{body}\nexec git {program} \"$@\"\n",
+                self.remote_prelude(program, &log)
+            ),
+        );
+        let key = format!("remote.origin.{}", program.replace('-', ""));
+        self.git(clone, &["config", &key, script.to_str().unwrap()]);
+        log
+    }
+
+    /// Install `body` as the bare remote's `pre-receive` hook, with the same
+    /// `$R`, `$MARK`, `$ID` and attempt log as [`Fx::wrap_origin_program`].
+    /// `body` decides the exit status. The hook runs in git's quarantine, where
+    /// ref updates are refused, so moving a ref from here needs
+    /// `(unset GIT_QUARANTINE_PATH; git ...)`.
+    pub fn pre_receive_hook(&self, body: &str) -> PathBuf {
+        let log = self.tmp.path().join("pre-receive.log");
+        let text = format!(
+            "#!/bin/sh\n{}cat >/dev/null\n{body}\n",
+            self.remote_prelude("pre-receive", &log)
+        );
+        let hook = self.remote.join("hooks/pre-receive");
+        std::fs::write(&hook, text).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        log
+    }
+
+    fn remote_prelude(&self, name: &str, log: &Path) -> String {
+        let mark = self.tmp.path().join(format!("{name}.mark"));
+        format!(
+            "R='{}'\nMARK='{}'\n\
+             ID='GIT_AUTHOR_NAME=race GIT_AUTHOR_EMAIL=race@example.invalid \
+             GIT_COMMITTER_NAME=race GIT_COMMITTER_EMAIL=race@example.invalid'\n\
+             printf 'x\\n' >> '{}'\n",
+            self.remote.display(),
+            mark.display(),
+            log.display()
+        )
+    }
+
+    /// Lines in an attempt log written by a wrapper or hook; 0 if it never ran.
+    pub fn runs(&self, log: &Path) -> usize {
+        std::fs::read_to_string(log)
+            .map(|t| t.lines().count())
+            .unwrap_or(0)
+    }
+
+    /// An executable `#!/bin/sh` script in the tempdir.
+    pub fn script(&self, name: &str, body: &str) -> PathBuf {
         let path = self.tmp.path().join(name);
         std::fs::write(&path, format!("#!/bin/sh\n{body}")).unwrap();
         #[cfg(unix)]

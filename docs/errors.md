@@ -121,9 +121,9 @@ commit.
 | git identity missing | `git identity missing; run: git config --global user.name "…" && git config --global user.email "…"` |
 | git binary absent | `git not found in PATH` |
 | any other git failure | `git <subcommand> failed: <trimmed stderr>` |
-| push rejected three times | `origin keeps moving; retry yman sync` |
+| push lost the race to a moving origin three times (`sync`; `init` when the ref it was rejected for is gone again on refetch) | `origin keeps moving; retry yman sync` |
 | push rejected while finishing a merge | `origin moved while finishing the merge; run: yman sync` |
-| network step failed | `fetch failed` / `push failed` / `merge failed`, with git's stderr printed above |
+| network step failed | `fetch failed` / `push failed` / `merge failed`, with git's stderr printed above; a push origin refused (any rejection but the race, [commands.md](commands.md#6-sync) step 8) also prints git's ` ! [remote rejected] refs/yman/local -> refs/tasks/main (<reason>)` line, and is not retried |
 | `init` fetch failed | `fetch failed (see above); use --offline to skip` |
 | `hooks install` met a hook it does not own | `<n> hook(s) not installed: <names>`, after `hook <name> exists; add this line to it:` and the line itself on stderr for each |
 | `man --dir` cannot write | `cannot create <dir>: <why>` / `cannot write man pages to <dir>: <why>` |
