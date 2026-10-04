@@ -14,3 +14,7 @@ From step 43: an empty `core.hooksPath` turns hooks off in git, yet `yman hooks 
 
 From step 44: (1) `attach` still leaves earlier copies behind if a `std::fs::copy` fails part-way (disk full), including files overwritten with `--force`; validation cannot catch that, it needs a rollback. (2) `rm` and `set::run` return a report-loading error after the commit has landed, so a committed change can exit non-zero.
 
+## 2026-10-04T07:25:34Z — Bronnikov Aleksandr
+
+From step 59: the comment in `src/commands/completions.rs` (~line 19, "`generate` panics on a closed pipe, and a plain write turns that into an ordinary error") now holds only on non-unix; on unix SIGPIPE kills the process first.
+
