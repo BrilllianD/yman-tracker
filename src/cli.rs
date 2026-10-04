@@ -162,7 +162,8 @@ pub struct InitArgs {
 #[derive(Args, Debug)]
 pub struct AddArgs {
     /// Task title
-    pub title: String,
+    #[arg(required_unless_present = "sections")]
+    pub title: Option<String>,
     /// Priority, 0 (highest) to 9
     #[arg(short = 'p', long, value_name = "N", value_parser = clap::value_parser!(u8).range(0..=9))]
     pub priority: Option<u8>,
@@ -193,6 +194,9 @@ pub struct AddArgs {
     /// Relate to a task this one waits on and set status "blocked" (repeatable)
     #[arg(long = "waits-on", value_name = "ID", action = ArgAction::Append)]
     pub waits_on: Vec<String>,
+    /// One task per `# Title` section of a markdown file, `-` for stdin
+    #[arg(long, value_name = "PATH", conflicts_with_all = ["title", "message", "body_file", "edit"])]
+    pub sections: Option<String>,
 }
 
 #[derive(Args, Debug)]

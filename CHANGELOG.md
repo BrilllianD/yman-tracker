@@ -17,6 +17,10 @@ under [Releasing](README.md#releasing) in the README.
 - Closing a task (`done`, `cancel`, `move`/`set --status`) notes on stderr
   each blocked task that now waits on nothing open, with the `yman move` that
   frees it. Nothing is moved automatically.
+- `add --sections <path|->`: one task per `# Title` section of a markdown
+  file, body up to the next heading, every other flag applied to each. A
+  heading inside a code fence is body text; a bad file fails before any id
+  is minted.
 - Closing a task tagged `epic` while tasks relating to it are still open
   warns on stderr and names them; the close still goes through.
 

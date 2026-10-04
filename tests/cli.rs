@@ -4920,3 +4920,111 @@ fn closing_an_epic_with_open_steps_warns() {
     let (_, err) = run(&["done", "9", "7"]);
     assert_eq!(err, "");
 }
+
+/// `add --sections FILE` creates one task per `# Title` section, its body the
+/// text up to the next heading, one commit and one `added` line each; every
+/// other flag applies to all of them. A heading inside a code fence is body.
+#[test]
+fn add_sections_creates_one_task_per_heading() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Epic", "-t", "epic"])
+        .assert()
+        .success();
+    let plan = fx.tmp.path().join("plan.md");
+    fx.write(
+        &plan,
+        "# Fetch first\n\nWhere: sync.rs\n\n```sh\n# not a task\n```\n\n\
+         # Merge second\nDone when: green\n\n# Push last\n",
+    );
+    let out = fx
+        .yman(&fx.a)
+        .args(["add", "--sections"])
+        .arg(&plan)
+        .args(["--relate", "1", "-p", "2", "-t", "sync"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(
+        stdout(&out),
+        "added 2  2.2.fetch-first\nadded 3  2.3.merge-second\nadded 4  2.4.push-last\n"
+    );
+    assert_eq!(
+        fx.git(&fx.a.join(".yman"), &["log", "-3", "--format=%s"]),
+        "task(4): add \"Push last\"\ntask(3): add \"Merge second\"\ntask(2): add \"Fetch first\""
+    );
+    let two = stdout(&fx.yman(&fx.a).args(["show", "2"]).output().unwrap());
+    assert!(
+        two.contains("\nWhere: sync.rs\n\n```sh\n# not a task\n```\n"),
+        "{two}"
+    );
+    let plan_out = stdout(&fx.yman(&fx.a).args(["plan", "1"]).output().unwrap());
+    assert!(plan_out.contains("steps: 3   todo 3\n"), "{plan_out}");
+    let ls = stdout(
+        &fx.yman(&fx.a)
+            .args(["ls", "-t", "sync", "-p", "2"])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(ls.lines().count(), 3, "{ls}");
+
+    // `-` reads stdin.
+    let out = fx
+        .yman(&fx.a)
+        .args(["add", "--sections", "-"])
+        .write_stdin("# From stdin\nbody\n")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "added 5  5.5.from-stdin\n");
+}
+
+/// A bad sections file fails before an id is minted; `--sections` excludes a
+/// title and every other body source.
+#[test]
+fn add_sections_refuses_bad_input() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let plan = fx.tmp.path().join("plan.md");
+    fx.write(&plan, "intro\n# One\n");
+    let out = fx
+        .yman(&fx.a)
+        .args(["add", "--sections"])
+        .arg(&plan)
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        stderr(&out).trim_end(),
+        format!(
+            "error: {}: line 1: text before the first \"# \" heading",
+            plan.display()
+        )
+    );
+    assert!(fx.task_dirs(&fx.a).is_empty());
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["add", "--sections", "-"])
+        .write_stdin("\n")
+        .output()
+        .unwrap();
+    assert_eq!(
+        stderr(&out).trim_end(),
+        "error: stdin: no \"# \" heading, so no tasks"
+    );
+
+    let p = plan.to_str().unwrap();
+    for args in [
+        &["add", "Title", "--sections", p][..],
+        &["add", "--sections", p, "-m", "body"][..],
+        &["add", "--sections", p, "--body-file", p][..],
+        &["add", "--sections", p, "-e"][..],
+        &["add"][..],
+    ] {
+        let out = fx.yman(&fx.a).args(args).output().unwrap();
+        assert_eq!(out.status.code(), Some(2), "{args:?}");
+    }
+    assert!(fx.task_dirs(&fx.a).is_empty());
+}

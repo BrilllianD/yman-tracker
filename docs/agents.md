@@ -41,7 +41,8 @@ comment in the same commit. `set <id>` changes any field: `--status`
 
 ## Plans
 
-An epic is an ordinary task (tag `epic`); its steps are `add ... --relate <epic>`.
+An epic is an ordinary task (tag `epic`); its steps are `add ... --relate <epic>`,
+or all at once `add --sections <file|-> --relate <epic>`: one per `# Title`, body below.
 `plan <epic>` prints it, a count per status and the open steps sorted like `ls`
 (`-a` all, `-n 3` what is next, `-l`, `--json`). Order with priority. A step
 that waits gets `--waits-on <blocker>` on `add` or `set`: relate plus status

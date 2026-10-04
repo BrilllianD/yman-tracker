@@ -148,6 +148,12 @@ so adding a step never edits the epic.
 ```sh
 yman add "Ship sync v2" -t epic -p 2 -m "Goal: ... Done when: yman plan <id> lists no steps"
 yman add "Fetch before merge" -p 2 --relate 30 -m "Where: ... Done when: ..."   # 30 is the epic
+yman add --sections - --relate 30 -p 2 <<'EOF'   # many steps, one task per `# Title`
+# Fetch before merge
+Where: ... Done when: ...
+# Push after merge
+Where: ... Done when: ...
+EOF
 yman plan 30 -n 3              # what is next: counts per status, open steps, best priority first
 yman plan 30 -a                # progress: every step with its status
 yman show 30 -n 0              # the goal and its body

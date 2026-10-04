@@ -303,6 +303,28 @@ or from `--body-file PATH` (`-` reads stdin); the two exclude each other and
 first commit, so a title typed there renames the folder by plain rename — the
 placeholder never enters git history.
 
+`--sections PATH` (`-` reads stdin) creates one task per section of a markdown
+file instead of one from a title; it excludes the title, `-m`, `--body-file`
+and `-e`, and every other flag applies to each task. A line that is `#` or
+starts with `# ` opens a section and is its title, trimmed; the body is
+everything up to the next such line, with blank lines at either end dropped.
+Inside a fenced block — a line starting, after indentation, with three
+backticks or `~~~`, closed by the same marker — a `# ` line is body text, and
+`##` and deeper headings are always body text. CRLF reads like LF. The whole
+file is read and parsed before the first id is minted, and these refuse it,
+`<source>` being the path or `stdin`:
+
+- `<source>: line <n>: text before the first "# " heading` — anything but
+  blank lines above the first heading;
+- `<source>: line <n>: empty title`;
+- `<source>: no "# " heading, so no tasks`.
+
+Tasks are then created in file order, one commit and one `added <id>  <dir>`
+line each, exactly as separate `add` calls would make them; the first failure
+stops the run with the tasks before it committed. Under the `seq` scheme ids
+follow file order, so a plan listed with equal priorities reads in that order;
+under the other schemes, order steps with `prio` afterwards.
+
 ### `edit`
 
 Opens `$VISUAL`, else `$EDITOR`, else `vi`, split on whitespace so

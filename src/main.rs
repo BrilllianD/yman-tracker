@@ -13,6 +13,7 @@ mod plan;
 mod refresh;
 mod refs;
 mod repo;
+mod sections;
 mod tags;
 mod task;
 mod yml;

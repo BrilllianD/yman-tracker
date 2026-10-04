@@ -226,6 +226,7 @@ attachment — still conflict, and land in the file as the usual markers.
 yman add <title> [-p 0-9] [-s <status> | --waits-on <id>...] [-t <tag>]...
          [-m <body> | --body-file <path>] [-e]
          [-a <who>] [--link <url>]... [--relate <id>]...
+yman add --sections <path|-> [same flags, minus the title, -m, --body-file, -e]
 ```
 Creates a task and commits it. `-t`, `--link`, `--relate` and `--waits-on`
 repeat; `--waits-on <id>` is `--relate <id>` plus `-s blocked`. Relating
@@ -233,7 +234,10 @@ to an id this clone does not have warns on stderr and commits anyway — another
 clone may not have synced yet.
 `--body-file -` reads the body from stdin. `-e` opens `$EDITOR` on the new
 `t.md` first, starting from the `-m` body when both are given — whatever title you type there wins, and the folder is named after
-it.
+it. `--sections plan.md` creates one task per `# Title` section of a markdown
+file instead, each with the text up to the next heading as its body (a `#`
+line inside a code fence does not count) and every other flag applied to
+each — the steps of a plan in one call, one commit apiece.
 
 ```sh
 yman ls [-s <status>]... [-t <tag>]... [-a] [--assignee <who>] [-p 0-9]
@@ -394,7 +398,8 @@ run `yman sync` before a status change and after it (the after is automatic
 under `yman.autosync = push`), never open an editor, and set `YMAN_ACTOR` so
 the work is attributed to the agent. Big work is a plan: an epic task plus
 steps that `--relate` it, read from the epic with `yman plan <id>` (progress
-and open steps in one call), so the epic is never edited; a step that waits
+and open steps in one call) and created in one go with
+`add --sections plan.md --relate <id>`, so the epic is never edited; a step that waits
 sits in `blocked` and relates to what it waits on.
 
 For a harness that loads skills, [skills/yman/](skills/yman/) is the fuller
