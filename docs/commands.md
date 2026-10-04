@@ -449,7 +449,8 @@ The remaining verbs are `set --status` with the status looked up for you:
 Every verb, and `prio <id>... <0-9>`, takes several ids and `-m <text>` like
 `set`. Ids are processed in the order given, one commit each, printing the
 same lines `set` would. The first failure stops the run with that error; the
-tasks before it are already committed. `set`, `edit`, `show`, `path` and `rm`
+tasks before it are already committed, and what their closes freed is reported
+(below) before the error. `set`, `edit`, `show`, `path` and `rm`
 take exactly one id.
 
 `cancel` has no fallback on purpose: picking one of several closed statuses by
@@ -458,7 +459,9 @@ position is the guesswork the named roles exist to remove.
 **What a close changed.** When `set` or a verb moves a task from an open
 status into a terminal one, yman reads every task once more and reports on
 stderr, after the last id of the call (so `done 32 33` judges a task waiting
-on both after both closed). Exit status and stdout are unaffected.
+on both after both closed) — or, when an id fails, after the last one that
+completed (`done 32 99` reports what closing 32 freed, then fails on 99).
+Exit status and stdout are unaffected.
 
 - A closed task tagged `epic` that open tasks still relate to gets
   `warning: <id> closed with open tasks relating to it: <ids>` (id order).
@@ -513,10 +516,21 @@ drop. A folder that does not load cannot be rewritten, so it is reported with
 the same `warning: skipped N unreadable task folder(s): …` the listing prints —
 a reference inside one survives the removal.
 
+Removing an open task that is not tagged `epic` frees its waiters the way
+closing it would: after `removed <id>`, a task in status `blocked` that lost
+the reference and now relates to nothing open except epics gets
+`note: <id> no longer waits on anything open: yman move <id> <default status>`
+(see "What a close changed" under `set`). Nothing is moved. Removing a closed
+task or an epic frees nothing, as closing one does not.
+
 ### `attach` / `detach`
 
-Each source must be an existing regular file. `--name` applies to a single file
-only, and must not contain a path separator. The `by` recorded in `m.yml` is
+Each source must be an existing, readable regular file. `--name` applies to a
+single file only, and must not contain a path separator. Two sources that would
+land under the same name are refused with `attachment "<name>" given more than
+once`, `--force` or not. Every source is checked before any is copied, so a
+refusal leaves nothing behind: no file under `f/`, no `m.yml` entry, no
+commit. The `by` recorded in `m.yml` is
 the actor (see `comment`). An existing attachment of the same
 name needs `--force`. Files over 5 MiB produce a warning, never a refusal. An
 attachment listed in `m.yml` whose file is already gone can still be detached —

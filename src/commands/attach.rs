@@ -2,6 +2,7 @@ use crate::cli::{AttachArgs, DetachArgs};
 use crate::repo::Context;
 use crate::task::{self, Attachment};
 use anyhow::{Result, bail};
+use std::path::{Path, PathBuf};
 
 const BIG_FILE: u64 = 5 * 1024 * 1024;
 
@@ -13,8 +14,11 @@ pub fn run(ctx: &mut Context, a: AttachArgs) -> Result<()> {
     let by = super::actor(ctx)?;
 
     let fdir = t.dir.join(task::FILES_DIR);
-    let mut names: Vec<String> = Vec::new();
 
+    // Every source is checked before any is copied: a refusal on the second
+    // file used to leave the first one copied under `f/` with no `m.yml` entry
+    // and no commit, an untracked file the next sync would snapshot.
+    let mut plan: Vec<(&Path, String, PathBuf, u64)> = Vec::new();
     for src in &a.files {
         let meta = match std::fs::metadata(src) {
             Ok(m) => m,
@@ -22,6 +26,11 @@ pub fn run(ctx: &mut Context, a: AttachArgs) -> Result<()> {
         };
         if !meta.is_file() {
             bail!("cannot attach {}: not a regular file", src.display());
+        }
+        // Opened, not just stat'ed, so an unreadable file is refused here
+        // rather than half way through the copies.
+        if let Err(e) = std::fs::File::open(src) {
+            bail!("cannot attach {}: {e}", src.display());
         }
         let name = match &a.name {
             Some(n) => n.clone(),
@@ -33,6 +42,11 @@ pub fn run(ctx: &mut Context, a: AttachArgs) -> Result<()> {
         if name.contains('/') || name.contains('\\') || name == "." || name == ".." {
             bail!("attachment name \"{name}\" must not contain a path separator");
         }
+        // `--force` replaces an attachment already on the task; it cannot
+        // make two of this call's files one.
+        if plan.iter().any(|(_, n, _, _)| *n == name) {
+            bail!("attachment \"{name}\" given more than once");
+        }
         let dest = fdir.join(&name);
         if dest.exists() && !a.force {
             bail!(
@@ -40,10 +54,15 @@ pub fn run(ctx: &mut Context, a: AttachArgs) -> Result<()> {
                 t.id()
             );
         }
-        if meta.len() > BIG_FILE {
+        plan.push((src, name, dest, meta.len()));
+    }
+
+    let mut names: Vec<String> = Vec::new();
+    for (src, name, dest, len) in plan {
+        if len > BIG_FILE {
             eprintln!(
                 "warning: {name} is {} MiB; git is not great at large binaries",
-                meta.len() / (1024 * 1024)
+                len / (1024 * 1024)
             );
         }
         std::fs::create_dir_all(&fdir)?;

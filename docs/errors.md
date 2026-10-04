@@ -90,6 +90,7 @@ commit.
 | tag with a separator or a control character | `invalid tag "<t>"; tags must not contain whitespace, commas or control characters` — `<t>` is the trimmed value |
 | unknown attachment | `no attachment "<name>" on task <id>` |
 | attachment name already used | `attachment "<name>" already exists on task <id>; use --force` |
+| two sources with the same attachment name | `attachment "<name>" given more than once` |
 | `--name` with several files | `--name only works with a single file` |
 | attachment source unusable | `cannot attach <path>: <why>` / `… not a regular file` / `… no file name` |
 | attachment name with a separator, or `.` / `..` | `attachment name "<name>" must not contain a path separator` |
@@ -178,7 +179,7 @@ Never fatal, always stderr:
 | `note: dropped N reference(s) to <id>` | `rm` cleared the removed task out of other tasks' `related` |
 | `note: task <id> was closed to two different statuses; keep one of <relA>, <relB>` | a merge renamed one task into two status directories |
 | `note: task folder is now <rel>` | a status change moved the folder into or out of a status directory |
-| `note: <id> no longer waits on anything open: yman move <id> <default status>` | a close (`done`, `cancel`, `move`/`set --status` into a terminal status) left a `blocked` task relating to it with nothing open to wait on; nothing is moved |
+| `note: <id> no longer waits on anything open: yman move <id> <default status>` | a close (`done`, `cancel`, `move`/`set --status` into a terminal status), or `rm` of an open task not tagged `epic`, left a `blocked` task relating to it with nothing open to wait on; nothing is moved |
 
 ## Deliberate non-errors
 

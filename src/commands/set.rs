@@ -255,7 +255,9 @@ fn apply_set(
 /// One `set` per id, one commit each, in the order given. The first failure
 /// stops the loop; tasks before it are already committed, which is the
 /// honest outcome — each is a complete change on its own. What the closes
-/// freed is reported once, after the last id.
+/// freed is reported once, after the last id — or after the last id that
+/// completed, when one fails: those closes are committed, so their report is
+/// owed, and the failure is returned unchanged so its exit code survives.
 fn each(
     ctx: &mut Context,
     ids: &[String],
@@ -265,7 +267,7 @@ fn each(
 ) -> Result<()> {
     let mut closed: Vec<String> = Vec::new();
     for id in ids {
-        let done = apply(
+        let done = match apply(
             ctx,
             SetArgs {
                 id: id.clone(),
@@ -285,7 +287,15 @@ fn each(
                 unrelate: vec![],
                 waits_on: vec![],
             },
-        )?;
+        ) {
+            Ok(done) => done,
+            Err(e) => {
+                // Best effort: a report that cannot be read must not replace
+                // the error the user actually needs to see.
+                let _ = plan::report_closed(ctx, &closed);
+                return Err(e);
+            }
+        };
         closed.extend(done);
     }
     plan::report_closed(ctx, &closed)

@@ -109,14 +109,42 @@ pub fn report_closed(ctx: &Context, closed: &[String]) -> Result<()> {
             continue;
         }
         for t in steps_of(&tasks, id) {
-            if t.meta.status == BLOCKED
-                && !free.contains(&t.id())
-                && waits_on(t, &tasks, cfg).is_empty()
-            {
+            if is_free(t, &tasks, cfg) && !free.contains(&t.id()) {
                 free.push(t.id());
             }
         }
     }
+    note_free(cfg, free);
+    Ok(())
+}
+
+/// What removing a task freed, on stderr: the same note a close prints, for
+/// the same reason — a blocked task that waited on it now waits on nothing
+/// open. `waiters` are the tasks whose `related` lost the removed id; the
+/// caller passes none when the removed task was already closed (it blocked
+/// nobody) or an epic (a container, not a blocker), as a close would.
+/// Nothing is moved.
+pub fn report_removed(ctx: &Context, waiters: &[String]) -> Result<()> {
+    if waiters.is_empty() {
+        return Ok(());
+    }
+    let tasks = tasks(&ctx.ydir)?;
+    let cfg = ctx.config();
+    let free: Vec<&str> = tasks
+        .iter()
+        .filter(|t| waiters.iter().any(|w| w == t.id()) && is_free(t, &tasks, cfg))
+        .map(|t| t.id())
+        .collect();
+    note_free(cfg, free);
+    Ok(())
+}
+
+/// Blocked, and waiting on nothing open any more.
+fn is_free(t: &Task, tasks: &[Task], cfg: &Config) -> bool {
+    t.meta.status == BLOCKED && waits_on(t, tasks, cfg).is_empty()
+}
+
+fn note_free(cfg: &Config, mut free: Vec<&str>) {
     free.sort_by(|x, y| task::cmp_id(x, y));
     for id in free {
         eprintln!(
@@ -124,7 +152,6 @@ pub fn report_closed(ctx: &Context, closed: &[String]) -> Result<()> {
             cfg.statuses.default
         );
     }
-    Ok(())
 }
 
 #[cfg(test)]
