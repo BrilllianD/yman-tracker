@@ -1,6 +1,8 @@
 # The documentation site: built with mdBook by scripts/book.sh on every push
 # and pull request, so a broken link fails the run, and published to GitHub
-# Pages from main. Kept apart from ci.yml, which mirrors the verify skill.
+# Pages from main. ci.yml runs the same script as the last step of the gate;
+# this workflow exists to build and deploy the site. Keep MDBOOK_VERSION the
+# same in both.
 name: Pages
 
 on:
