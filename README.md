@@ -597,6 +597,12 @@ Edit the files and remove the markers — staging is yman's job, not yours — t
 yman sync --continue     # or: yman sync --abort
 ```
 
+The one exception is a file `sync` lists as `(no conflict markers: …)`: a
+binary attachment, an edit to what the other side deleted, or an `m.yml` whose
+merge driver could not run. There is nothing to edit, so pick a side with
+`yman git checkout --ours|--theirs -- <file>` and `yman git add <file>`
+before continuing.
+
 `--continue` refuses while any conflict marker is still in place, and checks
 that every task the merge touched still parses before it commits. Until the
 merge is settled, commands that would change a task exit 3 rather than build on

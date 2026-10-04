@@ -27,6 +27,11 @@ under [Releasing](README.md#releasing) in the README.
 - Under a localized git, `init` and `sync` against an origin with no tasks
   no longer fail with `fetch failed`, and re-applying an identical change is
   no longer an error. Every git child now runs with `LC_ALL=C`.
+- `sync --continue` no longer takes a conflict git could not mark up (a
+  binary attachment, modify/delete, or an `m.yml` whose merge driver path is
+  gone) as resolved, which kept ours and dropped theirs without a word. Such a
+  file must be staged by hand, and `sync` now prints git's stderr from the
+  failed merge, so a stale driver's `No such file or directory` is visible.
 
 ## [0.6.0] - 2026-10-04
 

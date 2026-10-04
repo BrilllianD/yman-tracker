@@ -133,6 +133,7 @@ commit.
 | `sync` during a merge | `merge in progress; resolve then: yman sync --continue  (or --abort)` |
 | merge produced conflicts | `conflicts in N file(s); edit them, remove markers, then: yman sync --continue  (or: yman sync --abort)` |
 | `--continue` with markers left | `still unmerged: <files>` |
+| `--continue` with a conflict that has no markers | `still unmerged: <files>; no markers to remove in <files>, stage the version to keep: yman git checkout --ours\|--theirs -- <file> && yman git add <file>` |
 | `--continue` with an unloadable task | `conflict markers or invalid task in <dir>: <why>` |
 | `--continue` with an unloadable `config.toml` | `invalid .yman/config.toml: <why>` |
 

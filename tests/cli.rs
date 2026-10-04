@@ -1034,6 +1034,132 @@ fn conflict_and_continue() {
     assert_eq!(fx.status(&fx.a, "1"), "done");
 }
 
+/// A conflict git could not mark up — here two different binary attachments
+/// under one name — leaves ours on disk with no markers. `--continue` must not
+/// read that as resolved and silently drop theirs.
+#[test]
+fn a_binary_conflict_needs_an_explicit_side() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    // Committed by hand, so `m.yml` stays untouched and only the bytes clash.
+    let file = "5.1.fix-login/f/log.bin";
+    for (clone, bytes) in [(&fx.a, "from a\0"), (&fx.b, "from b\0")] {
+        let ydir = clone.join(".yman");
+        fx.write(&ydir.join(file), bytes);
+        fx.git(&ydir, &["add", "--", file]);
+        fx.git(&ydir, &["commit", "-q", "-m", "attach"]);
+    }
+    fx.yman(&fx.a).arg("sync").assert().success();
+
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains(&format!(
+            "  {file}  (no conflict markers: binary, modify/delete, or the merge driver failed)"
+        )),
+        "{}",
+        stderr(&out)
+    );
+
+    let out = fx
+        .yman(&fx.b)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert_eq!(
+        stderr(&out).trim(),
+        format!(
+            "error: still unmerged: {file}; no markers to remove in {file}, stage the version to keep: yman git checkout --ours|--theirs -- <file> && yman git add <file>"
+        )
+    );
+
+    fx.yman(&fx.b)
+        .args(["git", "checkout", "--ours", "--", file])
+        .assert()
+        .success();
+    fx.yman(&fx.b).args(["git", "add", file]).assert().success();
+    let out = fx
+        .yman(&fx.b)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(fx.read(&fx.b.join(".yman").join(file)), "from b\0");
+}
+
+/// A merge driver path that no longer exists — the binary moved after an
+/// upgrade — fails the `m.yml` merge without writing a marker. git's own
+/// complaint has to reach the user, and the file must not pass as resolved.
+#[test]
+fn a_stale_merge_driver_is_reported_and_not_taken_as_resolved() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    fx.git(
+        &fx.b,
+        &[
+            "config",
+            "merge.ymanmeta.driver",
+            "\"/nonexistent/yman\" merge-driver %O %A %B",
+        ],
+    );
+    fx.yman(&fx.a)
+        .args(["set", "1", "--assignee", "Ann"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b)
+        .args(["set", "1", "--tag", "ui"])
+        .assert()
+        .success();
+
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("/nonexistent/yman"),
+        "{}",
+        stderr(&out)
+    );
+    assert!(
+        stderr(&out).contains("no conflict markers"),
+        "{}",
+        stderr(&out)
+    );
+
+    let out = fx
+        .yman(&fx.b)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("still unmerged: 5.1.fix-login/m.yml"),
+        "{}",
+        stderr(&out)
+    );
+
+    // Settled by hand: keep both edits, stage, continue.
+    let mpath = fx.b.join(".yman/5.1.fix-login/m.yml");
+    let merged = fx.read(&mpath).replace("assignee: null", "assignee: Ann");
+    fx.write(&mpath, &merged);
+    fx.yman(&fx.b)
+        .args(["git", "add", "5.1.fix-login/m.yml"])
+        .assert()
+        .success();
+    let out = fx
+        .yman(&fx.b)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+}
+
 #[test]
 fn conflict_abort() {
     let fx = Fx::new();

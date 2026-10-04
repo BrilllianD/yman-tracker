@@ -233,6 +233,17 @@ yman sync --continue         # or: yman sync --abort
 (still exit 3): both sides closed the same task, to two different statuses.
 There are no markers to remove; delete the folder you do not want and continue.
 
+A file listed with `(no conflict markers: binary, modify/delete, or the merge
+driver failed)` holds only one side, so `--continue` keeps refusing it with
+`still unmerged: <file>; no markers to remove in <file>, …`. Pick a side and
+stage it yourself, then continue:
+
+```sh
+yman git checkout --theirs -- <file>   # or --ours; paths are relative to .yman
+yman git add <file>                    # or: yman git rm <file> to keep a deletion
+yman sync --continue
+```
+
 `yman sync` is the command that touches the network day to day: it fetches,
 merges and pushes. `--no-push` merges without publishing. `init` also fetches
 and pushes unless given `--offline`, and with `yman.autosync = push` every

@@ -322,6 +322,15 @@ every clone registers it for itself. A clone that never did falls back to git's
 text merge, which is what `m.yml` got before the driver existed — an
 unregistered driver cannot corrupt a file.
 
+A *stale* one is different. The registered path is `current_exe` at the time
+of `init`, and an upgrade can remove it (a Homebrew Cellar, a Nix store,
+`target/debug`). git then cannot run the driver, records the conflict, and
+leaves ours in the file with no markers. `sync` prints git's own complaint and
+lists the file as `(no conflict markers: binary, modify/delete, or the merge
+driver failed)`, and `--continue` will not take it as resolved — see
+[commands.md §6](commands.md#--continue-and---abort). Rerunning `yman init`
+registers the current binary again.
+
 Why it exists: the writer emits keys in one fixed order, so a status change on
 one clone and a tag change on another land on *adjacent lines* and the text
 merge conflicts. `updated` makes it worse — it changes on every edit on both
