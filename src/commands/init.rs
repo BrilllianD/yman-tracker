@@ -107,7 +107,9 @@ pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
 
 /// `.yman` is already a worktree: make sure the main-repo side is intact.
 fn repair(ctx: &mut Context, a: &InitArgs, url: Option<&str>) -> Result<()> {
-    ctx.check_worktree_head()?;
+    if ctx.check_worktree_head().is_err() {
+        reattach_head(ctx)?;
+    }
     ctx.exclude_add()?;
     // A local-only tracker gains its refspec here once origin exists.
     if url.is_some() && !ctx.fetch_refspec_present()? {
@@ -133,6 +135,29 @@ fn repair(ctx: &mut Context, a: &InitArgs, url: Option<&str>) -> Result<()> {
         hooks::install(ctx)?;
     }
     summary(ctx, url, "already initialized")
+}
+
+/// Put `.yman`'s HEAD back on `refs/yman/local` — the repair preflight's
+/// `run: yman init` promises. Only when nothing is lost by it: a HEAD with
+/// commits or edits the ref lacks would have them read as uncommitted
+/// changes against the ref, and the next snapshot would commit that tree,
+/// reverting whatever the ref has that HEAD did not.
+fn reattach_head(ctx: &Context) -> Result<()> {
+    let head = ctx.wt.rev_parse("HEAD")?;
+    let local = ctx.main.rev_parse(LOCAL)?;
+    let behind = match (&head, &local) {
+        (Some(h), Some(l)) if h == l => false,
+        (Some(h), Some(l)) if !ctx.wt.is_dirty()? && ctx.wt.is_ancestor(h, l)? => true,
+        _ => bail!(
+            "{YDIR_NAME} HEAD has commits or changes not on {LOCAL}; resolve them with yman git, then rerun: yman init"
+        ),
+    };
+    if behind {
+        ctx.wt.ok(&["checkout", "-q", "--detach", LOCAL])?;
+    }
+    ctx.wt.ok(&["symbolic-ref", "HEAD", LOCAL])?;
+    eprintln!("note: re-attached {YDIR_NAME} HEAD to {LOCAL}");
+    Ok(())
 }
 
 /// Teach this clone how to run the `m.yml` merge driver. Idempotent, and

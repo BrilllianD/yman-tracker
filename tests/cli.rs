@@ -2135,6 +2135,60 @@ fn init_refuses_a_foreign_yman_directory() {
     assert!(fx.a.join(".yman/.git").is_dir());
 }
 
+/// Preflight tells the user to run `init` when `.yman` lost its symbolic
+/// HEAD, so `init` has to be what puts it back.
+#[test]
+fn init_reattaches_a_detached_yman_head() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "One"]).assert().success();
+    fx.yman(&fx.a).args(["add", "Two"]).assert().success();
+    let ydir = fx.a.join(".yman");
+
+    fx.git(&ydir, &["checkout", "-q", "--detach"]);
+    let out = fx.yman(&fx.a).arg("ls").output().unwrap();
+    assert_eq!(
+        stderr(&out).trim(),
+        "error: .yman worktree is not on refs/yman/local; run: yman init"
+    );
+    let out = fx.yman(&fx.a).arg("init").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("note: re-attached .yman HEAD to refs/yman/local"),
+        "{}",
+        stderr(&out)
+    );
+    assert_eq!(fx.git(&ydir, &["symbolic-ref", "HEAD"]), "refs/yman/local");
+
+    // Behind the ref, with nothing of its own: moved forward, then attached.
+    fx.git(&ydir, &["checkout", "-q", "--detach", "HEAD~1"]);
+    fx.yman(&fx.a).arg("init").assert().success();
+    assert_eq!(fx.git(&ydir, &["symbolic-ref", "HEAD"]), "refs/yman/local");
+    assert!(fx.has_task(&fx.a, "2"));
+    assert_eq!(fx.git(&ydir, &["status", "--porcelain"]), "");
+    fx.yman(&fx.a).args(["add", "Three"]).assert().success();
+}
+
+/// A detached HEAD that carries a commit the ref does not have is left for
+/// the user: attaching it would let the next snapshot revert the ref.
+#[test]
+fn init_refuses_to_reattach_over_stray_commits() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "One"]).assert().success();
+    let ydir = fx.a.join(".yman");
+
+    fx.git(&ydir, &["checkout", "-q", "--detach"]);
+    fx.git(&ydir, &["commit", "-q", "--allow-empty", "-m", "stray"]);
+    let out = fx.yman(&fx.a).arg("init").output().unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        stderr(&out).trim(),
+        "error: .yman HEAD has commits or changes not on refs/yman/local; resolve them with yman git, then rerun: yman init"
+    );
+    assert!(!fx.git_try(&ydir, &["symbolic-ref", "-q", "HEAD"]).0);
+}
+
 #[test]
 fn random_scheme_round_trip() {
     let fx = Fx::new();

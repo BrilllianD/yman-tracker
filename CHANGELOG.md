@@ -16,6 +16,9 @@ under [Releasing](README.md#releasing) in the README.
   command: `sync --abort` and `sync --continue` still run, mutating commands
   exit 3 as documented instead of 1, and `--continue` refuses a resolution
   that does not load.
+- `yman init` re-attaches a detached or misplaced `.yman` HEAD to
+  `refs/yman/local`, as the preflight error advises, instead of failing with
+  that same error. It refuses when HEAD has commits or edits the ref lacks.
 
 ## [0.6.0] - 2026-10-04
 

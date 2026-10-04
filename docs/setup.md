@@ -58,8 +58,16 @@ has added the refspec.
 `init` is idempotent. Run against an existing `.yman` worktree it takes the
 repair path — re-adds the exclude entry and the fetch refspec, re-registers the
 merge driver, applies `--refresh`, `--autosync`, `--author` and `--hooks` if given — and
-reports `already initialized .yman`. A `.yman` that is a plain directory or a
-standalone repository is never touched; the command says so and stops.
+reports `already initialized .yman`. When `.yman`'s HEAD is no longer the
+symbolic ref `refs/yman/local` (the state preflight answers with
+`run: yman init`), the repair path puts it back first and says
+`note: re-attached .yman HEAD to refs/yman/local` — but only when nothing is
+lost: HEAD on the ref's commit, or clean and on an ancestor of it, which is
+checked out forward. A HEAD with commits or edits the ref lacks is refused with
+`.yman HEAD has commits or changes not on refs/yman/local; resolve them with yman git, then rerun: yman init`,
+because attaching it would let the next snapshot revert the ref. A `.yman`
+that is a plain directory or a standalone repository is never touched; the
+command says so and stops.
 
 ## 3. What `init` changes
 
