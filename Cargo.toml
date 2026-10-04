@@ -1,6 +1,6 @@
 [package]
 name = "yman-tracker"
-version = "0.5.1"
+version = "0.6.0"
 edition = "2024"
 license = "MIT"
 description = "Git-native task tracker: tasks live in a ref outside refs/heads, travel through the project's own remote, never show up in git branch"
