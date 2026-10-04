@@ -10,8 +10,12 @@ Normative, as-built. Companion documents: [storage.md](storage.md),
 1. **Discover** the repository. Failure is `not inside a git repository`.
 2. **Preflight**, for every command except `init`, `hooks` and `git`:
    `.yman` must be a linked worktree of this repo; its HEAD must be the
-   symbolic ref `refs/yman/local`; `config.toml` must load and validate. For
-   *mutating* commands, an unresolved sync merge stops the command with exit 3.
+   symbolic ref `refs/yman/local`; for *mutating* commands, an unresolved
+   sync merge stops the command with exit 3; then `config.toml` must load and
+   validate. The merge check comes first so that a merge which conflicted in
+   `config.toml` still exits 3, and `sync` is let through an unloadable
+   config while a merge is pending — `--abort` and `--continue` are how that
+   state ends.
 3. **Lazy refresh**, when `yman.refresh` is unset or `lazy`, for every command
    except `init`, `sync`, `refresh`, `status`, `hooks` and `git`. A failure here
    is downgraded to a `warning:` on stderr and never takes the real command
@@ -624,8 +628,9 @@ Both require a merge in progress.
 
 `--continue` treats a file as unresolved while it still carries conflict
 markers — staging is yman's job, since the message tells the user to edit and
-rerun, not to run `git add`. It then checks that every task folder the merge
-touched still loads and is marker-free, that no id has two folders, stages
+rerun, not to run `git add`. It then checks that `config.toml` loads, that
+every task folder the merge touched still loads and is marker-free, that no
+id has two folders, stages
 everything, commits with `--no-edit`, and pushes.
 
 The folder list comes from both `HEAD..MERGE_HEAD` and the unmerged paths,

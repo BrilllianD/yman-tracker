@@ -12,6 +12,10 @@ under [Releasing](README.md#releasing) in the README.
 - An id a sync renumber moved a task to is no longer handed out again after
   that task is removed. The history scan read the renumber's `git mv` as a
   rename, not an add.
+- A sync merge that conflicts in `config.toml` no longer locks out every
+  command: `sync --abort` and `sync --continue` still run, mutating commands
+  exit 3 as documented instead of 1, and `--continue` refuses a resolution
+  that does not load.
 
 ## [0.6.0] - 2026-10-04
 

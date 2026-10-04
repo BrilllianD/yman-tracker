@@ -133,6 +133,7 @@ commit.
 | merge produced conflicts | `conflicts in N file(s); edit them, remove markers, then: yman sync --continue  (or: yman sync --abort)` |
 | `--continue` with markers left | `still unmerged: <files>` |
 | `--continue` with an unloadable task | `conflict markers or invalid task in <dir>: <why>` |
+| `--continue` with an unloadable `config.toml` | `invalid .yman/config.toml: <why>` |
 
 `sync --continue` or `--abort` with nothing to finish reports
 `no merge in progress` with exit code 1, not 3: there is no merge pending.
