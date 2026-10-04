@@ -66,13 +66,22 @@ pub fn ever_assigned(ctx: &Context, refs: &[&str]) -> Result<HashSet<String>> {
     if present.is_empty() {
         return Ok(HashSet::new());
     }
-    let mut args: Vec<&str> = vec!["log", "--diff-filter=A", "--name-only", "--format="];
+    // `--no-renames`: the `git mv` of a sync renumber would otherwise read as
+    // a rename, and the id it lands on would never be seen as added. `-z`:
+    // NUL-separated paths are never quoted, whatever characters they hold.
+    let mut args: Vec<&str> = vec![
+        "log",
+        "--no-renames",
+        "--diff-filter=A",
+        "--name-only",
+        "--format=",
+        "-z",
+    ];
     args.extend_from_slice(&present);
     args.extend_from_slice(&["--", "."]);
     let out = ctx.wt.out(&args)?;
     let mut ids = HashSet::new();
-    for line in out.lines() {
-        let line = line.trim();
+    for line in out.split('\0') {
         if line.is_empty() {
             continue;
         }
