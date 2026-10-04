@@ -393,15 +393,24 @@ take exactly one id.
 `cancel` has no fallback on purpose: picking one of several closed statuses by
 position is the guesswork the named roles exist to remove.
 
-**What a close freed.** When `set` or a verb moves a task from an open status
-into a terminal one, yman reads every task once more and reports on stderr,
-after the last id of the call (so `done 32 33` judges a task waiting on both
-after both closed). A task in status `blocked` whose `related` carries a
-closed id, and which now relates to nothing open except tasks tagged `epic`,
-gets `note: <id> no longer waits on anything open: yman move <id> <default
-status>`, one per task in id order. Nothing is moved. Closing a task tagged
-`epic` frees nothing: its steps relate to it as a container, not a blocker.
-A `set` that changes nothing, or that leaves the task closed, reports nothing.
+**What a close changed.** When `set` or a verb moves a task from an open
+status into a terminal one, yman reads every task once more and reports on
+stderr, after the last id of the call (so `done 32 33` judges a task waiting
+on both after both closed). Exit status and stdout are unaffected.
+
+- A closed task tagged `epic` that open tasks still relate to gets
+  `warning: <id> closed with open tasks relating to it: <ids>` (id order).
+  The close is already committed; the warning is there so a plan is not
+  closed by accident with work left. Closing it frees nothing: its steps
+  relate to it as a container, not a blocker.
+- Otherwise, a task in status `blocked` whose `related` carries a closed id,
+  and which now relates to nothing open except tasks tagged `epic`, gets
+  `note: <id> no longer waits on anything open: yman move <id> <default
+  status>`, one per task in id order. Nothing is moved.
+
+A follow-up that relates to an ordinary task is not a step and is never
+reported. A `set` that changes nothing, or that leaves the task closed,
+reports nothing.
 
 ### `tags rename` / `tags rm`
 

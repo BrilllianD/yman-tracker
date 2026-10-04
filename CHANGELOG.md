@@ -17,6 +17,8 @@ under [Releasing](README.md#releasing) in the README.
 - Closing a task (`done`, `cancel`, `move`/`set --status`) notes on stderr
   each blocked task that now waits on nothing open, with the `yman move` that
   frees it. Nothing is moved automatically.
+- Closing a task tagged `epic` while tasks relating to it are still open
+  warns on stderr and names them; the close still goes through.
 
 ## [0.5.1] - 2026-10-01
 

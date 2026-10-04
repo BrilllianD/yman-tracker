@@ -169,8 +169,9 @@ yman show 30 -n 0              # the goal and its body
   move (with `-m "unblocked"`); nothing moves by itself. An epic tag means
   "container", so the epic is never counted as something to wait on.
 - Close the epic last, when `yman plan <epic>` lists no steps, with a
-  `done -m` that sums up the result. Nest plans by relating an epic to a
-  bigger one.
+  `done -m` that sums up the result. Closing it earlier still succeeds but
+  warns `warning: 30 closed with open tasks relating to it: 35, 36`; reopen
+  it or finish those. Nest plans by relating an epic to a bigger one.
 - The link is always `--relate`: a renumber rewrites `related` and never the
   prose, so an id in a body is a hint for people, not a relation.
 

@@ -4844,11 +4844,11 @@ fn closing_a_blocker_notes_what_it_freed() {
         "note: 4 no longer waits on anything open: yman move 4 todo"
     );
 
-    // An epic is a container: closing it frees nothing.
+    // An epic is a container: closing it frees nothing (it warns instead).
     run(&["add", "Epic two", "-t", "epic"]); // 6
     run(&["add", "Step", "--relate", "6", "-s", "blocked"]); // 7
     let (_, err) = run(&["move", "6", "done"]);
-    assert_eq!(err, "");
+    assert!(!err.contains("note:"), "{err}");
 
     // Multi-id: one report after both are closed, not a premature silence.
     run(&["add", "C"]); // 8
@@ -4871,4 +4871,52 @@ fn closing_a_blocker_notes_what_it_freed() {
     // Not a transition into a closed status: no report.
     let (out, err) = run(&["move", "8", "done"]);
     assert_eq!((out.as_str(), err.as_str()), ("no changes\n", ""));
+}
+
+/// Closing a task tagged `epic` while tasks relating to it are still open
+/// warns on stderr and names them; the close is committed and the exit is 0.
+/// A non-epic task with an open follow-up, an epic whose steps are all
+/// closed, and an epic closed together with its last step stay quiet.
+#[test]
+fn closing_an_epic_with_open_steps_warns() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v2_config(&fx.a);
+    let run = |args: &[&str]| -> (String, String) {
+        let out = fx.yman(&fx.a).args(args).output().unwrap();
+        assert!(out.status.success(), "{args:?}: {}", stderr(&out));
+        let err: Vec<&str> = std::str::from_utf8(&out.stderr)
+            .unwrap()
+            .lines()
+            .filter(|l| !l.starts_with("note: task folder is now "))
+            .collect();
+        (stdout(&out), err.join("\n"))
+    };
+    run(&["add", "Epic", "-t", "epic"]); // 1
+    run(&["add", "Step a", "--relate", "1"]); // 2
+    run(&["add", "Step b", "--relate", "1", "-s", "blocked"]); // 3
+    run(&["add", "Step c", "--relate", "1"]); // 4
+    run(&["done", "4"]);
+
+    let (out, err) = run(&["done", "1"]);
+    assert_eq!(out, "1: status todo -> done\n", "stdout stays data");
+    assert_eq!(
+        err,
+        "warning: 1 closed with open tasks relating to it: 2, 3"
+    );
+    assert_eq!(fx.status(&fx.a, "1"), "done", "the close stands");
+
+    // A follow-up relating to an ordinary task is not a step.
+    run(&["add", "Parent"]); // 5
+    run(&["add", "Follow-up", "--relate", "5"]); // 6
+    let (_, err) = run(&["done", "5"]);
+    assert_eq!(err, "");
+
+    // Every step closed, or closed in the same call: quiet.
+    run(&["add", "Epic two", "-t", "epic"]); // 7
+    run(&["add", "Only step", "--relate", "7"]); // 8
+    run(&["add", "Last step", "--relate", "7"]); // 9
+    run(&["cancel", "8"]);
+    let (_, err) = run(&["done", "9", "7"]);
+    assert_eq!(err, "");
 }

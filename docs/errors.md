@@ -150,6 +150,7 @@ Never fatal, always stderr:
 | `warning: origin has new task commits; run: yman sync` | `yman.autosync = push` and the push after a change was rejected; nothing is merged, the change stays committed |
 | `warning: autosync failed: <why>; run: yman sync` | `yman.autosync = push` and the push after a change failed (offline, auth); the command still succeeds |
 | `warning: task <id> does not exist here; relating anyway` | `add --relate`/`--waits-on` or `set --relate`/`--waits-on` naming an id no folder here carries |
+| `warning: <id> closed with open tasks relating to it: <ids>` | a close (as for the note below) of a task tagged `epic` while tasks relating to it are still open; the close is committed |
 | `warning: skipped N unreadable task folder(s): <rels>` | `tags`, `tags rename`, `tags rm` and `rm` walking every task |
 | `warning: <path> not moved; <dest> already exists` | `sync` rejoining a split folder found the same file on both sides |
 | `note: added remote "origin" -> <url>` | `init --remote` created the remote |

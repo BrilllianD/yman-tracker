@@ -74,12 +74,14 @@ pub fn waits_on(t: &Task, tasks: &[Task], cfg: &Config) -> Vec<String> {
     ids
 }
 
-/// What closing `closed` changed for everyone else, on stderr: a blocked
-/// task that now waits on nothing open gets a note naming the command that
-/// moves it on. Nothing is moved — whether the work can really start is the
-/// reader's call. Closing an epic unblocks nothing: its steps relate to it as
-/// a container. Called once after a whole multi-id verb, so `done 32 33`
-/// judges a task waiting on both after both are closed.
+/// What closing `closed` changed for everyone else, on stderr. An epic closed
+/// while tasks relating to it are still open gets a warning naming them — the
+/// close stands, it is already committed. Otherwise a blocked task that now
+/// waits on nothing open gets a note naming the command that moves it on.
+/// Nothing is moved — whether the work can really start is the reader's call.
+/// Closing an epic unblocks nothing: its steps relate to it as a container.
+/// Called once after a whole multi-id verb, so `done 32 33` judges a task
+/// waiting on both after both are closed.
 pub fn report_closed(ctx: &Context, closed: &[String]) -> Result<()> {
     if closed.is_empty() {
         return Ok(());
@@ -92,6 +94,18 @@ pub fn report_closed(ctx: &Context, closed: &[String]) -> Result<()> {
             continue;
         };
         if is_epic(x) {
+            let mut open: Vec<&str> = steps_of(&tasks, id)
+                .into_iter()
+                .filter(|t| !cfg.is_terminal(&t.meta.status))
+                .map(|t| t.id())
+                .collect();
+            if !open.is_empty() {
+                open.sort_by(|x, y| task::cmp_id(x, y));
+                eprintln!(
+                    "warning: {id} closed with open tasks relating to it: {}",
+                    open.join(", ")
+                );
+            }
             continue;
         }
         for t in steps_of(&tasks, id) {

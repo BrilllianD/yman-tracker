@@ -47,7 +47,8 @@ An epic is an ordinary task (tag `epic`); its steps are `add ... --relate <epic>
 that waits gets `--waits-on <blocker>` on `add` or `set`: relate plus status
 `blocked` (needs it in `statuses.list`); `plan` shows `waits on <ids>`. Closing
 the last blocker prints `note: <id> no longer waits on anything open: yman
-move <id> todo` on stderr; run it. Close the epic last, when `plan` lists none.
+move <id> todo` on stderr; run it. Close the epic last, when `plan` lists none
+(closing it earlier warns with the open ids).
 
 ## Streams and exit codes
 

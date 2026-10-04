@@ -314,7 +314,8 @@ Closing a task then says what it freed, on stderr — a blocked task left
 waiting on nothing open gets
 `note: 34 no longer waits on anything open: yman move 34 todo`. Nothing moves
 by itself; tasks tagged `epic` are containers and never count as something to
-wait on.
+wait on. Closing an epic with open steps still goes through, but warns:
+`warning: 30 closed with open tasks relating to it: 35, 36`.
 
 `yman rm` asks for confirmation on a terminal and refuses outright without `-f`
 when there is no terminal to ask at. It also drops the removed id from every
