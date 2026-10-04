@@ -829,6 +829,32 @@ fn seq_collision_renumber() {
     assert_eq!(fx.title(&fx.a, "3"), "B two");
 }
 
+/// The `git mv` a renumber makes is a rename to `git log`, not an add. The
+/// id it lands on must still count as assigned once the task is removed.
+#[test]
+fn a_renumbered_id_is_not_reused_after_rm() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "A one"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+
+    fx.yman(&fx.a).args(["add", "A two"]).assert().success();
+    fx.yman(&fx.b).args(["add", "B two"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert!(
+        stdout(&out).contains("renumbered 2 -> 3"),
+        "{}",
+        stdout(&out)
+    );
+
+    fx.yman(&fx.b).args(["rm", "3", "-f"]).assert().success();
+    let out = fx.yman(&fx.b).args(["add", "B three"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stdout(&out).starts_with("added 4 "), "{}", stdout(&out));
+}
+
 /// A colliding task that was closed offline is renumbered inside its status
 /// directory, not lifted back to the top of `.yman`.
 #[test]

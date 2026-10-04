@@ -505,8 +505,11 @@ project.
 
 "Taken" means the union of the ids on disk **and every id that ever had a file
 added under it** across `LOCAL` and `REMOTE`
-(`git log --diff-filter=A --name-only`). Deleting a task therefore never frees
-its id — a later `add` cannot reuse it and confuse the history.
+(`git log --no-renames --diff-filter=A --name-only -z`). Deleting a task
+therefore never frees its id — a later `add` cannot reuse it and confuse the
+history. Rename detection is off because a sync renumber is a `git mv`, which
+would otherwise read as a rename and hide the id it lands on; `-z` keeps paths
+unquoted whatever characters they hold.
 
 The `author` prefix resolves in order: `git config yman.author`, `$YMAN_AUTHOR`,
 then the initials of `user.name` (first letter of each word, lowercased, ASCII

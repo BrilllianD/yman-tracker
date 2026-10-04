@@ -7,6 +7,12 @@ under [Releasing](README.md#releasing) in the README.
 
 ## [Unreleased]
 
+### Fixed
+
+- An id a sync renumber moved a task to is no longer handed out again after
+  that task is removed. The history scan read the renumber's `git mv` as a
+  rename, not an add.
+
 ## [0.6.0] - 2026-10-04
 
 ### Added
