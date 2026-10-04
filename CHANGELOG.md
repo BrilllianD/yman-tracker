@@ -7,6 +7,12 @@ under [Releasing](README.md#releasing) in the README.
 
 ## [Unreleased]
 
+### Added
+
+- `yman plan <id>`: a task, a per-status count over every task relating to
+  it, and the open ones sorted like `ls`, with `waits on <ids>` on a blocked
+  step. `-a`, `-n`, `-l` and `--json` as on `ls`.
+
 ## [0.5.1] - 2026-10-01
 
 ### Added

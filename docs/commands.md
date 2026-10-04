@@ -159,6 +159,36 @@ has to branch on a missing key. `dir` is relative to `.yman`, as in `ls --json`,
 where the text form's `folder:` line is relative to the repository root
 (`.yman/2.1.fix-login`).
 
+### `plan`
+
+`plan <id>` reads a plan in one call: the task, how far its steps have got,
+and what is left. A step is any task whose `related` carries the id — the set
+`ls --related <id>` filters and `show`'s `related by:` lists. It is built from
+the same single read of every `m.yml` that `show` makes; broken folders are
+skipped.
+
+    30  Ship sync v2
+    status: doing   steps: 7   todo 2, doing 1, blocked 1, done 3
+    2  32  todo     Rewrite merge driver
+    3  34  blocked  Drop old ref            waits on 32
+
+The second line counts **every** step, closed ones included, per status in
+`statuses.list` order; a status the config does not list comes last, and a
+zero count is left out. With no steps it reads `steps: 0` and no rows follow.
+Rows are the open steps, sorted as `ls` sorts (`P ID STATUS TITLE`, no header
+line); `-a` adds the closed ones and `-n N` keeps the first N after sorting.
+A step in status `blocked` gets a last column, `waits on <ids>`: the tasks in
+its own `related` that exist here, are open, and are not tagged `epic` — so
+the epic a step belongs to never reads as something it waits on. `-l` prints
+each step's body under its row, indented as in `ls -l`.
+
+`--json` emits one object —
+`{id, priority, status, title, counts, steps}`, where `counts` maps each
+non-zero status to its number (`{}` when there are no steps) and `steps` is
+`[{id, priority, status, title, tags, assignee, waits_on, dir}]` in row order;
+`waits_on` is `[]` for a step that is not `blocked`, and `-l` adds `body`.
+An unknown id is exit 4, as everywhere.
+
 ### `status`
 
 Reports and never changes anything: the local ref and its short head, the

@@ -31,6 +31,8 @@ pub enum Cmd {
     Ls(LsArgs),
     /// Show one task in full
     Show(ShowArgs),
+    /// Show a task and the tasks relating to it, with progress
+    Plan(PlanArgs),
     /// Open a task's t.md in $EDITOR
     Edit(IdArgs),
     /// Change fields of a task
@@ -237,6 +239,24 @@ pub struct ShowArgs {
     /// Print only the last N discussion entries (0 hides the discussion)
     #[arg(short = 'n', long = "comments", value_name = "N")]
     pub comments: Option<usize>,
+    /// Print JSON instead of the text block
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug)]
+pub struct PlanArgs {
+    /// Task id
+    pub id: String,
+    /// Include closed steps
+    #[arg(short = 'a', long)]
+    pub all: bool,
+    /// Print at most N steps, after sorting
+    #[arg(short = 'n', long = "limit", value_name = "N")]
+    pub limit: Option<usize>,
+    /// Also print each step's body: indented under its row, or as "body" in JSON
+    #[arg(short = 'l', long)]
+    pub long: bool,
     /// Print JSON instead of the text block
     #[arg(long)]
     pub json: bool,

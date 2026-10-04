@@ -265,12 +265,16 @@ P  ID  STATUS  TITLE       TAGS      F  C
 
 ```sh
 yman show <id> [-n N] [--json]   # everything about one task; -n keeps the last N comments
+yman plan <id> [-a] [-n N] [-l] [--json]   # a task and the tasks relating to it
 yman path <id>     # just the absolute path:  cd $(yman path 14)
 yman log [<id>] [-n N]
 ```
 `yman show` lists the task's own `related` ids and, as `related by:`, the tasks
 that relate to it (`related_by` in `--json`), so an epic sees its steps without
-being edited. `yman log <id>` follows the task across every rename it has been
+being edited. `yman plan <id>` reads a whole plan at once: the task, a
+count per status over every task relating to it, and the open ones sorted like
+`ls`, a `blocked` one followed by `waits on <ids>` — what it relates to that is
+still open, its epic (tag `epic`) aside. `yman log <id>` follows the task across every rename it has been
 through.
 
 ### Changing things
@@ -378,9 +382,9 @@ skim bodies with `ls -l -n`, read with `show -n`, close with `done <id> -m`,
 run `yman sync` before a status change and after it (the after is automatic
 under `yman.autosync = push`), never open an editor, and set `YMAN_ACTOR` so
 the work is attributed to the agent. Big work is a plan: an epic task plus
-steps that `--relate` it, listed from the epic with `ls --related <id>` and
-seen from it as `related by:` in `show`, so the epic is never edited; a step
-that waits sits in `blocked` and relates to what it waits on.
+steps that `--relate` it, read from the epic with `yman plan <id>` (progress
+and open steps in one call), so the epic is never edited; a step that waits
+sits in `blocked` and relates to what it waits on.
 
 For a harness that loads skills, [skills/yman/](skills/yman/) is the fuller
 version of the same rules as a Claude Code skill — the task-list procedure,

@@ -4654,3 +4654,85 @@ fn autosync_without_an_origin_is_silent() {
     assert!(out.status.success(), "{}", stderr(&out));
     assert_eq!(stderr(&out), "");
 }
+
+/// `plan <id>` prints the task, a per-status count over every step, and the
+/// open steps sorted like `ls`; a blocked step names what it still waits on,
+/// never the epic it belongs to. `-a`, `-n`, `-l` and `--json` behave as on
+/// `ls`, and an unknown id is exit 4.
+#[test]
+fn plan_prints_progress_and_open_steps() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v2_config(&fx.a);
+    let add = |args: &[&str]| {
+        let mut full = vec!["add"];
+        full.extend_from_slice(args);
+        fx.yman(&fx.a).args(&full).assert().success();
+    };
+    add(&["Epic", "-t", "epic"]);
+    add(&["Step one", "-p", "3", "--relate", "1"]);
+    add(&["Step two", "-p", "2", "--relate", "1", "-m", "body two"]);
+    add(&[
+        "Step three",
+        "-p",
+        "3",
+        "--relate",
+        "1",
+        "--relate",
+        "3",
+        "-s",
+        "blocked",
+    ]);
+    add(&["Step four", "--relate", "1"]);
+    add(&["Unrelated"]);
+    fx.yman(&fx.a).args(["done", "5"]).assert().success();
+
+    let plan = |args: &[&str]| -> String {
+        let mut full = vec!["plan"];
+        full.extend_from_slice(args);
+        let out = fx.yman(&fx.a).args(&full).output().unwrap();
+        assert!(out.status.success(), "{}", stderr(&out));
+        assert_eq!(stderr(&out), "");
+        stdout(&out)
+    };
+    assert_eq!(
+        plan(&["1"]),
+        "1  Epic\n\
+         status: todo   steps: 4   todo 2, blocked 1, done 1\n\
+         2  3  todo     Step two\n\
+         3  2  todo     Step one\n\
+         3  4  blocked  Step three  waits on 3\n"
+    );
+    let all = plan(&["1", "-a"]);
+    assert!(all.ends_with("\n5  5  done     Step four\n"), "{all}");
+    assert_eq!(
+        plan(&["1", "-n", "1", "-l"]),
+        "1  Epic\n\
+         status: todo   steps: 4   todo 2, blocked 1, done 1\n\
+         2  3  todo  Step two\n    body two\n"
+    );
+    assert_eq!(plan(&["6"]), "6  Unrelated\nstatus: todo   steps: 0\n");
+
+    let json = plan(&["1", "--json"]);
+    assert!(
+        json.starts_with(
+            r#"{"id":"1","priority":5,"status":"todo","title":"Epic","counts":{"todo":2,"blocked":1,"done":1},"steps":[{"id":"3","#
+        ),
+        "{json}"
+    );
+    assert!(
+        json.contains(r#""title":"Step two","tags":[],"assignee":null,"waits_on":[],"dir":"#),
+        "{json}"
+    );
+    assert!(
+        json.contains(r#""title":"Step three","tags":[],"assignee":null,"waits_on":["3"],"#),
+        "{json}"
+    );
+    assert!(!json.contains("Step four"), "{json}");
+    assert!(!json.contains(r#""body""#), "{json}");
+    assert!(plan(&["1", "--json", "-l"]).contains(r#""body":"body two""#));
+    assert!(plan(&["6", "--json"]).contains(r#""counts":{},"steps":[]}"#));
+
+    let out = fx.yman(&fx.a).args(["plan", "99"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(4), "{}", stderr(&out));
+}

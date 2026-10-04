@@ -9,6 +9,7 @@ mod hooks;
 mod ids;
 mod json;
 mod merge;
+mod plan;
 mod refresh;
 mod refs;
 mod repo;

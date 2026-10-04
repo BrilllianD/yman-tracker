@@ -1,9 +1,11 @@
 use crate::cli::LsArgs;
+use crate::config::Config;
 use crate::json;
 use crate::repo::Context;
 use crate::tags;
 use crate::task::{self, Entry, Task, format_ts};
 use anyhow::{Result, bail};
+use std::cmp::Ordering;
 use std::io::IsTerminal;
 
 pub fn run(ctx: &mut Context, a: LsArgs) -> Result<()> {
@@ -66,16 +68,7 @@ pub fn run(ctx: &mut Context, a: LsArgs) -> Result<()> {
         }
     }
 
-    tasks.sort_by(|x, y| {
-        x.priority()
-            .cmp(&y.priority())
-            .then_with(|| {
-                ctx.config()
-                    .status_index(&x.meta.status)
-                    .cmp(&ctx.config().status_index(&y.meta.status))
-            })
-            .then_with(|| task::cmp_id(x.id(), y.id()))
-    });
+    tasks.sort_by(|x, y| cmp_tasks(ctx.config(), x, y));
     if let Some(n) = a.limit {
         tasks.truncate(n);
     }
@@ -134,27 +127,44 @@ fn print_table(tasks: &[Task], broken: &[(String, String)], long: bool) {
     }
     for (i, row) in rows.iter().enumerate() {
         println!("{}", join_row(row, &width));
-        // Indented so every row still starts in column 0 and a script can
-        // tell the two apart; blank body lines stay blank, not four spaces.
         if long && let Some(t) = tasks.get(i) {
-            for line in t.body.trim_matches('\n').lines() {
-                if line.is_empty() {
-                    println!();
-                } else {
-                    println!("    {line}");
-                }
-            }
+            print_body(&t.body);
+        }
+    }
+}
+
+/// The order every task listing uses: priority, then the status's place in
+/// `statuses.list`, then id.
+pub(crate) fn cmp_tasks(cfg: &Config, x: &Task, y: &Task) -> Ordering {
+    x.priority()
+        .cmp(&y.priority())
+        .then_with(|| {
+            cfg.status_index(&x.meta.status)
+                .cmp(&cfg.status_index(&y.meta.status))
+        })
+        .then_with(|| task::cmp_id(x.id(), y.id()))
+}
+
+/// A body under its row, indented so every row still starts in column 0 and
+/// a script can tell the two apart; blank body lines stay blank, not four
+/// spaces.
+pub(crate) fn print_body(body: &str) {
+    for line in body.trim_matches('\n').lines() {
+        if line.is_empty() {
+            println!();
+        } else {
+            println!("    {line}");
         }
     }
 }
 
 /// Columns are padded by character count; good enough for the Latin and
 /// Cyrillic titles this is meant for, and never worse than raw bytes.
-fn display_width(s: &str) -> usize {
+pub(crate) fn display_width(s: &str) -> usize {
     s.chars().count()
 }
 
-fn join_row(row: &[String; 7], width: &[usize; 7]) -> String {
+pub(crate) fn join_row<const N: usize>(row: &[String; N], width: &[usize; N]) -> String {
     let mut out = String::new();
     // Trailing empty columns are dropped so short rows stay short.
     let last = row.iter().rposition(|c| !c.is_empty()).unwrap_or(0);

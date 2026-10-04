@@ -42,12 +42,12 @@ comment in the same commit. `set <id>` changes any field: `--status`
 ## Plans
 
 An epic is an ordinary task (tag `epic`); its steps are `add ... --relate <epic>`.
-One-way is enough: `ls --related <epic>` lists its open steps (`-a` for
-progress, `-n 3` for what is next) and `show <epic>` has `related by:`. Order
-with priority. A step that waits relates to its blocker too and sits in status
-`blocked` (needs it in `statuses.list`); after closing a task,
+`plan <epic>` prints it, a count per status and the open steps sorted like `ls`
+(`-a` all, `-n 3` what is next, `-l`, `--json`). Order with priority. A step
+that waits relates to its blocker too and sits in status `blocked` (needs it in
+`statuses.list`); `plan` shows it as `waits on <ids>`. After closing a task,
 `ls -s blocked --related <id>` finds what waited on it. Close the epic last,
-when `ls --related <epic>` prints nothing.
+when `plan <epic>` lists no steps.
 
 ## Streams and exit codes
 
