@@ -1,0 +1,6 @@
+# test fixture hygiene
+
+The fixture in `tests/common/mod.rs` strips only `GIT_DIR` and `GIT_WORK_TREE`, while `src/git.rs` also strips `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY` and `GIT_COMMON_DIR`; running `cargo test` from a git hook would point the fixture's own git calls at the outer repository. `GIT_AUTHOR_*` and `GIT_COMMITTER_*` are not removed although a test asserts `%an`. `GIT_CEILING_DIRECTORIES` is not set, so `init_requires_a_repo` fails when `TMPDIR` is inside a repository. The environment setup is copied three times (`env()`, `yman()` and `hooks_refresh_on_pull`), and the third copy skips the `GIT_DIR`, `YMAN_*`, `EDITOR` and `VISUAL` handling. The spawn-count tests assert at most one git process but `refs.rs` falls back to `rev-parse` on layouts it does not recognise, and the fixture does not pin `init.defaultRefFormat=files`. `scripts/spike-symref.sh` strips nothing.
+
+- Where: `tests/common/mod.rs`, `tests/cli.rs` (`hooks_refresh_on_pull`, the spawn-count scenarios), `scripts/spike-symref.sh`.
+- Done when: one helper builds the environment, it strips the same set as `src/git.rs` plus author and committer variables, sets `GIT_CEILING_DIRECTORIES`, pins the ref format, and the gate is green.
