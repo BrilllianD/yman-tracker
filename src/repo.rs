@@ -118,7 +118,8 @@ fn discover_separately(here: &Git) -> Result<(PathBuf, PathBuf)> {
 }
 
 impl Context {
-    /// Config of the task history. Only valid after `preflight`.
+    /// Config of the task history. Only valid after `preflight`, and not for
+    /// a command `preflight` let through a merge with an unloadable config.
     pub fn config(&self) -> &Config {
         self.config
             .as_ref()
@@ -242,18 +243,28 @@ impl Context {
     }
 
     /// Checks every command (except `init`, `hooks`, `git`) runs first.
-    pub fn preflight(&mut self, mutating: bool) -> Result<()> {
+    ///
+    /// The merge check comes before the config load: a sync merge that
+    /// conflicted in `config.toml` leaves it unparseable, and that must still
+    /// read as exit 3. `settles_merge` commands (`sync`) get past an
+    /// unloadable config while merging, since getting out of that state is
+    /// their job and they read no config until it is over.
+    pub fn preflight(&mut self, mutating: bool, settles_merge: bool) -> Result<()> {
         if self.ydir_state() != YdirState::Worktree {
             bail!("{YDIR_NAME} is not initialized; run: yman init");
         }
         self.check_worktree_head()?;
-        let cfg = Config::load(&self.ydir)?;
-        self.config = Some(cfg);
-        if mutating && self.merge_in_progress() {
+        let merging = self.merge_in_progress();
+        if mutating && merging {
             return Err(MergePending::new(
                 "sync merge in progress; resolve conflicts then run: yman sync --continue  (or: yman sync --abort)",
             )
             .into());
+        }
+        match Config::load(&self.ydir) {
+            Ok(cfg) => self.config = Some(cfg),
+            Err(_) if merging && settles_merge => {}
+            Err(e) => return Err(e),
         }
         Ok(())
     }

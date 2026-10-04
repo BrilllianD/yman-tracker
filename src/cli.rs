@@ -573,6 +573,12 @@ impl Cmd {
         )
     }
 
+    /// Commands that exist to finish or abandon a sync merge, and so must
+    /// run while one is pending even when it left `config.toml` unparseable.
+    pub fn settles_merge(&self) -> bool {
+        matches!(self, Cmd::Sync(_))
+    }
+
     /// Commands that do not need `.yman` to exist yet. `guide`,
     /// `completions`, `man` and `merge-driver` are listed for completeness;
     /// `main` answers them before looking for a repository at all.

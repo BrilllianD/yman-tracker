@@ -1069,6 +1069,97 @@ fn conflict_abort() {
     assert_eq!(stderr(&out).trim(), "error: no merge in progress");
 }
 
+/// Two clones change the same `config.toml` line and B's sync conflicts on
+/// it. The marked-up config does not parse, and that must not lock out the
+/// commands that settle the merge, nor turn exit 3 into exit 1.
+fn conflict_in_config_toml(fx: &Fx) {
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    let config = fx.read(&fx.a.join(".yman/config.toml"));
+    fx.set_config(&fx.a, &config.replace("random_len = 4", "random_len = 5"));
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.set_config(&fx.b, &config.replace("random_len = 4", "random_len = 6"));
+
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert!(stderr(&out).contains("config.toml"), "{}", stderr(&out));
+}
+
+#[test]
+fn a_conflicted_config_toml_keeps_exit_3_and_abort() {
+    let fx = Fx::new();
+    conflict_in_config_toml(&fx);
+
+    let out = fx.yman(&fx.b).args(["add", "Nope"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("sync merge in progress"),
+        "{}",
+        stderr(&out)
+    );
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    let out = fx
+        .yman(&fx.b)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert!(stderr(&out).contains("still unmerged"), "{}", stderr(&out));
+
+    let out = fx.yman(&fx.b).args(["sync", "--abort"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        fx.read(&fx.b.join(".yman/config.toml"))
+            .contains("random_len = 6")
+    );
+    fx.yman(&fx.b).arg("ls").assert().success();
+}
+
+#[test]
+fn a_conflicted_config_toml_can_be_continued() {
+    let fx = Fx::new();
+    conflict_in_config_toml(&fx);
+    let path = fx.b.join(".yman/config.toml");
+    let marked = fx.read(&path);
+
+    // A resolution that still does not parse is refused, not committed.
+    let resolved: String = marked
+        .lines()
+        .filter(|l| {
+            !l.starts_with("<<<<<<<") && !l.starts_with("=======") && !l.starts_with(">>>>>>>")
+        })
+        .filter(|l| !l.starts_with("random_len = 6"))
+        .map(|l| format!("{l}\n"))
+        .collect();
+    fx.write(&path, &resolved.replace("version = ", "version = x"));
+    let out = fx
+        .yman(&fx.b)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("invalid .yman/config.toml"),
+        "{}",
+        stderr(&out)
+    );
+
+    fx.write(&path, &resolved);
+    let out = fx
+        .yman(&fx.b)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(fx.read(&path).contains("random_len = 5"));
+    fx.yman(&fx.b)
+        .args(["add", "Works again"])
+        .assert()
+        .success();
+}
+
 #[test]
 fn field_wise_merge_settles_disjoint_edits() {
     let fx = Fx::new();

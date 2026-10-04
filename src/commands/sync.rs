@@ -1,5 +1,5 @@
 use crate::cli::SyncArgs;
-use crate::config::Scheme;
+use crate::config::{Config, Scheme};
 use crate::errors::MergePending;
 use crate::ids;
 use crate::repo::{Context, FETCH_REFSPEC, LOCAL, REMOTE, REMOTE_REF};
@@ -78,6 +78,9 @@ fn resume(ctx: &mut Context, no_push: bool) -> Result<()> {
     if !still.is_empty() {
         return Err(MergePending::new(format!("still unmerged: {}", still.join(", "))).into());
     }
+    // `preflight` let us through with whatever config.toml the merge left;
+    // a hand-resolution that does not load must not be committed and pushed.
+    ctx.config = Some(Config::load(&ctx.ydir).map_err(|e| MergePending::new(format!("{e:#}")))?);
     // Staged into the merge commit itself, and before the checks, which
     // would otherwise read the left-behind folder as a duplicate id.
     rejoin_split_folders(ctx)?;

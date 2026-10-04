@@ -57,7 +57,7 @@ fn run(cli: Cli) -> anyhow::Result<()> {
     let mut ctx = repo::discover()?;
 
     if !cli.cmd.skips_preflight() {
-        ctx.preflight(cli.cmd.is_mutating())?;
+        ctx.preflight(cli.cmd.is_mutating(), cli.cmd.settles_merge())?;
     }
 
     if !cli.cmd.skips_lazy_refresh() {
