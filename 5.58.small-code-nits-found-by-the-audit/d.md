@@ -10,3 +10,7 @@ From step 40: the test-only `tmpfile()` helper in `src/discussion.rs` (~line 186
 
 From step 43: an empty `core.hooksPath` turns hooks off in git, yet `yman hooks install` writes into `.git/hooks` and reports `installed`; a whitespace-only value is trimmed by `get_cfg` and treated as unset, while git treats it as a relative directory. Both predate step 43.
 
+## 2026-10-04T07:22:00Z — Bronnikov Aleksandr
+
+From step 44: (1) `attach` still leaves earlier copies behind if a `std::fs::copy` fails part-way (disk full), including files overwritten with `--force`; validation cannot catch that, it needs a rollback. (2) `rm` and `set::run` return a report-loading error after the commit has landed, so a committed change can exit non-zero.
+
