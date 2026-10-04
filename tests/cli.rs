@@ -224,6 +224,40 @@ fn ls_json_and_unicode_slug() {
     assert!(text.contains("\"dir\":\"1.1.первая-задача\""), "{text}");
 }
 
+/// `yman ls | head -1`: the reader goes away before yman has written
+/// everything. That has to end quietly, the way git and coreutils do, not
+/// with a `println!` panic on stderr.
+#[test]
+fn ls_into_a_closed_pipe_exits_quietly() {
+    use std::process::{Command, Stdio};
+
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    for title in ["One", "Two", "Three"] {
+        fx.yman(&fx.a).args(["add", title]).assert().success();
+    }
+
+    for args in [&["ls"][..], &["ls", "--json"][..]] {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_yman"));
+        fx.sandbox(&mut cmd)
+            .current_dir(&fx.a)
+            .args(args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = cmd.spawn().unwrap();
+        // Close the read end before yman can write anything, so every write
+        // it attempts hits a pipe with no reader.
+        drop(child.stdout.take());
+        let out = child.wait_with_output().unwrap();
+        assert_eq!(stderr(&out), "", "{args:?}");
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::ExitStatusExt;
+            assert_eq!(out.status.signal(), Some(13), "{args:?}: {:?}", out.status);
+        }
+    }
+}
+
 #[test]
 fn init_existing_remote() {
     let fx = Fx::new();

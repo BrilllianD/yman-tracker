@@ -9,6 +9,10 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- `yman ls | head -1`, and any other output piped into a reader that quits
+  early, now ends quietly the way git and coreutils do (killed by SIGPIPE, shell
+  status 141) instead of panicking with `failed printing to stdout: Broken
+  pipe` on stderr.
 - A multi-id verb that fails part-way (`yman done 32 99`) now prints the close
   report — epic warning, `no longer waits` notes — for the ids it did commit
   before returning the error; it used to drop it. `yman rm` of an open
