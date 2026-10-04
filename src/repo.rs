@@ -87,6 +87,7 @@ pub fn discover() -> Result<Context> {
         // is unanswerable: ask the way we always did.
         _ => discover_separately(&here)?,
     };
+    let root = yman_parent(&root, &common).unwrap_or(root);
     let main = Git::new(&root);
     let ydir = root.join(YDIR_NAME);
     // git derives the worktree's private dir name from the basename and
@@ -101,6 +102,22 @@ pub fn discover() -> Result<Context> {
         wt_gitdir,
         config: None,
     })
+}
+
+/// From anywhere inside `.yman` — `cd $(yman path 14)` — git's toplevel is
+/// `.yman` itself. When that toplevel is our own linked worktree, the project
+/// is its parent. Read off disk, so it costs no process.
+fn yman_parent(top: &Path, common: &Path) -> Option<PathBuf> {
+    if top.file_name()? != YDIR_NAME {
+        return None;
+    }
+    let pointed = read_gitdir_file(top)?;
+    let worktrees = common.join("worktrees");
+    let worktrees = worktrees.canonicalize().unwrap_or(worktrees);
+    pointed
+        .starts_with(&worktrees)
+        .then(|| top.parent().map(Path::to_path_buf))
+        .flatten()
 }
 
 /// Fallback for [`discover`]: the two separate `rev-parse` calls.

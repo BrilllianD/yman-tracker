@@ -14,6 +14,8 @@ const GITATTRIBUTES: &str = "**/d.md merge=union\n**/m.yml merge=ymanmeta\n";
 /// attribute travels in the history, the `merge.<name>.*` config does not.
 const MERGE_DRIVER: &str = "ymanmeta";
 
+const ALREADY_CHECKED_OUT: &str = "refs/yman/local is already checked out in another worktree of this repo; only one .yman per clone is supported";
+
 pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
     let url = resolve_remote(ctx, a.remote.as_deref())?;
     // No origin means a local-only tracker: nothing to fetch from or push to
@@ -33,6 +35,10 @@ pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
         YdirState::Absent => {}
     }
 
+    // A previous `rm -rf .yman` leaves a stale worktree registration behind.
+    ctx.main.run(&["worktree", "prune"])?;
+    refuse_second_checkout(ctx)?;
+
     ctx.exclude_add()?;
     if url.is_some() && !ctx.fetch_refspec_present()? {
         ctx.fetch_refspec_add()?;
@@ -46,9 +52,6 @@ pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
         ctx.set_cfg("yman.author", author)?;
     }
     register_merge_driver(ctx)?;
-
-    // A previous `rm -rf .yman` leaves a stale worktree registration behind.
-    ctx.main.run(&["worktree", "prune"])?;
 
     if !offline {
         fetch_tasks(ctx, "fetch failed (see above); use --offline to skip")?;
@@ -226,6 +229,17 @@ fn fetch_tasks(ctx: &Context, failure_msg: &str) -> Result<()> {
     bail!("{failure_msg}")
 }
 
+/// `.yman` is added with `--detach`, and git guards only branches against a
+/// second checkout, so from a linked worktree of the project `worktree add`
+/// would happily make a second `.yman` on the same ref. Ask git who has it.
+fn refuse_second_checkout(ctx: &Context) -> Result<()> {
+    let list = ctx.main.out(&["worktree", "list", "--porcelain"])?;
+    if list.lines().any(|l| l == format!("branch {LOCAL}")) {
+        bail!(ALREADY_CHECKED_OUT);
+    }
+    Ok(())
+}
+
 fn add_worktree(ctx: &mut Context) -> Result<()> {
     let ydir = ctx.ydir.to_string_lossy().into_owned();
     let out = ctx
@@ -235,9 +249,7 @@ fn add_worktree(ctx: &mut Context) -> Result<()> {
         if out.stderr.contains("already checked out")
             || out.stderr.contains("is already used by worktree")
         {
-            bail!(
-                "{LOCAL} is already checked out in another worktree of this repo; only one {YDIR_NAME} per clone is supported"
-            );
+            bail!(ALREADY_CHECKED_OUT);
         }
         eprint!("{}", out.stderr);
         bail!("git worktree add failed");

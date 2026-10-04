@@ -19,6 +19,11 @@ under [Releasing](README.md#releasing) in the README.
 - `yman init` re-attaches a detached or misplaced `.yman` HEAD to
   `refs/yman/local`, as the preflight error advises, instead of failing with
   that same error. It refuses when HEAD has commits or edits the ref lacks.
+- Commands run from inside `.yman` — `cd $(yman path 14)` — find the project
+  instead of failing with `.yman is not initialized`, and `init` there no
+  longer nests a second worktree at `.yman/.yman`.
+- `yman init` from a linked worktree of the project refuses to create a
+  second `.yman` on the same ref; git does not guard a `--detach` checkout.
 
 ## [0.6.0] - 2026-10-04
 

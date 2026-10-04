@@ -10,7 +10,9 @@ semantics, [storage.md](storage.md) for the ref and on-disk contract,
 `yman` runs `git` as a subprocess; without it, every command fails with
 `git not found in PATH` except `guide`, `completions` and `man`, which are
 answered before any git process runs. The current directory must be inside the project's git
-repository — any subdirectory will do — or the command fails with
+repository — any subdirectory will do, including a task folder inside
+`.yman` (`cd $(yman path 14)`), which resolves to the project around it — or
+the command fails with
 `not inside a git repository`. There is no `-C <dir>` flag and no global
 configuration file outside the repository.
 
@@ -106,10 +108,10 @@ whose `refs/tasks/main` is not a yman history fails with
 `refs/tasks/main on origin is not a yman history (missing or invalid
 config.toml)`.
 
-One `.yman` per clone. When git refuses the checkout, a second attempt fails
-with `refs/yman/local is already checked out in another worktree of this repo`.
-From a linked worktree of the project git may not refuse it (the worktree is
-added with `--detach`); see [storage.md §2](storage.md#2-the-ref-namespace).
+One `.yman` per clone. A second attempt — typically `init` run from a linked
+worktree of the project, where the toplevel differs — fails with
+`refs/yman/local is already checked out in another worktree of this repo`
+before anything is changed; see [storage.md §2](storage.md#2-the-ref-namespace).
 
 ## 5. Staying up to date
 

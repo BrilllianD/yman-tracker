@@ -59,11 +59,19 @@ The consequence for everything else: `git status`, `git log`, `git diff`, branch
 pickers and CI never see task history, while `git log --all`, `git show-ref` and
 `git worktree list` do.
 
-Only one `.yman` per clone is supported. When git refuses the checkout,
-`init` reports `refs/yman/local is already checked out in another worktree of
-this repo; …`. The worktree is added with `--detach`, though, and git only
-guards branches against a second checkout, so from a linked worktree of the
-project a second `.yman` is not known to be refused; nothing else checks.
+Only one `.yman` per clone is supported. The worktree is added with
+`--detach`, and git only guards branches against a second checkout, so `init`
+does not rely on git refusing: before creating `.yman` it reads
+`git worktree list --porcelain`, and when any worktree is on
+`branch refs/yman/local` it stops with `refs/yman/local is already checked out
+in another worktree of this repo; …`. That is the case from a linked worktree
+of the project, whose toplevel differs from the main one.
+
+Discovery runs `rev-parse --show-toplevel`, which inside `.yman` answers
+`.yman` itself. When that toplevel is named `.yman` and its `.git` file points
+under `COMMON/worktrees/`, the project root is taken to be its parent, so
+commands run from a task folder work and `init` there takes the repair path
+rather than nesting a second worktree.
 
 ### Refs are read from disk, with `git` as the fallback
 
