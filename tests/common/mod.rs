@@ -7,6 +7,25 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tempfile::TempDir;
 
+/// Removed from every child's environment: what `LEAKY_ENV` in `src/git.rs`
+/// strips (keep the two in step), the author and committer overrides, which
+/// would beat the `user.name` the scenarios assert, and the ref-format
+/// override, which would beat the fixture's `init.defaultRefFormat`.
+const SCRUBBED_ENV: [&str; 12] = [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_COMMON_DIR",
+    "GIT_AUTHOR_NAME",
+    "GIT_AUTHOR_EMAIL",
+    "GIT_AUTHOR_DATE",
+    "GIT_COMMITTER_NAME",
+    "GIT_COMMITTER_EMAIL",
+    "GIT_COMMITTER_DATE",
+    "GIT_DEFAULT_REF_FORMAT",
+];
+
 pub struct Fx {
     pub tmp: TempDir,
     pub remote: PathBuf,
@@ -26,7 +45,7 @@ impl Fx {
         std::fs::write(
             &gitconfig,
             "[user]\n\tname = Test\n\temail = test@example.invalid\n\
-             [init]\n\tdefaultBranch = main\n[advice]\n\tdetachedHead = false\n",
+             [init]\n\tdefaultBranch = main\n\tdefaultRefFormat = files\n[advice]\n\tdetachedHead = false\n",
         )
         .unwrap();
 
@@ -65,36 +84,35 @@ impl Fx {
         fx
     }
 
-    fn env(&self, cmd: &mut Command) {
+    /// Apply the sandboxed environment to `cmd`. Every process a test starts
+    /// — the fixture's own git calls, `yman`, and a raw `git pull` that fires
+    /// hooks — goes through here, so none of them sees the outer repository,
+    /// the developer's identity or their git configuration.
+    pub fn sandbox<'c>(&self, cmd: &'c mut Command) -> &'c mut Command {
+        for key in SCRUBBED_ENV {
+            cmd.env_remove(key);
+        }
+        // Discovery stops before the tempdir's parent, so a scenario that runs
+        // outside any clone cannot find a repository the tempdir sits in.
+        let ceiling = self.tmp.path().parent().unwrap_or(self.tmp.path());
         cmd.env("HOME", &self.home)
             .env("GIT_CONFIG_GLOBAL", &self.gitconfig)
             .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CEILING_DIRECTORIES", ceiling)
             .env("EDITOR", "true")
             .env("VISUAL", "")
             .env("TERM", "dumb")
             .env("LC_ALL", "C")
             .env_remove("YMAN_AUTHOR")
             .env_remove("YMAN_ACTOR")
-            .env_remove("GIT_DIR")
-            .env_remove("GIT_WORK_TREE");
     }
 
     /// A `yman` invocation in `dir`, with the sandboxed environment applied.
     pub fn yman(&self, dir: &Path) -> assert_cmd::Command {
-        let mut cmd = assert_cmd::Command::cargo_bin("yman").expect("yman binary");
-        cmd.current_dir(dir)
-            .env("HOME", &self.home)
-            .env("GIT_CONFIG_GLOBAL", &self.gitconfig)
-            .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("EDITOR", "true")
-            .env("VISUAL", "")
-            .env("TERM", "dumb")
-            .env("LC_ALL", "C")
-            .env_remove("YMAN_AUTHOR")
-            .env_remove("YMAN_ACTOR")
-            .env_remove("GIT_DIR")
-            .env_remove("GIT_WORK_TREE");
-        cmd
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_yman"));
+        cmd.current_dir(dir);
+        self.sandbox(&mut cmd);
+        assert_cmd::Command::from_std(cmd)
     }
 
     /// How many `git` processes one `yman` invocation spawns.
@@ -137,7 +155,7 @@ impl Fx {
     fn git_at(&self, dir: &Path, args: &[&str]) -> String {
         let mut cmd = Command::new("git");
         cmd.current_dir(dir).args(args);
-        self.env(&mut cmd);
+        self.sandbox(&mut cmd);
         let out = cmd.output().expect("git runs");
         if !out.status.success() {
             panic!(
@@ -154,7 +172,7 @@ impl Fx {
     pub fn git_try(&self, dir: &Path, args: &[&str]) -> (bool, String, String) {
         let mut cmd = Command::new("git");
         cmd.current_dir(dir).args(args);
-        self.env(&mut cmd);
+        self.sandbox(&mut cmd);
         let out = cmd.output().expect("git runs");
         (
             out.status.success(),

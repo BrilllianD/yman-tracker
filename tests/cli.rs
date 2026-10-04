@@ -1718,14 +1718,13 @@ fn hooks_refresh_on_pull() {
         yman_dir.display(),
         std::env::var("PATH").unwrap_or_default()
     );
-    let out = std::process::Command::new("git")
+    let mut pull = std::process::Command::new("git");
+    let out = fx
+        .sandbox(&mut pull)
         .current_dir(&fx.a)
         // A plain pull, so the configured refs/tasks/main refspec applies.
         .args(["pull", "--no-rebase"])
         .env("PATH", path)
-        .env("HOME", fx.tmp.path().join("home"))
-        .env("GIT_CONFIG_GLOBAL", fx.tmp.path().join("home/.gitconfig"))
-        .env("GIT_CONFIG_NOSYSTEM", "1")
         .output()
         .unwrap();
     assert!(

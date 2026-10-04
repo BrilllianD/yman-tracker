@@ -5,6 +5,14 @@
 # Run: sh scripts/spike-symref.sh
 set -eu
 
+# Run from a hook or with an exported identity, these would point the spike's
+# git calls at another repository or another author. Same set the test
+# fixture scrubs (tests/common/mod.rs).
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR \
+	GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_AUTHOR_DATE \
+	GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL GIT_COMMITTER_DATE \
+	GIT_DEFAULT_REF_FORMAT
+
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 export GIT_CONFIG_NOSYSTEM=1
