@@ -57,6 +57,7 @@ fn abort(ctx: &Context) -> Result<()> {
         bail!("no merge in progress");
     }
     ctx.wt.ok(&["merge", "--abort"])?;
+    forget_marked(ctx);
     println!("merge aborted");
     Ok(())
 }
@@ -68,15 +69,31 @@ fn resume(ctx: &mut Context, no_push: bool) -> Result<()> {
     }
     // A file counts as unresolved while it still carries markers. Staging is
     // ours to do — the message we printed told the user to edit and rerun,
-    // not to run `git add`.
-    let unmerged = ctx.wt.out(&["diff", "--name-only", "--diff-filter=U"])?;
-    let still: Vec<&str> = unmerged
-        .lines()
-        .filter(|f| !f.trim().is_empty())
-        .filter(|f| file_has_markers(&ctx.ydir.join(f)))
-        .collect();
+    // not to run `git add`. The exception is a conflict git never marked up
+    // (binary, modify/delete, a failed merge driver): with no markers to
+    // remove, the file on disk is just ours, and taking it would drop theirs
+    // without a word. That one stays unmerged until the user stages a side.
+    let marked = read_marked(ctx);
+    let mut still: Vec<String> = Vec::new();
+    let mut unmarked: Vec<String> = Vec::new();
+    for (f, stages) in unmerged_paths(ctx)? {
+        if file_has_markers(&ctx.ydir.join(&f)) {
+            still.push(f);
+        } else if needs_a_side(stages) && !marked.contains(&f) {
+            unmarked.push(f.clone());
+            still.push(f);
+        }
+    }
     if !still.is_empty() {
-        return Err(MergePending::new(format!("still unmerged: {}", still.join(", "))).into());
+        let mut msg = format!("still unmerged: {}", still.join(", "));
+        if !unmarked.is_empty() {
+            msg.push_str(&format!(
+                "; no markers to remove in {}, stage the version to keep: \
+                 yman git checkout --ours|--theirs -- <file> && yman git add <file>",
+                unmarked.join(", ")
+            ));
+        }
+        return Err(MergePending::new(msg).into());
     }
     // `preflight` let us through with whatever config.toml the merge left;
     // a hand-resolution that does not load must not be committed and pushed.
@@ -88,6 +105,7 @@ fn resume(ctx: &mut Context, no_push: bool) -> Result<()> {
 
     ctx.wt.ok(&["add", "-A"])?;
     ctx.wt.ok(&["commit", "-q", "--no-verify", "--no-edit"])?;
+    forget_marked(ctx);
 
     let mut totals = Totals::default();
     if !no_push {
@@ -156,6 +174,61 @@ fn duplicate_ids_gate(ctx: &Context) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// In the `.yman` worktree's private git dir: the unmerged files that carried
+/// conflict markers when the merge stopped. A file on this list whose markers
+/// are gone was resolved by hand; an unmerged file that is not on it never had
+/// markers to remove.
+const MARKED_FILE: &str = "YMAN_MARKED";
+
+fn read_marked(ctx: &Context) -> HashSet<String> {
+    std::fs::read_to_string(ctx.wt_gitdir.join(MARKED_FILE))
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_string)
+        .collect()
+}
+
+fn forget_marked(ctx: &Context) {
+    let _ = std::fs::remove_file(ctx.wt_gitdir.join(MARKED_FILE));
+}
+
+/// Unmerged paths, in index order, with which of stages 1 (base), 2 (ours)
+/// and 3 (theirs) each one holds.
+fn unmerged_paths(ctx: &Context) -> Result<Vec<(String, [bool; 3])>> {
+    let out = ctx.wt.out(&["ls-files", "-u", "-z"])?;
+    let mut paths: Vec<(String, [bool; 3])> = Vec::new();
+    // `<mode> <hash> <stage>\t<path>`, NUL-terminated.
+    for entry in out.split('\0').filter(|e| !e.is_empty()) {
+        let Some((head, path)) = entry.split_once('\t') else {
+            continue;
+        };
+        let stage = match head.rsplit(' ').next() {
+            Some("1") => 0,
+            Some("2") => 1,
+            Some("3") => 2,
+            _ => continue,
+        };
+        match paths.last_mut() {
+            Some((p, stages)) if p == path => stages[stage] = true,
+            _ => {
+                let mut stages = [false; 3];
+                stages[stage] = true;
+                paths.push((path.to_string(), stages));
+            }
+        }
+    }
+    Ok(paths)
+}
+
+/// Both sides changed the content (stages 2 and 3), or one side changed what
+/// the other deleted (base plus exactly one side). Either way the file on
+/// disk is one side's version and the other is lost unless someone picks.
+/// A rename conflict's paths hold one side and no base, and are settled by
+/// the folder checks instead.
+fn needs_a_side([base, ours, theirs]: [bool; 3]) -> bool {
+    (ours && theirs) || (base && ours != theirs)
 }
 
 fn file_has_markers(path: &std::path::Path) -> bool {
@@ -312,11 +385,25 @@ fn merge_remote(ctx: &Context) -> Result<()> {
         return Ok(());
     }
     if ctx.merge_in_progress() {
-        let unmerged = ctx.wt.out(&["diff", "--name-only", "--diff-filter=U"])?;
-        let files: Vec<&str> = unmerged.lines().filter(|l| !l.trim().is_empty()).collect();
-        for f in &files {
-            eprintln!("  {f}");
+        // A merge driver that could not run says why only here (`sh: ...:
+        // not found`), and nothing else would tell the user.
+        eprint!("{}", out.stderr);
+        let files = unmerged_paths(ctx)?;
+        let mut marked = String::new();
+        for (f, stages) in &files {
+            if file_has_markers(&ctx.ydir.join(f)) {
+                marked.push_str(f);
+                marked.push('\n');
+                eprintln!("  {f}");
+            } else if needs_a_side(*stages) {
+                eprintln!(
+                    "  {f}  (no conflict markers: binary, modify/delete, or the merge driver failed)"
+                );
+            } else {
+                eprintln!("  {f}");
+            }
         }
+        std::fs::write(ctx.wt_gitdir.join(MARKED_FILE), marked)?;
         report_split_closes(ctx)?;
         return Err(MergePending::new(format!(
             "conflicts in {} file(s); edit them, remove markers, then: yman sync --continue  (or: yman sync --abort)",

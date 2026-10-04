@@ -628,7 +628,16 @@ Both require a merge in progress.
 
 `--continue` treats a file as unresolved while it still carries conflict
 markers — staging is yman's job, since the message tells the user to edit and
-rerun, not to run `git add`. It then checks that `config.toml` loads, that
+rerun, not to run `git add`. The exception is a conflict git never marked up:
+a binary file, a change on one side to what the other deleted, or an `m.yml`
+whose merge driver could not run. The file on disk is then simply ours, and
+taking it would drop theirs. When the merge stops, yman records in
+`WT_GITDIR/YMAN_MARKED` which unmerged files carried markers; an unmerged file
+that has both sides' versions (or a base and one side) and is not on that list
+stays unmerged until the user stages a version, and `--continue` says so:
+`still unmerged: <files>; no markers to remove in <files>, stage the version to keep: yman git checkout --ours|--theirs -- <file> && yman git add <file>`.
+`sync` prints git's stderr from the failed merge, so a driver's
+`No such file or directory` is not lost. It then checks that `config.toml` loads, that
 every task folder the merge touched still loads and is marker-free, that no
 id has two folders, stages
 everything, commits with `--no-edit`, and pushes.
