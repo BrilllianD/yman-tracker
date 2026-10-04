@@ -29,7 +29,17 @@ impl Output {
 #[derive(Clone, Debug)]
 pub struct Git {
     pub dir: PathBuf,
+    /// Point `core.hooksPath` at [`NO_HOOKS`] for every call.
+    no_hooks: bool,
 }
+
+/// The `core.hooksPath` that holds no hooks. Git looks a hook up as
+/// `<hooksPath>/<name>`; below a device file there is nothing to find, and git
+/// treats that as "no hook" without a warning (on Windows the path names no
+/// existing directory, with the same result). Unlike an empty directory under
+/// the worktree's private git dir, it needs no setup and is usable before
+/// `.yman` exists — `worktree add` fires `post-checkout` while creating it.
+pub const NO_HOOKS: &str = "/dev/null";
 
 /// Env vars that would leak repository state into our invocations when `yman`
 /// is run from inside a git hook, alias, or filter.
@@ -43,7 +53,26 @@ const LEAKY_ENV: [&str; 5] = [
 
 impl Git {
     pub fn new(dir: impl Into<PathBuf>) -> Self {
-        Git { dir: dir.into() }
+        Git {
+            dir: dir.into(),
+            no_hooks: false,
+        }
+    }
+
+    /// The same runner with the user's hooks switched off.
+    ///
+    /// `--no-verify` only skips the pre-hooks; `post-commit`, `post-merge`,
+    /// `post-checkout` and `post-rewrite` still fire, and in `.yman` they run
+    /// with the task files as their working directory. A hook that writes
+    /// files (husky, lefthook, LFS) would leave `.yman` dirty — refresh then
+    /// skips forever and the next snapshot commits the junk. The `.yman`
+    /// runner is built this way; the main one is not, so `yman hooks` and the
+    /// user's own hooks keep working for the user's own git commands.
+    pub fn without_hooks(&self) -> Self {
+        Git {
+            dir: self.dir.clone(),
+            no_hooks: true,
+        }
     }
 
     fn command(&self, args: &[&str]) -> Command {
@@ -51,6 +80,9 @@ impl Git {
         cmd.arg("-C").arg(&self.dir);
         // Non-ASCII paths come back unescaped; no color anywhere.
         cmd.args(["-c", "core.quotePath=false", "-c", "color.ui=never"]);
+        if self.no_hooks {
+            cmd.arg("-c").arg(format!("core.hooksPath={NO_HOOKS}"));
+        }
         cmd.args(args);
         for key in LEAKY_ENV {
             cmd.env_remove(key);
@@ -155,7 +187,9 @@ impl Git {
 
     /// Commit whatever is staged. `--no-verify` so main-repo hooks (which may
     /// live under `core.hooksPath` and know nothing about `.yman`) cannot
-    /// interfere. GPG signing is deliberately left to the user's config.
+    /// interfere; on the `.yman` runner [`Git::without_hooks`] keeps the
+    /// post-hooks out too. GPG signing is deliberately left to the user's
+    /// config.
     pub fn commit(&self, msg: &str) -> Result<()> {
         let out = self.run(&["commit", "-q", "--no-verify", "-m", msg])?;
         if out.ok() {

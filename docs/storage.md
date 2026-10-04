@@ -123,6 +123,14 @@ for a change that is already in the tree — and a localized git would turn each
 of them into a failure. The one exception is `yman git`, a raw passthrough that
 keeps the user's locale and flags.
 
+The runner in wt adds `-c core.hooksPath=/dev/null`, and so does the single
+`git worktree add` that creates `YDIR`: no hook file exists below a device
+file, so the user's `post-commit`, `post-merge`, `post-checkout` and `post-rewrite`
+never run with `YDIR` as their working directory (`--no-verify` only covers
+the pre-hooks). `/dev/null` rather than an empty directory under `WT_GITDIR`
+because it needs no setup and works before `WT_GITDIR` exists. The runner in
+main keeps the user's hooks, including the ones `yman hooks install` writes.
+
 When the repository has no `origin` and `--remote <url>` is given, `init`
 creates the remote — `fetch` and `push` address `origin` by name, so reporting
 the URL without creating it would lead nowhere.

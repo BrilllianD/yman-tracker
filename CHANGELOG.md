@@ -9,6 +9,14 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- The user's `post-commit`, `post-merge`, `post-checkout` and `post-rewrite`
+  hooks no longer run for yman's own commits, merges and fast-forwards in
+  `.yman`, nor for the `git worktree add` that creates it. `--no-verify` only
+  skipped the pre-hooks, so a husky, lefthook or LFS hook that wrote files
+  left `.yman` dirty: refresh then backed off for good and the next snapshot
+  committed the junk. Every git call in `.yman` now runs with
+  `core.hooksPath=/dev/null`; hooks in the project itself, `yman hooks`
+  included, fire as before.
 - A push that origin refuses — a `pre-receive` hook declining it, a protected
   or denied ref — is no longer mistaken for origin having moved. `sync` used to
   retry it three times and end in `origin keeps moving`, autosync used to say
