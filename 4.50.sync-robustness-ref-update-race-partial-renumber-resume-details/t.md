@@ -1,0 +1,6 @@
+# sync robustness: ref update race, partial renumber, resume details
+
+Five smaller sync defects. `push` pushes the ref by name and then runs `update-ref REMOTE LOCAL`, which reads LOCAL again, so a commit made in between is marked published and autosync's equality check skips it. A renumber stages its moves and commits once at the end, so a failure midway leaves a half-renumbered tree that the next `snapshot_dirty` commits as `yman: snapshot local changes`, defeating the atomicity comment. `resume` commits with a raw `wt.ok(["commit", ..])`, losing the identity hint, and its summary always reports `pulled 0, renumbered 0`. `has_conflict_markers` recurses through `is_dir`, which follows symlinks, so a committed symlink loop overflows the stack. `fetch` overwrites the user's `FETCH_HEAD` in the main repository.
+
+- Where: `src/commands/sync.rs` (`push`, `renumber`, `snapshot_dirty`, `resume`, `has_conflict_markers`, `fetch_tasks`), `src/commands/init.rs` (`fetch_tasks`).
+- Done when: the push resolves the sha once and pushes `<sha>:refs/tasks/main`, a partial renumber is rolled back or refused by the snapshot, `resume` goes through `Git::commit` and reports honestly, directory recursion ignores symlinks, fetches pass `--no-write-fetch-head`, with tests where a scenario can reach the case.
