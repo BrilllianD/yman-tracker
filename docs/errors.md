@@ -36,6 +36,12 @@ stdout is meant to be piped.
 1, 128 or anything else git uses, so a `3` or `4` after it means nothing to
 yman.
 
+A write to a closed pipe is not an error either: `yman ls | head -1` ends
+with yman killed by SIGPIPE once `head` has gone, silently, the way git and
+coreutils end. A shell reports that as status 141 (128 + 13), and only for the
+command on the left of the pipe; command substitution such as
+`cd $(yman path 14)` reads everything and never sees it.
+
 Messages that carry code 3, beyond the preflight and merge ones: a
 `sync --continue` that would leave two folders for one id reports
 `duplicate task id <id>: <relA>, <relB>; delete one folder, then: yman sync --continue`.

@@ -22,6 +22,7 @@ use clap::Parser;
 use cli::{Cli, Cmd};
 
 fn main() {
+    restore_sigpipe();
     let cli = Cli::parse();
     match run(cli) {
         Ok(()) => {}
@@ -31,6 +32,36 @@ fn main() {
         }
     }
 }
+
+/// Put SIGPIPE back to its default action, so `yman ls | head -1` dies
+/// silently from the signal once `head` has gone, like git and coreutils do.
+///
+/// The Rust runtime sets SIGPIPE to "ignore" before `main`, which turns a
+/// write to a closed pipe into an `EPIPE` error, and `println!` panics on
+/// that. Children are unaffected: `std::process::Command` already resets
+/// SIGPIPE to the default in every child it spawns. The one place yman itself
+/// writes into a child, `Git::with_stdin`, only feeds `mktree` an empty tree;
+/// a caller that streams real data there would now be killed, not handed an
+/// error, if git exited before reading it all.
+///
+/// Declared by hand rather than through a crate: the numbers are the same on
+/// Linux, macOS and the BSDs (SIGPIPE 13, SIG_DFL 0).
+#[cfg(unix)]
+fn restore_sigpipe() {
+    const SIGPIPE: i32 = 13;
+    const SIG_DFL: usize = 0;
+    unsafe extern "C" {
+        fn signal(signum: i32, handler: usize) -> usize;
+    }
+    // SAFETY: `signal` is async-signal-safe and called once, before any other
+    // thread exists; SIG_DFL is a valid disposition for SIGPIPE.
+    unsafe {
+        signal(SIGPIPE, SIG_DFL);
+    }
+}
+
+#[cfg(not(unix))]
+fn restore_sigpipe() {}
 
 fn run(cli: Cli) -> anyhow::Result<()> {
     // Documentation, not commands on a repository: they must work from a
