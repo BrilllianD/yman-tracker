@@ -3113,10 +3113,12 @@ fn hooks_honour_core_hooks_path() {
 
     let out = fx.yman(&fx.a).args(["hooks", "install"]).output().unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
-    assert!(
-        stderr(&out).contains("installing into core.hooksPath="),
-        "{}",
-        stderr(&out)
+    assert_eq!(
+        stderr(&out).trim(),
+        format!(
+            "warning: installing into core.hooksPath={}",
+            fx.a.join("githooks").display()
+        )
     );
     assert!(fx.a.join("githooks/post-merge").is_file());
     assert!(!fx.a.join(".git/hooks/post-merge").exists());
@@ -3126,6 +3128,129 @@ fn hooks_honour_core_hooks_path() {
 
     fx.yman(&fx.a).args(["hooks", "remove"]).assert().success();
     assert!(!fx.a.join("githooks/post-merge").exists());
+}
+
+#[test]
+fn hooks_core_hooks_path_expands_tilde() {
+    let fx = Fx::new();
+    fx.git(&fx.a, &["config", "core.hooksPath", "~/githooks"]);
+    fx.yman(&fx.a).arg("init").assert().success();
+
+    let out = fx.yman(&fx.a).args(["hooks", "install"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let dir = fx.home().join("githooks");
+    assert_eq!(
+        stderr(&out).trim(),
+        format!("warning: installing into core.hooksPath={}", dir.display())
+    );
+    assert!(fx.read(&dir.join("post-merge")).contains("# yman-hook v1"));
+    assert!(dir.join("post-checkout").is_file());
+    assert!(!fx.a.join("~").exists(), "installed under a literal ~");
+
+    let text = stdout(&fx.yman(&fx.a).args(["hooks", "status"]).output().unwrap());
+    assert!(text.contains("hook post-merge: installed"), "{text}");
+    fx.yman(&fx.a).args(["hooks", "remove"]).assert().success();
+    assert!(!dir.join("post-merge").exists());
+}
+
+/// `hooks install`, `status` and `remove` against a `post-merge` hook yman
+/// cannot read: install refuses it naming `why`, status reports it as
+/// `unreadable`, remove leaves it, and the file is byte-for-byte untouched
+/// throughout. `post-checkout` is installed and removed as usual.
+fn assert_unreadable_hook_refused(fx: &Fx, why: &str, check: &dyn Fn()) {
+    let hook = fx.a.join(".git/hooks/post-merge");
+    let out = fx.yman(&fx.a).args(["hooks", "install"]).output().unwrap();
+    assert!(!out.status.success(), "{}", stdout(&out));
+    let err = stderr(&out);
+    assert!(
+        err.contains(&format!(
+            "hook post-merge: cannot read {}: {why}; not replacing it",
+            hook.display()
+        )),
+        "{err}"
+    );
+    assert!(
+        err.contains("error: 1 hook(s) not installed: post-merge"),
+        "{err}"
+    );
+    assert!(stdout(&out).contains("hook post-checkout: installed"));
+    check();
+
+    let out = fx.yman(&fx.a).args(["hooks", "status"]).output().unwrap();
+    assert!(out.status.success());
+    assert!(
+        stdout(&out).contains("hook post-merge: unreadable\n"),
+        "{}",
+        stdout(&out)
+    );
+    assert!(
+        stderr(&out).contains(&format!("warning: cannot read {}: {why}", hook.display())),
+        "{}",
+        stderr(&out)
+    );
+    check();
+
+    let out = fx.yman(&fx.a).args(["hooks", "remove"]).output().unwrap();
+    assert!(out.status.success());
+    assert!(
+        stdout(&out).contains("hook post-merge: unreadable, left alone"),
+        "{}",
+        stdout(&out)
+    );
+    assert!(stdout(&out).contains("hook post-checkout: removed"));
+    check();
+}
+
+#[cfg(unix)]
+#[test]
+fn hooks_refuse_unreadable_hook() {
+    use std::os::unix::fs::PermissionsExt;
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let hook = fx.a.join(".git/hooks/post-merge");
+    fx.write(&hook, "#!/bin/sh\necho mine\n");
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if std::fs::read(&hook).is_ok() {
+        // Running as root: mode 000 does not stop the read.
+        eprintln!("skipped: {} is still readable", hook.display());
+        return;
+    }
+    let check = || {
+        let mode = std::fs::metadata(&hook).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0, "mode changed");
+    };
+    assert_unreadable_hook_refused(&fx, "Permission denied (os error 13)", &check);
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(fx.read(&hook), "#!/bin/sh\necho mine\n");
+}
+
+#[test]
+fn hooks_refuse_non_utf8_hook() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let hook = fx.a.join(".git/hooks/post-merge");
+    let bytes: &[u8] = b"#!/bin/sh\n# caf\xe9\necho mine\n";
+    std::fs::write(&hook, bytes).unwrap();
+    let check = || assert_eq!(std::fs::read(&hook).unwrap(), bytes);
+    assert_unreadable_hook_refused(&fx, "not valid UTF-8", &check);
+}
+
+#[cfg(unix)]
+#[test]
+fn hooks_refuse_dangling_symlink() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let hook = fx.a.join(".git/hooks/post-merge");
+    // The directory exists, so a write through the link would succeed.
+    let shared = fx.tmp.path().join("shared-hooks");
+    std::fs::create_dir_all(&shared).unwrap();
+    let target = shared.join("post-merge");
+    std::os::unix::fs::symlink(&target, &hook).unwrap();
+    let check = || {
+        assert_eq!(std::fs::read_link(&hook).unwrap(), target);
+        assert!(!target.exists(), "wrote through the symlink");
+    };
+    assert_unreadable_hook_refused(&fx, "dangling symlink", &check);
 }
 
 /// Task ids present in a clone, in folder-name order.

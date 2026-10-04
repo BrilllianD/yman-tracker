@@ -9,6 +9,14 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- `yman hooks` now finds the hooks directory the way git does, through
+  `rev-parse --git-path hooks`. A `core.hooksPath` of `~/.githooks` used to be
+  taken literally, so the hooks landed in `<project>/~/.githooks` where git
+  never runs them. A hook yman cannot read — permission denied, content that is
+  not UTF-8, a dangling symlink — used to count as absent: `install` overwrote
+  it, or wrote through the link and created its target. It is now refused like
+  any foreign hook (`hook <name>: cannot read <path>: <why>; not replacing it`)
+  and `hooks status` reports it as `unreadable`.
 - The user's `post-commit`, `post-merge`, `post-checkout` and `post-rewrite`
   hooks no longer run for yman's own commits, merges and fast-forwards in
   `.yman`, nor for the `git worktree add` that creates it. `--no-verify` only

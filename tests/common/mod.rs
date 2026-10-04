@@ -107,6 +107,12 @@ impl Fx {
             .env_remove("YMAN_ACTOR")
     }
 
+    /// The `HOME` every sandboxed process sees, so `~` in a git config value
+    /// expands to a directory inside the tempdir.
+    pub fn home(&self) -> &Path {
+        &self.home
+    }
+
     /// A `yman` invocation in `dir`, with the sandboxed environment applied.
     pub fn yman(&self, dir: &Path) -> assert_cmd::Command {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_yman"));

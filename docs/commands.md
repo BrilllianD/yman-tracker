@@ -586,11 +586,20 @@ command -v yman >/dev/null 2>&1 && yman refresh --quiet
 exit 0
 ```
 
-The target directory is `core.hooksPath` when set (with a warning naming it),
-otherwise `COMMON/hooks`. A hook that exists **without** the marker is never
-touched: the command prints the one line to add and exits non-zero after
-processing both hooks. `remove` deletes only marked files; `status` reports
-`installed` / `foreign` / `absent`. The hooks fire for the user's own `git
+The target directory is `core.hooksPath` when set, as git resolves it with
+`rev-parse --git-path hooks` (`~/` expanded, a relative value relative to the
+toplevel), and the install warning names the resolved path; otherwise
+`COMMON/hooks`. An empty `core.hooksPath` counts as unset. A hook that exists
+**without** the marker is never touched: the command prints the one line to
+add and exits non-zero after processing both hooks. A hook yman cannot read —
+permission denied, content that is not UTF-8, a dangling symlink — is refused
+the same way, since it cannot tell whose it is: `install` prints
+`hook <name>: cannot read <path>: <why>; not replacing it` and counts it among
+the hooks not installed, and nothing is written through a dangling link. A
+symlink to a readable file is judged by its target. `remove` deletes only
+marked files (a marked symlink loses the link, not its target); `status`
+reports `installed` / `foreign` / `unreadable` / `absent`, and both say why a
+hook is `unreadable` with `warning: cannot read <path>: <why>` on stderr. The hooks fire for the user's own `git
 pull` and `git checkout` in the project, never for yman's own merges in
 `.yman`, which run without hooks (see [§2](#2-commit-messages)).
 

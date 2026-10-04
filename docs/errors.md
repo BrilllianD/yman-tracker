@@ -17,7 +17,8 @@ there is no colour anywhere.
 The code does not yet honour the table everywhere. Today's exceptions: the
 `rm` and `tags rm` confirmation prompts are written to stdout, and a few stderr
 lines carry no prefix — `refreshed: N new commit(s)`, the hook advice
-`hook <name> exists; add this line to it:` and the indented list of
+`hook <name> exists; add this line to it:`, the refusal
+`hook <name>: cannot read <path>: <why>; not replacing it` and the indented list of
 conflicting files `sync` prints. None of them appears on a command whose
 stdout is meant to be piped.
 
@@ -126,6 +127,7 @@ commit.
 | network step failed | `fetch failed` / `push failed` / `merge failed`, with git's stderr printed above; a push origin refused (any rejection but the race, [commands.md](commands.md#6-sync) step 8) also prints git's ` ! [remote rejected] refs/yman/local -> refs/tasks/main (<reason>)` line, and is not retried |
 | `init` fetch failed | `fetch failed (see above); use --offline to skip` |
 | `hooks install` met a hook it does not own | `<n> hook(s) not installed: <names>`, after `hook <name> exists; add this line to it:` and the line itself on stderr for each |
+| `hooks install` met a hook it cannot read (permission denied, not UTF-8, a dangling symlink) | the same `<n> hook(s) not installed: <names>`, after `hook <name>: cannot read <path>: <why>; not replacing it` on stderr for each; `<why>` is `not valid UTF-8`, `dangling symlink` or the OS error |
 | `man --dir` cannot write | `cannot create <dir>: <why>` / `cannot write man pages to <dir>: <why>` |
 | `m.yml` merge driver could not fall back | `git merge-file failed`, with git's stderr printed above — reaches the user through git's own merge output |
 
@@ -155,7 +157,8 @@ Never fatal, always stderr:
 | `warning: remote already had tasks; adopted remote state` | two clones initialized the tracker at once |
 | `warning: refs/tasks/main disappeared from origin; will recreate it` | the ref was deleted server-side |
 | `warning: <name> is N MiB; git is not great at large binaries` | attaching a file over 5 MiB |
-| `warning: installing into core.hooksPath=<p>` | hooks redirected away from `.git/hooks` |
+| `warning: installing into core.hooksPath=<p>` | hooks redirected away from `.git/hooks`; `<p>` is the directory as git resolves it (`~/` expanded, a relative value joined onto the toplevel) |
+| `warning: cannot read <path>: <why>` | `hooks status` or `hooks remove` met a hook it cannot read; it reports the hook as `unreadable` and leaves it alone |
 | `warning: refresh failed: <why>` | the lazy refresh before a command failed; the command still runs |
 | `warning: origin has new task commits; run: yman sync` | `yman.autosync = push` and the push after a change was rejected; nothing is merged, the change stays committed |
 | `warning: autosync failed: <why>; run: yman sync` | `yman.autosync = push` and the push after a change failed (offline, auth); the command still succeeds |
