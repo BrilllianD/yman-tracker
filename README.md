@@ -751,6 +751,7 @@ layout, builds with [mdBook](https://rust-lang.github.io/mdBook/) and fails on
 any local link or anchor that leads nowhere. It needs `mdbook` on `PATH`
 (`cargo install mdbook`, or a release binary); `mdbook serve` previews the
 result after a build, though edits to the sources need the script run again.
+`.github/workflows/ci.yml` runs it as part of the gate, and
 `.github/workflows/pages.yml` builds it on every push and deploys it from
 `main`. Adding a page means adding it to `docs/SUMMARY.md`.
 
@@ -766,7 +767,8 @@ freezes that section. To cut `X.Y.Z`:
    bottom.
 3. Bump `version` in `Cargo.toml`; `cargo build` updates `Cargo.lock`.
 4. Run the full gate (`cargo fmt --check`, clippy, `cargo test`,
-   `scripts/spike-symref.sh`) and `scripts/synthetic-project.sh`.
+   `scripts/spike-symref.sh`, `scripts/book.sh`) and
+   `scripts/synthetic-project.sh`.
 5. Commit as `chore: release X.Y.Z` and merge into `main` with `--no-ff`.
 6. Tag the merge: `git tag -a vX.Y.Z -m "yman X.Y.Z"`, then push `main` and
    the tag.

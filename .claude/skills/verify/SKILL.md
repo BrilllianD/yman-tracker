@@ -1,16 +1,18 @@
 ---
 name: verify
-description: Run the full quality gate for yman-tracker - rustfmt check, clippy with warnings denied, the unit and integration test suites, and the symref spike - then report exactly what failed. Use before committing, before opening a PR, or whenever asked to check that the repo is green.
+description: Run the full quality gate for yman-tracker - rustfmt check, clippy with warnings denied, the unit and integration test suites, the symref spike and the docs-site link check - then report exactly what failed. Use before committing, before opening a PR, or whenever asked to check that the repo is green.
 ---
 
-Run these four checks in order. Do not stop at the first failure — run all four,
-so the report covers everything at once.
+Run these five checks in order. Do not stop at the first failure — run all five,
+so the report covers everything at once. `.github/workflows/ci.yml` runs the
+same five in the same order; changing one means changing the other.
 
 ```sh
 cargo fmt --check          # the pre-commit hook rejects a dirty tree
 cargo clippy --all-targets -- -D warnings
 cargo test                 # unit tests, then the two-clone integration suite
 sh scripts/spike-symref.sh # the git invariant the whole design rests on
+sh scripts/book.sh         # the docs site; fails on any broken local link
 ```
 
 ## What each failure means
@@ -28,12 +30,18 @@ sh scripts/spike-symref.sh # the git invariant the whole design rests on
   inside the `.yman` worktree no longer moves `refs/yman/local`, or the ref
   became visible to `git branch`. Say so loudly rather than working around it;
   `src/git.rs` documents why the primary code path depends on it.
+- **`scripts/book.sh`** — lists each broken link as `page.html: link (no such
+  page)` or `(no such anchor)`. Fix the link in the source (`README.md`,
+  `docs/*.md`, `CHANGELOG.md` or `skills/yman/SKILL.md`), or add a new page to
+  `docs/SUMMARY.md`. `book: mdbook not found in PATH` means mdBook is missing
+  (`cargo install mdbook`, or the release binary `pages.yml` uses); that is a
+  setup problem, so report the check as not run rather than passed.
 
 ## Reporting
 
-State plainly which of the four passed and which failed, quote the shortest
+State plainly which of the five passed and which failed, quote the shortest
 decisive line from each failure rather than dumping output, and do not claim the
-repo is green unless all four exited zero.
+repo is green unless all five exited zero.
 
 If a user-facing string changed, check whether `tests/cli.rs` asserts it
 verbatim and whether `docs/errors.md` lists it — both need to move in the same

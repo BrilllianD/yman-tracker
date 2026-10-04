@@ -18,9 +18,12 @@ cargo test --test cli <name>                # one integration scenario
 sh scripts/book.sh                          # docs site; fails on broken links
 ```
 
-`.github/workflows/ci.yml` runs the same four checks as the `verify` skill
-(`.claude/skills/verify/SKILL.md`) on every push and pull request, in that
-skill's order. Changing a gate means changing both.
+`.github/workflows/ci.yml` runs the same five checks as the `verify` skill
+(`.claude/skills/verify/SKILL.md`): fmt, clippy, tests, the symref spike and
+`scripts/book.sh`, on every push and pull request, in that skill's order.
+Changing a gate means changing both. CI pins the Rust toolchain
+(`RUST_TOOLCHAIN` in `ci.yml`) to a stable release; when local stable moves
+past it, bump it in its own `ci:` commit that also fixes any new clippy lints.
 
 ## Gotchas
 
