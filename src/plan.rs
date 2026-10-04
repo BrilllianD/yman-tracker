@@ -5,15 +5,28 @@
 //! `epic` tells them apart; nothing in storage does.
 
 use crate::config::Config;
+use crate::repo::Context;
 use crate::tags;
 use crate::task::{self, Entry, Task};
-use anyhow::Result;
+use anyhow::{Result, bail};
 use std::path::Path;
 
 /// The status `--waits-on` sets and `plan` reads as "waiting". Not a config
 /// role: the docs have always named it, and a project without it in
 /// `statuses.list` simply does not get the feature.
 pub const BLOCKED: &str = "blocked";
+
+/// `--waits-on` sets a status the project may not have; refuse before any id
+/// is minted or anything is written, the way `cancel` refuses without a
+/// cancel status.
+pub fn require_blocked(cfg: &Config) -> Result<()> {
+    if !cfg.has_status(BLOCKED) {
+        bail!(
+            "--waits-on needs a \"{BLOCKED}\" status; add it to statuses.list in .yman/config.toml"
+        );
+    }
+    Ok(())
+}
 
 /// Every task that loads. Broken folders cannot relate to anything and are
 /// skipped, as `show` and `rm` skip them.
@@ -59,6 +72,45 @@ pub fn waits_on(t: &Task, tasks: &[Task], cfg: &Config) -> Vec<String> {
     ids.sort_by(|x, y| task::cmp_id(x, y));
     ids.dedup();
     ids
+}
+
+/// What closing `closed` changed for everyone else, on stderr: a blocked
+/// task that now waits on nothing open gets a note naming the command that
+/// moves it on. Nothing is moved — whether the work can really start is the
+/// reader's call. Closing an epic unblocks nothing: its steps relate to it as
+/// a container. Called once after a whole multi-id verb, so `done 32 33`
+/// judges a task waiting on both after both are closed.
+pub fn report_closed(ctx: &Context, closed: &[String]) -> Result<()> {
+    if closed.is_empty() {
+        return Ok(());
+    }
+    let tasks = tasks(&ctx.ydir)?;
+    let cfg = ctx.config();
+    let mut free: Vec<&str> = Vec::new();
+    for id in closed {
+        let Some(x) = tasks.iter().find(|t| t.id() == id) else {
+            continue;
+        };
+        if is_epic(x) {
+            continue;
+        }
+        for t in steps_of(&tasks, id) {
+            if t.meta.status == BLOCKED
+                && !free.contains(&t.id())
+                && waits_on(t, &tasks, cfg).is_empty()
+            {
+                free.push(t.id());
+            }
+        }
+    }
+    free.sort_by(|x, y| task::cmp_id(x, y));
+    for id in free {
+        eprintln!(
+            "note: {id} no longer waits on anything open: yman move {id} {}",
+            cfg.statuses.default
+        );
+    }
+    Ok(())
 }
 
 #[cfg(test)]

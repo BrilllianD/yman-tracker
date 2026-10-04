@@ -1,5 +1,6 @@
 use crate::cli::AddArgs;
 use crate::ids;
+use crate::plan::{self, BLOCKED};
 use crate::repo::Context;
 use crate::tags;
 use crate::task::{self, FolderName, Meta, Task};
@@ -16,9 +17,13 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
     // Before the editor, before stdin, before an id is minted: a bad tag must
     // not cost the user a burned id or a half-written folder.
     let tags = tags::normalize_all(&a.tags)?;
+    if !a.waits_on.is_empty() {
+        plan::require_blocked(ctx.config())?;
+    }
     // Before an id is minted, so the warning cannot read as being about the
     // task we are creating.
-    super::warn_unknown_related(ctx, &a.related, &[])?;
+    let related = super::dedupe([a.related, a.waits_on.clone()].concat());
+    super::warn_unknown_related(ctx, &related, &[])?;
     if a.edit {
         // Refuse before the folder exists; see `edit::resolve_editor`.
         super::edit::resolve_editor()?;
@@ -29,6 +34,9 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
     };
 
     let status = match a.status {
+        // `--waits-on` is `-s blocked` plus `--relate`; clap keeps it apart
+        // from `-s`.
+        None if !a.waits_on.is_empty() => BLOCKED.to_string(),
         Some(s) => {
             if !ctx.config().has_status(&s) {
                 bail!(
@@ -68,7 +76,7 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
     let mut meta = Meta::new(status, tags);
     meta.assignee = assignee;
     meta.links = super::dedupe(a.links);
-    meta.related = super::dedupe(a.related);
+    meta.related = related;
     let mut t = Task {
         folder,
         parent,

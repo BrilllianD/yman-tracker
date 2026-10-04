@@ -223,10 +223,12 @@ attachment — still conflict, and land in the file as the usual markers.
 ### Creating and reading
 
 ```sh
-yman add <title> [-p 0-9] [-s <status>] [-t <tag>]... [-m <body> | --body-file <path>] [-e]
+yman add <title> [-p 0-9] [-s <status> | --waits-on <id>...] [-t <tag>]...
+         [-m <body> | --body-file <path>] [-e]
          [-a <who>] [--link <url>]... [--relate <id>]...
 ```
-Creates a task and commits it. `-t`, `--link` and `--relate` repeat. Relating
+Creates a task and commits it. `-t`, `--link`, `--relate` and `--waits-on`
+repeat; `--waits-on <id>` is `--relate <id>` plus `-s blocked`. Relating
 to an id this clone does not have warns on stderr and commits anyway — another
 clone may not have synced yet.
 `--body-file -` reads the body from stdin. `-e` opens `$EDITOR` on the new
@@ -284,7 +286,7 @@ yman set <id> [--status S] [--priority 0-9] [--title T]
               [--assignee A | --no-assignee]
               [--tag X]... [--untag X]...
               [--link URL]... [--unlink URL]...
-              [--relate ID]... [--unrelate ID]...
+              [--relate ID]... [--unrelate ID]... [--waits-on ID]...
               [--body <text> | --body-file <path>] [-m <comment>]
 yman start <id>...          # = set --status <start status>
 yman done  <id>...          # = set --status <done status>
@@ -305,6 +307,14 @@ history alone. `-m` appends a comment in the same commit, so
 rewrites the description without an editor; `--body ""` clears it. The verbs
 take several ids — `yman done 14 15 16` — and commit each task on its own,
 stopping at the first error.
+
+`--waits-on <id>` marks a dependency in one step: it relates to the task
+waited on and sets status `blocked`, which has to be in `statuses.list`.
+Closing a task then says what it freed, on stderr — a blocked task left
+waiting on nothing open gets
+`note: 34 no longer waits on anything open: yman move 34 todo`. Nothing moves
+by itself; tasks tagged `epic` are containers and never count as something to
+wait on.
 
 `yman rm` asks for confirmation on a terminal and refuses outright without `-f`
 when there is no terminal to ask at. It also drops the removed id from every

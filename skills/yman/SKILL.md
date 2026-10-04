@@ -158,13 +158,16 @@ yman show 30 -n 0              # the goal and its body
 `P ID STATUS TITLE`, plus `waits on <ids>` on a `blocked` step. `--json` has
 `counts` and `steps[].waits_on`.
 
-- Order steps with priority. A step that must wait relates to the step it
-  waits on **as well as** the epic, sits in status `blocked`, and says
-  `Waits on <id>` in its body. `blocked` has to be in `statuses.list`
-  (version 2 config); without it keep the body line, which the task-list rule
-  already honours.
-- After closing a step, `yman ls -s blocked --related <id>` lists what waited
-  on it; `yman move <id>... todo -m "unblocked"` those with nothing else open.
+- Order steps with priority. A step that must wait gets
+  `--waits-on <id>` (on `add` or `set`, repeatable): it relates to the step it
+  waits on **as well as** the epic and sits in status `blocked`, in one
+  commit. `blocked` has to be in `statuses.list`; without it `--waits-on`
+  fails, so relate with `--relate` and say `Waits on <id>` in the body, which
+  the task-list rule already honours.
+- Closing a step reports on stderr what it freed:
+  `note: 34 no longer waits on anything open: yman move 34 todo`. Run that
+  move (with `-m "unblocked"`); nothing moves by itself. An epic tag means
+  "container", so the epic is never counted as something to wait on.
 - Close the epic last, when `yman plan <epic>` lists no steps, with a
   `done -m` that sums up the result. Nest plans by relating an epic to a
   bigger one.

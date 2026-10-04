@@ -12,6 +12,11 @@ under [Releasing](README.md#releasing) in the README.
 - `yman plan <id>`: a task, a per-status count over every task relating to
   it, and the open ones sorted like `ls`, with `waits on <ids>` on a blocked
   step. `-a`, `-n`, `-l` and `--json` as on `ls`.
+- `--waits-on <id>` on `add` and `set`: relate to a blocker and set status
+  `blocked` in one commit. Needs `blocked` in `statuses.list`.
+- Closing a task (`done`, `cancel`, `move`/`set --status`) notes on stderr
+  each blocked task that now waits on nothing open, with the `yman move` that
+  frees it. Nothing is moved automatically.
 
 ## [0.5.1] - 2026-10-01
 

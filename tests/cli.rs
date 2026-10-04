@@ -4736,3 +4736,139 @@ fn plan_prints_progress_and_open_steps() {
     let out = fx.yman(&fx.a).args(["plan", "99"]).output().unwrap();
     assert_eq!(out.status.code(), Some(4), "{}", stderr(&out));
 }
+
+/// `--waits-on <id>` on `add` and `set` relates to the blocker and sets status
+/// `blocked` in one commit; without a `blocked` status it refuses before
+/// anything is written, and it cannot be combined with an explicit status.
+#[test]
+fn waits_on_relates_and_blocks() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+
+    // The default config has no `blocked`: refused, no id burned.
+    let out = fx
+        .yman(&fx.a)
+        .args(["add", "Waits", "--waits-on", "1"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        stderr(&out).trim_end(),
+        "error: --waits-on needs a \"blocked\" status; add it to statuses.list in .yman/config.toml"
+    );
+    assert!(fx.task_dirs(&fx.a).is_empty());
+
+    fx.v2_config(&fx.a);
+    fx.yman(&fx.a).args(["add", "Blocker"]).assert().success();
+    let out = fx
+        .yman(&fx.a)
+        .args(["add", "Waits", "--waits-on", "1", "--relate", "1"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(fx.status(&fx.a, "2"), "blocked");
+    let shown = stdout(&fx.yman(&fx.a).args(["show", "2"]).output().unwrap());
+    assert!(shown.contains("\nrelated:  1\n"), "{shown}");
+
+    fx.yman(&fx.a).args(["add", "Other"]).assert().success();
+    let out = fx
+        .yman(&fx.a)
+        .args(["set", "3", "--waits-on", "2"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "3: status todo -> blocked\n3: related +2\n");
+    assert_eq!(
+        fx.git(&fx.a.join(".yman"), &["log", "-1", "--format=%s"])
+            .trim(),
+        "task(3): set status=todo->blocked related=+2"
+    );
+
+    for args in [
+        &["add", "X", "--waits-on", "1", "-s", "todo"][..],
+        &["set", "3", "--waits-on", "1", "--status", "todo"][..],
+    ] {
+        let out = fx.yman(&fx.a).args(args).output().unwrap();
+        assert_eq!(out.status.code(), Some(2), "{args:?}");
+    }
+}
+
+/// Closing the last open task a blocked task waits on prints a note naming
+/// the move that frees it; nothing is moved. A second open blocker, or an
+/// epic the task belongs to, keeps it quiet, and a multi-id close judges after
+/// every id is closed.
+#[test]
+fn closing_a_blocker_notes_what_it_freed() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v2_config(&fx.a);
+    // A version 2 config archives closed tasks, which has its own note; only
+    // the report is under test here.
+    let run = |args: &[&str]| -> (String, String) {
+        let out = fx.yman(&fx.a).args(args).output().unwrap();
+        assert!(out.status.success(), "{args:?}: {}", stderr(&out));
+        let err: Vec<&str> = std::str::from_utf8(&out.stderr)
+            .unwrap()
+            .lines()
+            .filter(|l| !l.starts_with("note: task folder is now "))
+            .collect();
+        (stdout(&out), err.join("\n"))
+    };
+    run(&["add", "Epic", "-t", "epic"]); // 1
+    run(&["add", "Blocker A", "--relate", "1"]); // 2
+    run(&["add", "Blocker B", "--relate", "1"]); // 3
+    run(&[
+        "add",
+        "Waits on both",
+        "--relate",
+        "1",
+        "--waits-on",
+        "2",
+        "--waits-on",
+        "3",
+    ]); // 4
+    run(&["add", "Waits on A", "--waits-on", "2"]); // 5
+
+    let (out, err) = run(&["done", "2"]);
+    assert_eq!(out, "2: status todo -> done\n");
+    assert_eq!(
+        err,
+        "note: 5 no longer waits on anything open: yman move 5 todo"
+    );
+    assert_eq!(fx.status(&fx.a, "5"), "blocked", "a note, not a move");
+
+    // 4 still waits on 3 until it closes; closing 3 by `cancel` counts too.
+    let (_, err) = run(&["cancel", "3"]);
+    assert_eq!(
+        err,
+        "note: 4 no longer waits on anything open: yman move 4 todo"
+    );
+
+    // An epic is a container: closing it frees nothing.
+    run(&["add", "Epic two", "-t", "epic"]); // 6
+    run(&["add", "Step", "--relate", "6", "-s", "blocked"]); // 7
+    let (_, err) = run(&["move", "6", "done"]);
+    assert_eq!(err, "");
+
+    // Multi-id: one report after both are closed, not a premature silence.
+    run(&["add", "C"]); // 8
+    run(&["add", "D"]); // 9
+    run(&[
+        "add",
+        "Waits on C and D",
+        "--waits-on",
+        "8",
+        "--waits-on",
+        "9",
+    ]); // 10
+    let (out, err) = run(&["done", "8", "9"]);
+    assert_eq!(out, "8: status todo -> done\n9: status todo -> done\n");
+    assert_eq!(
+        err,
+        "note: 10 no longer waits on anything open: yman move 10 todo"
+    );
+
+    // Not a transition into a closed status: no report.
+    let (out, err) = run(&["move", "8", "done"]);
+    assert_eq!((out.as_str(), err.as_str()), ("no changes\n", ""));
+}

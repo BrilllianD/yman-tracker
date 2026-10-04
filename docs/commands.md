@@ -295,7 +295,9 @@ editor opens, before `--body-file` reads stdin and before an id is minted, so a
 typo costs neither an id nor a half-written folder. `-t UI -t ui` is one tag.
 `-a/--assignee` is trimmed; blank means unassigned. `--relate` to an id no
 folder here carries warns exactly as `set --relate` does, before the id is
-minted. The body comes from `-m`,
+minted. `--waits-on ID` (repeatable) is `--relate ID` plus `-s blocked`, and
+excludes `-s`; it refuses, before anything else is read, when `blocked` is not
+in `statuses.list` (see `set`). The body comes from `-m`,
 or from `--body-file PATH` (`-` reads stdin); the two exclude each other and
 `-e`. With `-e`, the editor opens before the
 first commit, so a title typed there renames the folder by plain rename — the
@@ -344,6 +346,13 @@ legitimately race it, and the id becomes real the moment that clone's work
 arrives. Re-adding an id the task already relates to is not a change and warns
 about nothing.
 
+`--waits-on ID` (repeatable) says the task waits on another: it is `--relate
+ID` plus `--status blocked`, in the same commit and with the same printed
+lines, and the argument parser refuses it together with `--status`. `blocked`
+is a status name, not a config role; when `statuses.list` lacks it the flag
+fails with `--waits-on needs a "blocked" status; add it to statuses.list in
+.yman/config.toml` before anything is written.
+
 `related` is **one-way**: relating 1 to 2 says nothing about 2. yman maintains
 the field in exactly three places — here, the renumber rewrite in §6, and `rm`
 below — and nowhere else. In particular, an id written into the prose of `t.md`
@@ -383,6 +392,16 @@ take exactly one id.
 
 `cancel` has no fallback on purpose: picking one of several closed statuses by
 position is the guesswork the named roles exist to remove.
+
+**What a close freed.** When `set` or a verb moves a task from an open status
+into a terminal one, yman reads every task once more and reports on stderr,
+after the last id of the call (so `done 32 33` judges a task waiting on both
+after both closed). A task in status `blocked` whose `related` carries a
+closed id, and which now relates to nothing open except tasks tagged `epic`,
+gets `note: <id> no longer waits on anything open: yman move <id> <default
+status>`, one per task in id order. Nothing is moved. Closing a task tagged
+`epic` frees nothing: its steps relate to it as a container, not a blocker.
+A `set` that changes nothing, or that leaves the task closed, reports nothing.
 
 ### `tags rename` / `tags rm`
 
