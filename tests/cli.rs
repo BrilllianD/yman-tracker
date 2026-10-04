@@ -2025,6 +2025,94 @@ fn hooks_refresh_on_pull() {
     );
 }
 
+/// Install a hook in a clone's own hooks dir (`.git/hooks`, which `.yman`
+/// shares) that drops `hook-ran` into whatever directory it runs in and
+/// appends its name to a log outside every repository.
+#[cfg(unix)]
+fn noisy_hook(fx: &Fx, clone: &std::path::Path, name: &str) -> std::path::PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+
+    let log = fx.tmp.path().join(format!("{name}.log"));
+    let hook = clone.join(".git/hooks").join(name);
+    fx.write(
+        &hook,
+        &format!(
+            "#!/bin/sh\ntouch hook-ran\nprintf '%s\\n' \"{name} $(pwd)\" >> '{}'\n",
+            log.display()
+        ),
+    );
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    log
+}
+
+/// `.yman` is clean and no hook dropped its file there.
+#[cfg(unix)]
+fn assert_yman_untouched(fx: &Fx, clone: &std::path::Path, log: &std::path::Path) {
+    let ydir = clone.join(".yman");
+    assert!(
+        !ydir.join("hook-ran").exists(),
+        "a user hook ran inside .yman: {}",
+        std::fs::read_to_string(log).unwrap_or_default()
+    );
+    assert_eq!(fx.git(&ydir, &["status", "--porcelain"]), "");
+    assert_eq!(fx.runs(log), 0, "{}", fx.read(log));
+}
+
+#[test]
+#[cfg(unix)]
+fn user_post_commit_hook_does_not_run_in_yman() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let log = noisy_hook(&fx, &fx.a, "post-commit");
+
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["comment", "1", "-m", "looked at it"])
+        .assert()
+        .success();
+    assert_yman_untouched(&fx, &fx.a, &log);
+
+    // The hook itself works: the user's own commit in the code repo fires it.
+    fx.git(&fx.a, &["commit", "-q", "--allow-empty", "-m", "code"]);
+    assert!(fx.a.join("hook-ran").exists());
+}
+
+#[test]
+#[cfg(unix)]
+fn user_post_checkout_hook_does_not_run_on_init() {
+    let fx = Fx::new();
+    let log = noisy_hook(&fx, &fx.a, "post-checkout");
+
+    fx.yman(&fx.a).arg("init").assert().success();
+    assert_yman_untouched(&fx, &fx.a, &log);
+}
+
+#[test]
+#[cfg(unix)]
+fn user_post_merge_hook_does_not_run_on_sync() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "A one"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    let log = noisy_hook(&fx, &fx.b, "post-merge");
+
+    // Incoming commits only: B's sync fast-forwards `.yman`.
+    fx.yman(&fx.a).args(["add", "A two"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("sync").assert().success();
+    assert!(fx.has_task(&fx.b, "2"));
+    assert_yman_untouched(&fx, &fx.b, &log);
+
+    // Both sides moved: B's sync makes a real merge commit in `.yman`.
+    fx.yman(&fx.a).args(["add", "A three"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).args(["add", "B four"]).assert().success();
+    fx.yman(&fx.b).arg("sync").assert().success();
+    assert!(fx.has_task(&fx.b, "3"));
+    assert_yman_untouched(&fx, &fx.b, &log);
+}
+
 #[test]
 fn survives_clean() {
     let fx = Fx::new();

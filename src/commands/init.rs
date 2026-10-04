@@ -260,8 +260,11 @@ fn refuse_second_checkout(ctx: &Context) -> Result<()> {
 
 fn add_worktree(ctx: &mut Context) -> Result<()> {
     let ydir = ctx.ydir.to_string_lossy().into_owned();
+    // `worktree add` fires `post-checkout` with `.yman` as its working
+    // directory, so this one main-repo call runs without the user's hooks.
     let out = ctx
         .main
+        .without_hooks()
         .run(&["worktree", "add", "--detach", &ydir, LOCAL])?;
     if !out.ok() {
         if out.stderr.contains("already checked out")

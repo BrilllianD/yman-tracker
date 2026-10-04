@@ -47,7 +47,8 @@ pub struct Context {
     pub wt_gitdir: PathBuf,
     /// Runner for ref/remote/config operations, in the main worktree.
     pub main: Git,
-    /// Runner for everything touching task files, in `.yman`.
+    /// Runner for everything touching task files, in `.yman`. Runs with the
+    /// user's hooks switched off.
     pub wt: Git,
     /// Loaded by `preflight`.
     pub config: Option<Config>,
@@ -95,7 +96,9 @@ pub fn discover() -> Result<Context> {
     let wt_gitdir = read_gitdir_file(&ydir).unwrap_or_else(|| default_wt_gitdir(&common));
     Ok(Context {
         main,
-        wt: Git::new(&ydir),
+        // The user's hooks never run for yman's own commits, merges and
+        // fast-forwards in `.yman`; see `Git::without_hooks`.
+        wt: Git::new(&ydir).without_hooks(),
         root,
         common,
         ydir,

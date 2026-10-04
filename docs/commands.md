@@ -44,9 +44,20 @@ preflight would refuse on the `MERGE_HEAD` that is always present then.
 
 ## 2. Commit messages
 
-Every mutation commits immediately, with `--no-verify` so the user's own hooks
-(possibly under `core.hooksPath`, and knowing nothing about `.yman`) cannot
-interfere. GPG signing is deliberately left to the user's configuration.
+Every mutation commits immediately. The user's own hooks (possibly under
+`core.hooksPath`, and knowing nothing about `.yman`) cannot interfere: every
+`git` that `yman` runs in `.yman` gets `-c core.hooksPath=/dev/null`, so no
+hook is found for its commits, merges and fast-forwards — `post-commit`,
+`post-merge`, `post-checkout` and `post-rewrite` included, which `--no-verify`
+(also passed) would not stop. The `git worktree add` that creates `.yman` runs
+from the main repo and fires `post-checkout` inside it, so that one call gets
+the same override. A hook that writes files would otherwise leave `.yman`
+dirty, and refresh would back off until the next snapshot committed the junk.
+The main repo's runner keeps the user's hooks, so they — and [`yman hooks`](#hooks)
+— still fire for the user's own git commands. The override covers hook files
+only: hooks a newer git defines in configuration (`hook.<name>.command`) do
+not look in `core.hooksPath` and still run. GPG signing is deliberately left
+to the user's configuration.
 
 | Command | Subject |
 |---|---|
@@ -579,7 +590,9 @@ The target directory is `core.hooksPath` when set (with a warning naming it),
 otherwise `COMMON/hooks`. A hook that exists **without** the marker is never
 touched: the command prints the one line to add and exits non-zero after
 processing both hooks. `remove` deletes only marked files; `status` reports
-`installed` / `foreign` / `absent`.
+`installed` / `foreign` / `absent`. The hooks fire for the user's own `git
+pull` and `git checkout` in the project, never for yman's own merges in
+`.yman`, which run without hooks (see [§2](#2-commit-messages)).
 
 ## 6. Sync
 
@@ -722,4 +735,5 @@ Delete the folder you do not want, then rerun `yman sync --continue`.
 
 `yman git -- <args>` runs git inside `.yman` with inherited stdio and
 propagates the exit code. It deliberately bypasses the `Git` wrapper, so the
-user's own flags — including colour — behave normally.
+user's own flags — including colour — behave normally, and so do the user's
+hooks: unlike yman's own calls, a `yman git commit` fires `post-commit`.
