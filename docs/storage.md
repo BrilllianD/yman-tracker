@@ -110,7 +110,10 @@ file answers. `tests/cli.rs` pins both numbers.
 
 `remote.origin.push` is **never** set: that would hijack the user's plain
 `git push`. Publishing is always the explicit refspec
-`refs/yman/local:refs/tasks/main`.
+`refs/yman/local:refs/tasks/main`, pushed with `--porcelain` so that a push
+origin rejected because the ref moved (retried) is told apart from one it
+refused (not retried) by git's per-ref line rather than by its stderr — see
+[commands.md](commands.md#6-sync) step 8.
 
 Every `git` that `yman` runs for itself gets `-c core.quotePath=false` and
 `-c color.ui=never` on its command line and `LC_ALL=C` in its environment

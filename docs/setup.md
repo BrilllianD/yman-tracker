@@ -89,7 +89,15 @@ In the **main repo**, all local and none of it committed:
 In **`.yman`** — only when the history is being created — `config.toml`,
 `.gitignore` and `.gitattributes`, committed as `yman: init (<scheme>)` on top
 of an empty root commit `yman: init`, and pushed unless the run is `--offline`
-or the tracker is local-only.
+or the tracker is local-only. If that push loses the race to another clone
+creating the tracker at the same time (the reasons are those of `sync`,
+[commands.md](commands.md#6-sync) step 8), `init` refetches and adopts the other
+history with `warning: remote already had tasks; adopted remote state`. Should
+the refetch find no `refs/tasks/main` after all, there is nothing to adopt: it
+pushes again, at most three attempts in all, then fails with
+`origin keeps moving; retry yman sync`, leaving the local tracker in place for
+a later `yman sync` to publish. Any other push failure fails `init` with
+`push failed`, also leaving the local tracker in place.
 
 ## 4. There is no clone command
 

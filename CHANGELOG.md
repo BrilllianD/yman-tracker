@@ -9,6 +9,15 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- A push that origin refuses — a `pre-receive` hook declining it, a protected
+  or denied ref — is no longer mistaken for origin having moved. `sync` used to
+  retry it three times and end in `origin keeps moving`, autosync used to say
+  `origin has new task commits`, and `init` then failed resetting to a
+  `refs/yman/remote` that did not exist. The push now runs with `--porcelain`
+  and only `fetch first`, `non-fast-forward`, `incorrect old value provided`
+  and `reference already exists` count as the race; anything else fails at once with `push failed`
+  and git's reason on stderr. An `init` whose push loses the race but finds
+  nothing to adopt on refetch pushes again instead of resetting.
 - A title containing a newline, a carriage return, a tab or another control
   character is refused by `add`, `set --title`, `add --sections`, `add -e` and
   `edit` with `invalid title "<t>"; titles must not contain line breaks or

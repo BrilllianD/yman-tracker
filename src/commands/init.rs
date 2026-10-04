@@ -5,7 +5,7 @@ use crate::repo::{Context, FETCH_REFSPEC, LOCAL, REMOTE, REMOTE_REF, YDIR_NAME, 
 use crate::task;
 use anyhow::{Result, bail};
 
-use super::sync::{PushResult, push};
+use super::sync::{PUSH_ATTEMPTS, PushResult, push};
 
 const GITIGNORE: &str = "*.swp\n*~\n.#*\n*.orig\n";
 const GITATTRIBUTES: &str = "**/d.md merge=union\n**/m.yml merge=ymanmeta\n";
@@ -86,13 +86,8 @@ pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
         ctx.wt.ok(&["add", "-A"])?;
         ctx.wt.commit(&format!("yman: init ({scheme})"))?;
         ctx.config = Some(cfg);
-        if !offline && push(ctx)? == PushResult::Rejected {
-            // Someone initialized the tracker between our fetch and our push.
-            fetch_tasks(ctx, "fetch failed (see above); use --offline to skip")?;
-            ctx.wt.ok(&["reset", "-q", "--hard", REMOTE])?;
-            ctx.main.ok(&["update-ref", LOCAL, REMOTE])?;
-            eprintln!("warning: remote already had tasks; adopted remote state");
-            ctx.config = Some(load_history_config(ctx)?);
+        if !offline {
+            publish_fresh(ctx)?;
         }
     } else {
         ctx.config = Some(load_history_config(ctx)?);
@@ -106,6 +101,29 @@ pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
     }
 
     summary(ctx, url.as_deref(), "initialized")
+}
+
+/// Push a tracker we just created. A rejected push means someone created
+/// `refs/tasks/main` between our fetch and our push: refetch and adopt their
+/// history. If the refetch finds no ref after all (created, then deleted
+/// again), there is nothing to adopt and nothing to reset to, so push again —
+/// with the same attempt cap and message as `sync`. The local tracker stands
+/// either way; `yman sync` publishes it later.
+fn publish_fresh(ctx: &mut Context) -> Result<()> {
+    for _ in 0..PUSH_ATTEMPTS {
+        if push(ctx)? != PushResult::Rejected {
+            return Ok(());
+        }
+        fetch_tasks(ctx, "fetch failed (see above); use --offline to skip")?;
+        if ctx.main.rev_parse(REMOTE)?.is_some() {
+            ctx.wt.ok(&["reset", "-q", "--hard", REMOTE])?;
+            ctx.main.ok(&["update-ref", LOCAL, REMOTE])?;
+            eprintln!("warning: remote already had tasks; adopted remote state");
+            ctx.config = Some(load_history_config(ctx)?);
+            return Ok(());
+        }
+    }
+    bail!("origin keeps moving; retry yman sync")
 }
 
 /// `.yman` is already a worktree: make sure the main-repo side is intact.

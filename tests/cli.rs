@@ -1473,32 +1473,318 @@ fn remote_deleted_ref() {
     );
 }
 
-#[test]
-fn push_rejected_retry() {
-    let fx = Fx::new();
+// The push race: origin's refs/tasks/main moves after this clone's fetch.
+// `sync` fetches at the top of every attempt, so two clones taking turns never
+// race; these scenarios move the ref from inside the push itself.
+
+/// Moves origin's refs/tasks/main to B's parked commit, the first time only.
+const ADVANCE_TO_B_ONCE: &str = r#"[ -e "$MARK" ] || { touch "$MARK"; git --git-dir="$R" update-ref refs/tasks/main refs/race/b; }"#;
+
+/// Puts a new commit on top of origin's refs/tasks/main, every time.
+const ADVANCE_ALWAYS: &str = r#"tip=$(git --git-dir="$R" rev-parse refs/tasks/main)
+c=$(env $ID git --git-dir="$R" commit-tree -p "$tip" -m "yman: race" "$tip^{tree}")
+git --git-dir="$R" update-ref refs/tasks/main "$c""#;
+
+/// A publishes "A one". B joins, adds "B two" and parks it on origin as
+/// refs/race/b, leaving refs/tasks/main alone. A adds "A two". Whatever moves
+/// refs/tasks/main to refs/race/b during A's next push plays the clone that
+/// published in between.
+fn race_setup(fx: &Fx) {
     fx.yman(&fx.a).arg("init").assert().success();
     fx.yman(&fx.a).args(["add", "A one"]).assert().success();
     fx.yman(&fx.a).arg("sync").assert().success();
     fx.yman(&fx.b).arg("init").assert().success();
-
-    // A merges but holds its push back; B publishes in the meantime.
-    fx.yman(&fx.a).args(["add", "A two"]).assert().success();
     fx.yman(&fx.b).args(["add", "B two"]).assert().success();
-    let out = fx.yman(&fx.a).args(["sync", "--no-push"]).output().unwrap();
-    assert!(out.status.success(), "{}", stderr(&out));
-    assert!(stdout(&out).contains("pushed 0"), "{}", stdout(&out));
-    fx.yman(&fx.b).arg("sync").assert().success();
+    fx.git(
+        &fx.b,
+        &["push", "-q", "origin", "refs/yman/local:refs/race/b"],
+    );
+    fx.yman(&fx.a).args(["add", "A two"]).assert().success();
+}
 
-    // A's push is now stale; sync refetches, renumbers and lands it.
+/// After a race, A's sync landed both sides on origin.
+fn assert_race_settled(fx: &Fx) {
+    assert_eq!(fx.title(&fx.a, "2"), "B two");
+    assert_eq!(fx.title(&fx.a, "3"), "A two");
+    let theirs = fx.git(&fx.remote, &["rev-parse", "refs/race/b"]);
+    let (contains, _, _) = fx.git_try(
+        &fx.remote,
+        &["merge-base", "--is-ancestor", &theirs, "refs/tasks/main"],
+    );
+    assert!(contains, "origin lost B's commit");
+    assert_eq!(
+        origin_tasks(fx),
+        fx.git(&fx.a, &["rev-parse", "refs/yman/local"])
+    );
+}
+
+/// Origin moves between the fetch and the push: the push is rejected with
+/// `fetch first`, and sync fetches, renumbers and pushes again.
+#[test]
+fn push_race_fetch_first_is_retried() {
+    let fx = Fx::new();
+    race_setup(&fx);
+    let pushes = fx.wrap_origin_program(&fx.a, "receive-pack", ADVANCE_TO_B_ONCE);
+
     let out = fx.yman(&fx.a).arg("sync").output().unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(fx.runs(&pushes), 2, "one rejected push, then the retry");
     let text = stdout(&out);
     assert!(text.contains("renumbered 2 -> 3"), "{text}");
-    assert_eq!(fx.title(&fx.a, "3"), "A two");
-    assert_eq!(fx.title(&fx.a, "2"), "B two");
+    assert_race_settled(&fx);
+}
 
-    fx.yman(&fx.b).arg("sync").assert().success();
-    assert_eq!(fx.title(&fx.b, "3"), "A two");
+/// Origin moves before every push: three attempts, then give up.
+#[test]
+fn push_race_gives_up_after_three_attempts() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "A one"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.a).args(["add", "A two"]).assert().success();
+    let pushes = fx.wrap_origin_program(&fx.a, "receive-pack", ADVANCE_ALWAYS);
+
+    let out = fx.yman(&fx.a).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(fx.runs(&pushes), 3);
+    let err = stderr(&out);
+    assert!(
+        err.contains("origin keeps moving; retry yman sync"),
+        "{err}"
+    );
+    assert!(!err.contains("push failed"), "{err}");
+}
+
+/// The reason this machine's git gives when a `pre-receive` hook moves the
+/// ref being pushed — or, with `create`, creates the ref the push meant to
+/// create. receive-pack's ref update then fails its compare-and-swap. Recent
+/// git (2.55 when this was written) names that failure (`incorrect old value provided`,
+/// `reference already exists`); older git reports a generic
+/// `failed to update ref`, which yman cannot tell from a server-side fault.
+/// Probed with plain git in a fixture of its own, so a scenario can expect the
+/// path the classifier gives that wording instead of pinning a git version.
+fn server_reason_for_moved_ref(create: bool) -> String {
+    let fx = Fx::new();
+    let base = fx.git(&fx.a, &["rev-parse", "HEAD"]);
+    fx.git(&fx.a, &["commit", "-q", "--allow-empty", "-m", "theirs"]);
+    fx.git(&fx.a, &["push", "-q", "origin", "HEAD:refs/race/theirs"]);
+    fx.git(&fx.a, &["reset", "-q", "--hard", &base]);
+    fx.git(&fx.a, &["commit", "-q", "--allow-empty", "-m", "ours"]);
+    if !create {
+        fx.git(
+            &fx.a,
+            &["push", "-q", "origin", &format!("{base}:refs/probe/t")],
+        );
+    }
+    fx.pre_receive_hook(&move_once("refs/probe/t", "refs/race/theirs"));
+    let (_, out, _) = fx.git_try(
+        &fx.a,
+        &["push", "--porcelain", "origin", "HEAD:refs/probe/t"],
+    );
+    let line = out
+        .lines()
+        .find(|l| l.starts_with("!\t"))
+        .unwrap_or_else(|| panic!("probe push was not rejected:\n{out}"));
+    let reason = line.rsplit_once(" (").map(|(_, r)| r).unwrap_or(line);
+    reason.trim_end_matches(')').to_string()
+}
+
+/// A `pre-receive` hook body that moves origin's `target` to `to`, the first
+/// time only. Hooks run in git's quarantine, where ref updates are refused,
+/// hence the subshell that leaves it.
+fn move_once(target: &str, to: &str) -> String {
+    format!(
+        "[ -e \"$MARK\" ] || {{ touch \"$MARK\"; (unset GIT_QUARANTINE_PATH; \
+         git --git-dir=\"$R\" update-ref {target} {to}); }}\nexit 0"
+    )
+}
+
+/// Origin moves between the server's ref advertisement and its ref update:
+/// receive-pack's own old-value check fails. Where git names that failure
+/// (`incorrect old value provided`) it is the same race, and sync retries it.
+/// Where git only says `failed to update ref`, the reason is ambiguous and
+/// sync must not retry: one attempt, `push failed`, git's reason shown.
+#[test]
+fn push_race_incorrect_old_value_is_retried() {
+    let reason = server_reason_for_moved_ref(false);
+    let fx = Fx::new();
+    race_setup(&fx);
+    let hooks = fx.pre_receive_hook(&move_once("refs/tasks/main", "refs/race/b"));
+
+    let out = fx.yman(&fx.a).arg("sync").output().unwrap();
+    if reason == "incorrect old value provided" {
+        assert!(out.status.success(), "{}", stderr(&out));
+        assert_eq!(fx.runs(&hooks), 2, "one rejected push, then the retry");
+        assert_race_settled(&fx);
+    } else {
+        assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+        assert_eq!(fx.runs(&hooks), 1, "{reason}: not a race, not retried");
+        let err = stderr(&out);
+        assert!(err.contains(&format!("({reason})")), "{err}");
+        assert!(err.contains("push failed"), "{err}");
+    }
+}
+
+/// A push origin refuses for any other reason is not a race: one attempt,
+/// git's reason on stderr, `push failed`.
+#[test]
+fn push_declined_by_hook_is_not_retried() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "A one"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.a).args(["add", "A two"]).assert().success();
+    let before = origin_tasks(&fx);
+    let hooks = fx.pre_receive_hook("echo 'policy: tasks are read-only here' >&2\nexit 1");
+
+    let out = fx.yman(&fx.a).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(fx.runs(&hooks), 1);
+    let err = stderr(&out);
+    assert!(err.contains("policy: tasks are read-only here"), "{err}");
+    assert!(err.contains("(pre-receive hook declined)"), "{err}");
+    assert!(err.contains("push failed"), "{err}");
+    assert!(!err.contains("origin keeps moving"), "{err}");
+    assert_eq!(origin_tasks(&fx), before);
+}
+
+/// Autosync reports a declined push as a failure, not as origin having moved.
+#[test]
+fn autosync_declined_push_is_not_reported_as_moved() {
+    let fx = Fx::new();
+    fx.yman(&fx.a)
+        .args(["init", "--autosync", "push"])
+        .assert()
+        .success();
+    let hooks = fx.pre_receive_hook("exit 1");
+
+    let out = fx.yman(&fx.a).args(["add", "From A"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(fx.runs(&hooks), 1);
+    let err = stderr(&out);
+    assert!(err.contains("(pre-receive hook declined)"), "{err}");
+    assert!(
+        err.contains("warning: autosync failed: push failed; run: yman sync"),
+        "{err}"
+    );
+    assert!(!err.contains("origin has new task commits"), "{err}");
+}
+
+/// Two clones creating the tracker at once: the one whose push is rejected
+/// adopts the other's history.
+#[test]
+fn init_race_adopts_remote_history() {
+    let fx = Fx::new();
+    fx.yman(&fx.b)
+        .args(["init", "--offline"])
+        .assert()
+        .success();
+    fx.yman(&fx.b).args(["add", "From B"]).assert().success();
+    fx.git(
+        &fx.b,
+        &["push", "-q", "origin", "refs/yman/local:refs/race/b"],
+    );
+    let pushes = fx.wrap_origin_program(&fx.a, "receive-pack", ADVANCE_TO_B_ONCE);
+
+    let out = fx.yman(&fx.a).arg("init").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(fx.runs(&pushes), 1);
+    let err = stderr(&out);
+    assert!(
+        err.contains("warning: remote already had tasks; adopted remote state"),
+        "{err}"
+    );
+    assert_eq!(fx.title(&fx.a, "1"), "From B");
+    assert_eq!(
+        fx.git(&fx.a, &["rev-parse", "refs/yman/local"]),
+        fx.git(&fx.remote, &["rev-parse", "refs/race/b"])
+    );
+}
+
+/// The other clone's push creates refs/tasks/main between the server's
+/// advertisement and `init`'s own ref creation: receive-pack's create fails.
+/// Where git names it (`reference already exists`) `init` adopts the other
+/// history; where it only says `failed to update ref`, `init` fails with
+/// `push failed` and keeps its local tracker.
+#[test]
+fn init_race_ref_created_under_us_adopts() {
+    let reason = server_reason_for_moved_ref(true);
+    let fx = Fx::new();
+    fx.yman(&fx.b)
+        .args(["init", "--offline"])
+        .assert()
+        .success();
+    fx.yman(&fx.b).args(["add", "From B"]).assert().success();
+    fx.git(
+        &fx.b,
+        &["push", "-q", "origin", "refs/yman/local:refs/race/b"],
+    );
+    let hooks = fx.pre_receive_hook(&move_once("refs/tasks/main", "refs/race/b"));
+
+    let out = fx.yman(&fx.a).arg("init").output().unwrap();
+    assert_eq!(fx.runs(&hooks), 1);
+    let err = stderr(&out);
+    if reason == "reference already exists" {
+        assert!(out.status.success(), "{err}");
+        assert!(
+            err.contains("warning: remote already had tasks; adopted remote state"),
+            "{err}"
+        );
+        assert_eq!(fx.title(&fx.a, "1"), "From B");
+        assert_eq!(
+            fx.git(&fx.a, &["rev-parse", "refs/yman/local"]),
+            fx.git(&fx.remote, &["rev-parse", "refs/race/b"])
+        );
+    } else {
+        assert_eq!(out.status.code(), Some(1), "{err}");
+        assert!(err.contains(&format!("({reason})")), "{err}");
+        assert!(err.contains("push failed"), "{err}");
+    }
+}
+
+/// `init`'s push is rejected, but by the time it refetches the ref is gone
+/// again: there is nothing to adopt, so it pushes again rather than resetting
+/// to a refs/yman/remote that does not exist, and gives up like sync does.
+#[test]
+fn init_race_with_vanishing_ref_does_not_reset() {
+    let fx = Fx::new();
+    fx.yman(&fx.b)
+        .args(["init", "--offline"])
+        .assert()
+        .success();
+    fx.git(
+        &fx.b,
+        &["push", "-q", "origin", "refs/yman/local:refs/race/b"],
+    );
+    let pushes = fx.wrap_origin_program(
+        &fx.a,
+        "receive-pack",
+        r#"git --git-dir="$R" update-ref refs/tasks/main refs/race/b"#,
+    );
+    fx.wrap_origin_program(
+        &fx.a,
+        "upload-pack",
+        r#"git --git-dir="$R" update-ref -d refs/tasks/main 2>/dev/null || true"#,
+    );
+
+    let out = fx.yman(&fx.a).arg("init").output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(fx.runs(&pushes), 3);
+    let err = stderr(&out);
+    assert!(
+        err.contains("origin keeps moving; retry yman sync"),
+        "{err}"
+    );
+    assert!(!err.contains("reset"), "{err}");
+
+    // The local tracker stands; once origin settles, sync publishes it.
+    fx.git(&fx.a, &["config", "--unset", "remote.origin.receivepack"]);
+    fx.git(&fx.a, &["config", "--unset", "remote.origin.uploadpack"]);
+    fx.yman(&fx.a).arg("sync").assert().success();
+    assert_eq!(
+        origin_tasks(&fx),
+        fx.git(&fx.a, &["rev-parse", "refs/yman/local"])
+    );
 }
 
 #[test]
