@@ -1,5 +1,6 @@
 use crate::cli::SetArgs;
 use crate::discussion;
+use crate::plan::{self, BLOCKED};
 use crate::repo::Context;
 use crate::tags;
 use crate::task;
@@ -15,12 +16,29 @@ struct Change {
 }
 
 pub fn run(ctx: &mut Context, a: SetArgs) -> Result<()> {
+    let closed = apply(ctx, a)?;
+    plan::report_closed(ctx, closed.as_slice())
+}
+
+/// One `set`: validate, write, commit, print. Returns the id when this change
+/// closed the task — moved it from an open status into a terminal one — so
+/// the caller can report what that freed.
+fn apply(ctx: &mut Context, a: SetArgs) -> Result<Option<String>> {
     let mut t = task::find(&ctx.ydir, &a.id)?;
     let mut changes: Vec<Change> = Vec::new();
     let mut title_changed = false;
     let old_rel = t.rel();
+    let was_open = !ctx.config().is_terminal(&t.meta.status);
 
-    if let Some(status) = a.status {
+    // `--waits-on` is `--status blocked` plus `--relate`; clap keeps it apart
+    // from `--status`.
+    let status = if a.waits_on.is_empty() {
+        a.status
+    } else {
+        plan::require_blocked(ctx.config())?;
+        Some(BLOCKED.to_string())
+    };
+    if let Some(status) = status {
         if !ctx.config().has_status(&status) {
             bail!(
                 "unknown status \"{status}\"; allowed: {}",
@@ -85,10 +103,11 @@ pub fn run(ctx: &mut Context, a: SetArgs) -> Result<()> {
     let del_tags = tags::normalize_all(&a.untag)?;
     apply_set(&mut t.meta.tags, &add_tags, &del_tags, "tags", &mut changes);
     apply_set(&mut t.meta.links, &a.link, &a.unlink, "links", &mut changes);
-    super::warn_unknown_related(ctx, &a.relate, &t.meta.related)?;
+    let relate = super::dedupe([a.relate, a.waits_on].concat());
+    super::warn_unknown_related(ctx, &relate, &t.meta.related)?;
     apply_set(
         &mut t.meta.related,
-        &a.relate,
+        &relate,
         &a.unrelate,
         "related",
         &mut changes,
@@ -142,7 +161,7 @@ pub fn run(ctx: &mut Context, a: SetArgs) -> Result<()> {
 
     if changes.is_empty() && !relocating {
         println!("no changes");
-        return Ok(());
+        return Ok(None);
     }
     if changes.is_empty() {
         changes.push(Change {
@@ -197,7 +216,8 @@ pub fn run(ctx: &mut Context, a: SetArgs) -> Result<()> {
     for c in &changes {
         println!("{}: {}", t.id(), c.line);
     }
-    Ok(())
+    let closed = was_open && ctx.config().is_terminal(&t.meta.status);
+    Ok(closed.then(|| t.id().to_string()))
 }
 
 /// Add/remove on a list field, order preserved, removing an absent value is
@@ -237,7 +257,8 @@ fn apply_set(
 
 /// One `set` per id, one commit each, in the order given. The first failure
 /// stops the loop; tasks before it are already committed, which is the
-/// honest outcome — each is a complete change on its own.
+/// honest outcome — each is a complete change on its own. What the closes
+/// freed is reported once, after the last id.
 fn each(
     ctx: &mut Context,
     ids: &[String],
@@ -245,8 +266,9 @@ fn each(
     priority: Option<u8>,
     message: Option<String>,
 ) -> Result<()> {
+    let mut closed: Vec<String> = Vec::new();
     for id in ids {
-        run(
+        let done = apply(
             ctx,
             SetArgs {
                 id: id.clone(),
@@ -264,10 +286,12 @@ fn each(
                 unlink: vec![],
                 relate: vec![],
                 unrelate: vec![],
+                waits_on: vec![],
             },
         )?;
+        closed.extend(done);
     }
-    Ok(())
+    plan::report_closed(ctx, &closed)
 }
 
 pub fn run_start(ctx: &mut Context, ids: &[String], message: Option<String>) -> Result<()> {

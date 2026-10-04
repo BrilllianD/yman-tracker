@@ -94,6 +94,10 @@ commit.
 | empty comment (`comment`, or `-m` on `set` and the verbs) | `empty comment` |
 | `--body-file` cannot be read | `cannot read <path>: <why>` — `<why>` is the OS error text |
 | `cancel` with no cancel status | `no cancel status configured; set statuses.cancel in .yman/config.toml` |
+| `add --sections` text above the first heading | `<source>: line <n>: text before the first "# " heading` — `<source>` is the path, or `stdin` for `-` |
+| `add --sections` heading with no title | `<source>: line <n>: empty title` |
+| `add --sections` with no heading at all | `<source>: no "# " heading, so no tasks` |
+| `--waits-on` with no `blocked` in `statuses.list` | `--waits-on needs a "blocked" status; add it to statuses.list in .yman/config.toml` |
 | `reopen` on an open task | `task <id> is not closed (status "<s>"); closed statuses: <terminal joined by ", ">` |
 | `rm` or `tags rm` with no terminal and no `-f` | `refusing to remove without -f` |
 | editor could not be started | `cannot run editor "<program>": <why>` |
@@ -148,7 +152,8 @@ Never fatal, always stderr:
 | `warning: refresh failed: <why>` | the lazy refresh before a command failed; the command still runs |
 | `warning: origin has new task commits; run: yman sync` | `yman.autosync = push` and the push after a change was rejected; nothing is merged, the change stays committed |
 | `warning: autosync failed: <why>; run: yman sync` | `yman.autosync = push` and the push after a change failed (offline, auth); the command still succeeds |
-| `warning: task <id> does not exist here; relating anyway` | `add --relate` or `set --relate` naming an id no folder here carries |
+| `warning: task <id> does not exist here; relating anyway` | `add --relate`/`--waits-on` or `set --relate`/`--waits-on` naming an id no folder here carries |
+| `warning: <id> closed with open tasks relating to it: <ids>` | a close (as for the note below) of a task tagged `epic` while tasks relating to it are still open; the close is committed |
 | `warning: skipped N unreadable task folder(s): <rels>` | `tags`, `tags rename`, `tags rm` and `rm` walking every task |
 | `warning: <path> not moved; <dest> already exists` | `sync` rejoining a split folder found the same file on both sides |
 | `note: added remote "origin" -> <url>` | `init --remote` created the remote |
@@ -162,6 +167,7 @@ Never fatal, always stderr:
 | `note: dropped N reference(s) to <id>` | `rm` cleared the removed task out of other tasks' `related` |
 | `note: task <id> was closed to two different statuses; keep one of <relA>, <relB>` | a merge renamed one task into two status directories |
 | `note: task folder is now <rel>` | a status change moved the folder into or out of a status directory |
+| `note: <id> no longer waits on anything open: yman move <id> <default status>` | a close (`done`, `cancel`, `move`/`set --status` into a terminal status) left a `blocked` task relating to it with nothing open to wait on; nothing is moved |
 
 ## Deliberate non-errors
 

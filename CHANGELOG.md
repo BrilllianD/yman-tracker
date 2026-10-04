@@ -7,6 +7,23 @@ under [Releasing](README.md#releasing) in the README.
 
 ## [Unreleased]
 
+### Added
+
+- `yman plan <id>`: a task, a per-status count over every task relating to
+  it, and the open ones sorted like `ls`, with `waits on <ids>` on a blocked
+  step. `-a`, `-n`, `-l` and `--json` as on `ls`.
+- `--waits-on <id>` on `add` and `set`: relate to a blocker and set status
+  `blocked` in one commit. Needs `blocked` in `statuses.list`.
+- Closing a task (`done`, `cancel`, `move`/`set --status`) notes on stderr
+  each blocked task that now waits on nothing open, with the `yman move` that
+  frees it. Nothing is moved automatically.
+- `add --sections <path|->`: one task per `# Title` section of a markdown
+  file, body up to the next heading, every other flag applied to each. A
+  heading inside a code fence is body text; a bad file fails before any id
+  is minted.
+- Closing a task tagged `epic` while tasks relating to it are still open
+  warns on stderr and names them; the close still goes through.
+
 ## [0.5.1] - 2026-10-01
 
 ### Added

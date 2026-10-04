@@ -13,6 +13,7 @@ pub mod log;
 pub mod ls;
 pub mod merge_driver;
 pub mod path;
+pub mod plan;
 pub mod refresh;
 pub mod rm;
 pub mod set;
@@ -104,6 +105,7 @@ pub fn dispatch(ctx: &mut Context, cmd: Cmd) -> Result<()> {
         Cmd::Add(a) => add::run(ctx, a),
         Cmd::Ls(a) => ls::run(ctx, a),
         Cmd::Show(a) => show::run(ctx, a),
+        Cmd::Plan(a) => plan::run(ctx, a),
         Cmd::Edit(a) => edit::run(ctx, &a.id),
         Cmd::Set(a) => set::run(ctx, a),
         Cmd::Start(a) => set::run_start(ctx, &a.ids, a.message),

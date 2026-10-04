@@ -1,6 +1,8 @@
 use crate::cli::AddArgs;
 use crate::ids;
+use crate::plan::{self, BLOCKED};
 use crate::repo::Context;
+use crate::sections;
 use crate::tags;
 use crate::task::{self, FolderName, Meta, Task};
 use anyhow::{Result, bail};
@@ -8,27 +10,61 @@ use anyhow::{Result, bail};
 use super::edit::open_editor;
 use super::quote_title;
 
+/// What every task created by one `add` shares: all of it but the title
+/// and the body.
+struct Spec {
+    status: String,
+    priority: u8,
+    tags: Vec<String>,
+    assignee: Option<String>,
+    links: Vec<String>,
+    related: Vec<String>,
+    edit: bool,
+}
+
 pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
-    let title = a.title.trim().to_string();
-    if title.is_empty() {
-        bail!("title must not be empty");
-    }
+    let title = match &a.title {
+        Some(t) => {
+            let t = t.trim();
+            if t.is_empty() {
+                bail!("title must not be empty");
+            }
+            Some(t.to_string())
+        }
+        None => None,
+    };
     // Before the editor, before stdin, before an id is minted: a bad tag must
     // not cost the user a burned id or a half-written folder.
     let tags = tags::normalize_all(&a.tags)?;
+    if !a.waits_on.is_empty() {
+        plan::require_blocked(ctx.config())?;
+    }
     // Before an id is minted, so the warning cannot read as being about the
     // task we are creating.
-    super::warn_unknown_related(ctx, &a.related, &[])?;
+    let related = super::dedupe([a.related, a.waits_on.clone()].concat());
+    super::warn_unknown_related(ctx, &related, &[])?;
     if a.edit {
         // Refuse before the folder exists; see `edit::resolve_editor`.
         super::edit::resolve_editor()?;
     }
-    let body = match a.body_file {
-        Some(src) => super::read_text_source(&src)?,
-        None => a.message.unwrap_or_default(),
+    // `--sections` is read and parsed whole before the first id is minted:
+    // a bad file costs nothing.
+    let items: Vec<(String, String)> = match (title, a.sections) {
+        (Some(title), _) => {
+            let body = match a.body_file {
+                Some(src) => super::read_text_source(&src)?,
+                None => a.message.unwrap_or_default(),
+            };
+            vec![(title, body)]
+        }
+        (None, Some(src)) => sections::parse(&super::read_text_source(&src)?, &src)?,
+        (None, None) => unreachable!("clap requires a title or --sections"),
     };
 
     let status = match a.status {
+        // `--waits-on` is `-s blocked` plus `--relate`; clap keeps it apart
+        // from `-s`.
+        None if !a.waits_on.is_empty() => BLOCKED.to_string(),
         Some(s) => {
             if !ctx.config().has_status(&s) {
                 bail!(
@@ -47,15 +83,33 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
 
+    let spec = Spec {
+        status,
+        priority,
+        tags,
+        assignee,
+        links: super::dedupe(a.links),
+        related,
+        edit: a.edit,
+    };
+    // One commit per task, as the multi-id verbs do; the first failure stops
+    // the run with the tasks before it already committed.
+    for (title, body) in items {
+        create(ctx, &spec, title, body)?;
+    }
+    Ok(())
+}
+
+fn create(ctx: &mut Context, spec: &Spec, title: String, body: String) -> Result<()> {
     let id = ids::new_id(ctx)?;
     let folder = FolderName {
-        priority,
+        priority: spec.priority,
         id: id.clone(),
         slug: task::slugify(&title, ctx.config().slug.max_bytes),
     };
     // A task added straight into a closed status is born in its archive
     // directory rather than being created and immediately moved.
-    let parent = ctx.config().archive_dir(&status).map(str::to_string);
+    let parent = ctx.config().archive_dir(&spec.status).map(str::to_string);
     let dir = match &parent {
         Some(p) => ctx.ydir.join(p).join(folder.to_string()),
         None => ctx.ydir.join(folder.to_string()),
@@ -65,10 +119,10 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
     }
 
     std::fs::create_dir_all(&dir)?;
-    let mut meta = Meta::new(status, tags);
-    meta.assignee = assignee;
-    meta.links = super::dedupe(a.links);
-    meta.related = super::dedupe(a.related);
+    let mut meta = Meta::new(spec.status.clone(), spec.tags.clone());
+    meta.assignee = spec.assignee.clone();
+    meta.links = spec.links.clone();
+    meta.related = spec.related.clone();
     let mut t = Task {
         folder,
         parent,
@@ -80,7 +134,7 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
     t.write_md()?;
     t.write_meta()?;
 
-    if a.edit {
+    if spec.edit {
         open_editor(&t.dir.join(task::MD_FILE))?;
         let edited = task::load(&ctx.ydir, &t.dir)?;
         t.title = edited.title;

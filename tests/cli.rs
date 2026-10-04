@@ -4654,3 +4654,377 @@ fn autosync_without_an_origin_is_silent() {
     assert!(out.status.success(), "{}", stderr(&out));
     assert_eq!(stderr(&out), "");
 }
+
+/// `plan <id>` prints the task, a per-status count over every step, and the
+/// open steps sorted like `ls`; a blocked step names what it still waits on,
+/// never the epic it belongs to. `-a`, `-n`, `-l` and `--json` behave as on
+/// `ls`, and an unknown id is exit 4.
+#[test]
+fn plan_prints_progress_and_open_steps() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v2_config(&fx.a);
+    let add = |args: &[&str]| {
+        let mut full = vec!["add"];
+        full.extend_from_slice(args);
+        fx.yman(&fx.a).args(&full).assert().success();
+    };
+    add(&["Epic", "-t", "epic"]);
+    add(&["Step one", "-p", "3", "--relate", "1"]);
+    add(&["Step two", "-p", "2", "--relate", "1", "-m", "body two"]);
+    add(&[
+        "Step three",
+        "-p",
+        "3",
+        "--relate",
+        "1",
+        "--relate",
+        "3",
+        "-s",
+        "blocked",
+    ]);
+    add(&["Step four", "--relate", "1"]);
+    add(&["Unrelated"]);
+    fx.yman(&fx.a).args(["done", "5"]).assert().success();
+
+    let plan = |args: &[&str]| -> String {
+        let mut full = vec!["plan"];
+        full.extend_from_slice(args);
+        let out = fx.yman(&fx.a).args(&full).output().unwrap();
+        assert!(out.status.success(), "{}", stderr(&out));
+        assert_eq!(stderr(&out), "");
+        stdout(&out)
+    };
+    assert_eq!(
+        plan(&["1"]),
+        "1  Epic\n\
+         status: todo   steps: 4   todo 2, blocked 1, done 1\n\
+         2  3  todo     Step two\n\
+         3  2  todo     Step one\n\
+         3  4  blocked  Step three  waits on 3\n"
+    );
+    let all = plan(&["1", "-a"]);
+    assert!(all.ends_with("\n5  5  done     Step four\n"), "{all}");
+    assert_eq!(
+        plan(&["1", "-n", "1", "-l"]),
+        "1  Epic\n\
+         status: todo   steps: 4   todo 2, blocked 1, done 1\n\
+         2  3  todo  Step two\n    body two\n"
+    );
+    assert_eq!(plan(&["6"]), "6  Unrelated\nstatus: todo   steps: 0\n");
+
+    let json = plan(&["1", "--json"]);
+    assert!(
+        json.starts_with(
+            r#"{"id":"1","priority":5,"status":"todo","title":"Epic","counts":{"todo":2,"blocked":1,"done":1},"steps":[{"id":"3","#
+        ),
+        "{json}"
+    );
+    assert!(
+        json.contains(r#""title":"Step two","tags":[],"assignee":null,"waits_on":[],"dir":"#),
+        "{json}"
+    );
+    assert!(
+        json.contains(r#""title":"Step three","tags":[],"assignee":null,"waits_on":["3"],"#),
+        "{json}"
+    );
+    assert!(!json.contains("Step four"), "{json}");
+    assert!(!json.contains(r#""body""#), "{json}");
+    assert!(plan(&["1", "--json", "-l"]).contains(r#""body":"body two""#));
+    assert!(plan(&["6", "--json"]).contains(r#""counts":{},"steps":[]}"#));
+
+    let out = fx.yman(&fx.a).args(["plan", "99"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(4), "{}", stderr(&out));
+}
+
+/// `--waits-on <id>` on `add` and `set` relates to the blocker and sets status
+/// `blocked` in one commit; without a `blocked` status it refuses before
+/// anything is written, and it cannot be combined with an explicit status.
+#[test]
+fn waits_on_relates_and_blocks() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+
+    // The default config has no `blocked`: refused, no id burned.
+    let out = fx
+        .yman(&fx.a)
+        .args(["add", "Waits", "--waits-on", "1"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        stderr(&out).trim_end(),
+        "error: --waits-on needs a \"blocked\" status; add it to statuses.list in .yman/config.toml"
+    );
+    assert!(fx.task_dirs(&fx.a).is_empty());
+
+    fx.v2_config(&fx.a);
+    fx.yman(&fx.a).args(["add", "Blocker"]).assert().success();
+    let out = fx
+        .yman(&fx.a)
+        .args(["add", "Waits", "--waits-on", "1", "--relate", "1"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(fx.status(&fx.a, "2"), "blocked");
+    let shown = stdout(&fx.yman(&fx.a).args(["show", "2"]).output().unwrap());
+    assert!(shown.contains("\nrelated:  1\n"), "{shown}");
+
+    fx.yman(&fx.a).args(["add", "Other"]).assert().success();
+    let out = fx
+        .yman(&fx.a)
+        .args(["set", "3", "--waits-on", "2"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "3: status todo -> blocked\n3: related +2\n");
+    assert_eq!(
+        fx.git(&fx.a.join(".yman"), &["log", "-1", "--format=%s"])
+            .trim(),
+        "task(3): set status=todo->blocked related=+2"
+    );
+
+    for args in [
+        &["add", "X", "--waits-on", "1", "-s", "todo"][..],
+        &["set", "3", "--waits-on", "1", "--status", "todo"][..],
+    ] {
+        let out = fx.yman(&fx.a).args(args).output().unwrap();
+        assert_eq!(out.status.code(), Some(2), "{args:?}");
+    }
+}
+
+/// Closing the last open task a blocked task waits on prints a note naming
+/// the move that frees it; nothing is moved. A second open blocker, or an
+/// epic the task belongs to, keeps it quiet, and a multi-id close judges after
+/// every id is closed.
+#[test]
+fn closing_a_blocker_notes_what_it_freed() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v2_config(&fx.a);
+    // A version 2 config archives closed tasks, which has its own note; only
+    // the report is under test here.
+    let run = |args: &[&str]| -> (String, String) {
+        let out = fx.yman(&fx.a).args(args).output().unwrap();
+        assert!(out.status.success(), "{args:?}: {}", stderr(&out));
+        let err: Vec<&str> = std::str::from_utf8(&out.stderr)
+            .unwrap()
+            .lines()
+            .filter(|l| !l.starts_with("note: task folder is now "))
+            .collect();
+        (stdout(&out), err.join("\n"))
+    };
+    run(&["add", "Epic", "-t", "epic"]); // 1
+    run(&["add", "Blocker A", "--relate", "1"]); // 2
+    run(&["add", "Blocker B", "--relate", "1"]); // 3
+    run(&[
+        "add",
+        "Waits on both",
+        "--relate",
+        "1",
+        "--waits-on",
+        "2",
+        "--waits-on",
+        "3",
+    ]); // 4
+    run(&["add", "Waits on A", "--waits-on", "2"]); // 5
+
+    let (out, err) = run(&["done", "2"]);
+    assert_eq!(out, "2: status todo -> done\n");
+    assert_eq!(
+        err,
+        "note: 5 no longer waits on anything open: yman move 5 todo"
+    );
+    assert_eq!(fx.status(&fx.a, "5"), "blocked", "a note, not a move");
+
+    // 4 still waits on 3 until it closes; closing 3 by `cancel` counts too.
+    let (_, err) = run(&["cancel", "3"]);
+    assert_eq!(
+        err,
+        "note: 4 no longer waits on anything open: yman move 4 todo"
+    );
+
+    // An epic is a container: closing it frees nothing (it warns instead).
+    run(&["add", "Epic two", "-t", "epic"]); // 6
+    run(&["add", "Step", "--relate", "6", "-s", "blocked"]); // 7
+    let (_, err) = run(&["move", "6", "done"]);
+    assert!(!err.contains("note:"), "{err}");
+
+    // Multi-id: one report after both are closed, not a premature silence.
+    run(&["add", "C"]); // 8
+    run(&["add", "D"]); // 9
+    run(&[
+        "add",
+        "Waits on C and D",
+        "--waits-on",
+        "8",
+        "--waits-on",
+        "9",
+    ]); // 10
+    let (out, err) = run(&["done", "8", "9"]);
+    assert_eq!(out, "8: status todo -> done\n9: status todo -> done\n");
+    assert_eq!(
+        err,
+        "note: 10 no longer waits on anything open: yman move 10 todo"
+    );
+
+    // Not a transition into a closed status: no report.
+    let (out, err) = run(&["move", "8", "done"]);
+    assert_eq!((out.as_str(), err.as_str()), ("no changes\n", ""));
+}
+
+/// Closing a task tagged `epic` while tasks relating to it are still open
+/// warns on stderr and names them; the close is committed and the exit is 0.
+/// A non-epic task with an open follow-up, an epic whose steps are all
+/// closed, and an epic closed together with its last step stay quiet.
+#[test]
+fn closing_an_epic_with_open_steps_warns() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v2_config(&fx.a);
+    let run = |args: &[&str]| -> (String, String) {
+        let out = fx.yman(&fx.a).args(args).output().unwrap();
+        assert!(out.status.success(), "{args:?}: {}", stderr(&out));
+        let err: Vec<&str> = std::str::from_utf8(&out.stderr)
+            .unwrap()
+            .lines()
+            .filter(|l| !l.starts_with("note: task folder is now "))
+            .collect();
+        (stdout(&out), err.join("\n"))
+    };
+    run(&["add", "Epic", "-t", "epic"]); // 1
+    run(&["add", "Step a", "--relate", "1"]); // 2
+    run(&["add", "Step b", "--relate", "1", "-s", "blocked"]); // 3
+    run(&["add", "Step c", "--relate", "1"]); // 4
+    run(&["done", "4"]);
+
+    let (out, err) = run(&["done", "1"]);
+    assert_eq!(out, "1: status todo -> done\n", "stdout stays data");
+    assert_eq!(
+        err,
+        "warning: 1 closed with open tasks relating to it: 2, 3"
+    );
+    assert_eq!(fx.status(&fx.a, "1"), "done", "the close stands");
+
+    // A follow-up relating to an ordinary task is not a step.
+    run(&["add", "Parent"]); // 5
+    run(&["add", "Follow-up", "--relate", "5"]); // 6
+    let (_, err) = run(&["done", "5"]);
+    assert_eq!(err, "");
+
+    // Every step closed, or closed in the same call: quiet.
+    run(&["add", "Epic two", "-t", "epic"]); // 7
+    run(&["add", "Only step", "--relate", "7"]); // 8
+    run(&["add", "Last step", "--relate", "7"]); // 9
+    run(&["cancel", "8"]);
+    let (_, err) = run(&["done", "9", "7"]);
+    assert_eq!(err, "");
+}
+
+/// `add --sections FILE` creates one task per `# Title` section, its body the
+/// text up to the next heading, one commit and one `added` line each; every
+/// other flag applies to all of them. A heading inside a code fence is body.
+#[test]
+fn add_sections_creates_one_task_per_heading() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Epic", "-t", "epic"])
+        .assert()
+        .success();
+    let plan = fx.tmp.path().join("plan.md");
+    fx.write(
+        &plan,
+        "# Fetch first\n\nWhere: sync.rs\n\n```sh\n# not a task\n```\n\n\
+         # Merge second\nDone when: green\n\n# Push last\n",
+    );
+    let out = fx
+        .yman(&fx.a)
+        .args(["add", "--sections"])
+        .arg(&plan)
+        .args(["--relate", "1", "-p", "2", "-t", "sync"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(
+        stdout(&out),
+        "added 2  2.2.fetch-first\nadded 3  2.3.merge-second\nadded 4  2.4.push-last\n"
+    );
+    assert_eq!(
+        fx.git(&fx.a.join(".yman"), &["log", "-3", "--format=%s"]),
+        "task(4): add \"Push last\"\ntask(3): add \"Merge second\"\ntask(2): add \"Fetch first\""
+    );
+    let two = stdout(&fx.yman(&fx.a).args(["show", "2"]).output().unwrap());
+    assert!(
+        two.contains("\nWhere: sync.rs\n\n```sh\n# not a task\n```\n"),
+        "{two}"
+    );
+    let plan_out = stdout(&fx.yman(&fx.a).args(["plan", "1"]).output().unwrap());
+    assert!(plan_out.contains("steps: 3   todo 3\n"), "{plan_out}");
+    let ls = stdout(
+        &fx.yman(&fx.a)
+            .args(["ls", "-t", "sync", "-p", "2"])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(ls.lines().count(), 3, "{ls}");
+
+    // `-` reads stdin.
+    let out = fx
+        .yman(&fx.a)
+        .args(["add", "--sections", "-"])
+        .write_stdin("# From stdin\nbody\n")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "added 5  5.5.from-stdin\n");
+}
+
+/// A bad sections file fails before an id is minted; `--sections` excludes a
+/// title and every other body source.
+#[test]
+fn add_sections_refuses_bad_input() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let plan = fx.tmp.path().join("plan.md");
+    fx.write(&plan, "intro\n# One\n");
+    let out = fx
+        .yman(&fx.a)
+        .args(["add", "--sections"])
+        .arg(&plan)
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        stderr(&out).trim_end(),
+        format!(
+            "error: {}: line 1: text before the first \"# \" heading",
+            plan.display()
+        )
+    );
+    assert!(fx.task_dirs(&fx.a).is_empty());
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["add", "--sections", "-"])
+        .write_stdin("\n")
+        .output()
+        .unwrap();
+    assert_eq!(
+        stderr(&out).trim_end(),
+        "error: stdin: no \"# \" heading, so no tasks"
+    );
+
+    let p = plan.to_str().unwrap();
+    for args in [
+        &["add", "Title", "--sections", p][..],
+        &["add", "--sections", p, "-m", "body"][..],
+        &["add", "--sections", p, "--body-file", p][..],
+        &["add", "--sections", p, "-e"][..],
+        &["add"][..],
+    ] {
+        let out = fx.yman(&fx.a).args(args).output().unwrap();
+        assert_eq!(out.status.code(), Some(2), "{args:?}");
+    }
+    assert!(fx.task_dirs(&fx.a).is_empty());
+}

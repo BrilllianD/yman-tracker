@@ -31,6 +31,8 @@ pub enum Cmd {
     Ls(LsArgs),
     /// Show one task in full
     Show(ShowArgs),
+    /// Show a task and the tasks relating to it, with progress
+    Plan(PlanArgs),
     /// Open a task's t.md in $EDITOR
     Edit(IdArgs),
     /// Change fields of a task
@@ -160,12 +162,13 @@ pub struct InitArgs {
 #[derive(Args, Debug)]
 pub struct AddArgs {
     /// Task title
-    pub title: String,
+    #[arg(required_unless_present = "sections")]
+    pub title: Option<String>,
     /// Priority, 0 (highest) to 9
     #[arg(short = 'p', long, value_name = "N", value_parser = clap::value_parser!(u8).range(0..=9))]
     pub priority: Option<u8>,
     /// Initial status
-    #[arg(short = 's', long, value_name = "STATUS")]
+    #[arg(short = 's', long, value_name = "STATUS", conflicts_with = "waits_on")]
     pub status: Option<String>,
     /// Tag (repeatable)
     #[arg(short = 't', long = "tag", value_name = "TAG", action = ArgAction::Append)]
@@ -188,6 +191,12 @@ pub struct AddArgs {
     /// Related task id (repeatable)
     #[arg(long = "relate", value_name = "ID", action = ArgAction::Append)]
     pub related: Vec<String>,
+    /// Relate to a task this one waits on and set status "blocked" (repeatable)
+    #[arg(long = "waits-on", value_name = "ID", action = ArgAction::Append)]
+    pub waits_on: Vec<String>,
+    /// One task per `# Title` section of a markdown file, `-` for stdin
+    #[arg(long, value_name = "PATH", conflicts_with_all = ["title", "message", "body_file", "edit"])]
+    pub sections: Option<String>,
 }
 
 #[derive(Args, Debug)]
@@ -242,6 +251,24 @@ pub struct ShowArgs {
     pub json: bool,
 }
 
+#[derive(Args, Debug)]
+pub struct PlanArgs {
+    /// Task id
+    pub id: String,
+    /// Include closed steps
+    #[arg(short = 'a', long)]
+    pub all: bool,
+    /// Print at most N steps, after sorting
+    #[arg(short = 'n', long = "limit", value_name = "N")]
+    pub limit: Option<usize>,
+    /// Also print each step's body: indented under its row, or as "body" in JSON
+    #[arg(short = 'l', long)]
+    pub long: bool,
+    /// Print JSON instead of the text block
+    #[arg(long)]
+    pub json: bool,
+}
+
 /// `start`, `done`, `cancel`, `reopen`.
 #[derive(Args, Debug)]
 pub struct VerbArgs {
@@ -272,15 +299,15 @@ pub struct MoveArgs {
         .multiple(true)
         .args([
             "status", "priority", "title", "assignee", "no_assignee",
-            "tag", "untag", "link", "unlink", "relate", "unrelate", "message",
-            "body", "body_file",
+            "tag", "untag", "link", "unlink", "relate", "unrelate", "waits_on",
+            "message", "body", "body_file",
         ])
 ))]
 pub struct SetArgs {
     /// Task id
     pub id: String,
     /// New status
-    #[arg(long, value_name = "STATUS")]
+    #[arg(long, value_name = "STATUS", conflicts_with = "waits_on")]
     pub status: Option<String>,
     /// New priority, 0 (highest) to 9
     #[arg(long, value_name = "N", value_parser = clap::value_parser!(u8).range(0..=9))]
@@ -312,6 +339,9 @@ pub struct SetArgs {
     /// Remove a related task id (repeatable)
     #[arg(long = "unrelate", value_name = "ID", action = ArgAction::Append)]
     pub unrelate: Vec<String>,
+    /// Relate to a task this one waits on and set status "blocked" (repeatable)
+    #[arg(long = "waits-on", value_name = "ID", action = ArgAction::Append)]
+    pub waits_on: Vec<String>,
     /// Append a comment in the same commit
     #[arg(short = 'm', long, value_name = "TEXT")]
     pub message: Option<String>,

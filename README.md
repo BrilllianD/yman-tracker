@@ -223,15 +223,21 @@ attachment — still conflict, and land in the file as the usual markers.
 ### Creating and reading
 
 ```sh
-yman add <title> [-p 0-9] [-s <status>] [-t <tag>]... [-m <body> | --body-file <path>] [-e]
+yman add <title> [-p 0-9] [-s <status> | --waits-on <id>...] [-t <tag>]...
+         [-m <body> | --body-file <path>] [-e]
          [-a <who>] [--link <url>]... [--relate <id>]...
+yman add --sections <path|-> [same flags, minus the title, -m, --body-file, -e]
 ```
-Creates a task and commits it. `-t`, `--link` and `--relate` repeat. Relating
+Creates a task and commits it. `-t`, `--link`, `--relate` and `--waits-on`
+repeat; `--waits-on <id>` is `--relate <id>` plus `-s blocked`. Relating
 to an id this clone does not have warns on stderr and commits anyway — another
 clone may not have synced yet.
 `--body-file -` reads the body from stdin. `-e` opens `$EDITOR` on the new
 `t.md` first, starting from the `-m` body when both are given — whatever title you type there wins, and the folder is named after
-it.
+it. `--sections plan.md` creates one task per `# Title` section of a markdown
+file instead, each with the text up to the next heading as its body (a `#`
+line inside a code fence does not count) and every other flag applied to
+each — the steps of a plan in one call, one commit apiece.
 
 ```sh
 yman ls [-s <status>]... [-t <tag>]... [-a] [--assignee <who>] [-p 0-9]
@@ -265,12 +271,16 @@ P  ID  STATUS  TITLE       TAGS      F  C
 
 ```sh
 yman show <id> [-n N] [--json]   # everything about one task; -n keeps the last N comments
+yman plan <id> [-a] [-n N] [-l] [--json]   # a task and the tasks relating to it
 yman path <id>     # just the absolute path:  cd $(yman path 14)
 yman log [<id>] [-n N]
 ```
 `yman show` lists the task's own `related` ids and, as `related by:`, the tasks
 that relate to it (`related_by` in `--json`), so an epic sees its steps without
-being edited. `yman log <id>` follows the task across every rename it has been
+being edited. `yman plan <id>` reads a whole plan at once: the task, a
+count per status over every task relating to it, and the open ones sorted like
+`ls`, a `blocked` one followed by `waits on <ids>` — what it relates to that is
+still open, its epic (tag `epic`) aside. `yman log <id>` follows the task across every rename it has been
 through.
 
 ### Changing things
@@ -280,7 +290,7 @@ yman set <id> [--status S] [--priority 0-9] [--title T]
               [--assignee A | --no-assignee]
               [--tag X]... [--untag X]...
               [--link URL]... [--unlink URL]...
-              [--relate ID]... [--unrelate ID]...
+              [--relate ID]... [--unrelate ID]... [--waits-on ID]...
               [--body <text> | --body-file <path>] [-m <comment>]
 yman start <id>...          # = set --status <start status>
 yman done  <id>...          # = set --status <done status>
@@ -301,6 +311,15 @@ history alone. `-m` appends a comment in the same commit, so
 rewrites the description without an editor; `--body ""` clears it. The verbs
 take several ids — `yman done 14 15 16` — and commit each task on its own,
 stopping at the first error.
+
+`--waits-on <id>` marks a dependency in one step: it relates to the task
+waited on and sets status `blocked`, which has to be in `statuses.list`.
+Closing a task then says what it freed, on stderr — a blocked task left
+waiting on nothing open gets
+`note: 34 no longer waits on anything open: yman move 34 todo`. Nothing moves
+by itself; tasks tagged `epic` are containers and never count as something to
+wait on. Closing an epic with open steps still goes through, but warns:
+`warning: 30 closed with open tasks relating to it: 35, 36`.
 
 `yman rm` asks for confirmation on a terminal and refuses outright without `-f`
 when there is no terminal to ask at. It also drops the removed id from every
@@ -378,9 +397,10 @@ skim bodies with `ls -l -n`, read with `show -n`, close with `done <id> -m`,
 run `yman sync` before a status change and after it (the after is automatic
 under `yman.autosync = push`), never open an editor, and set `YMAN_ACTOR` so
 the work is attributed to the agent. Big work is a plan: an epic task plus
-steps that `--relate` it, listed from the epic with `ls --related <id>` and
-seen from it as `related by:` in `show`, so the epic is never edited; a step
-that waits sits in `blocked` and relates to what it waits on.
+steps that `--relate` it, read from the epic with `yman plan <id>` (progress
+and open steps in one call) and created in one go with
+`add --sections plan.md --relate <id>`, so the epic is never edited; a step that waits
+sits in `blocked` and relates to what it waits on.
 
 For a harness that loads skills, [skills/yman/](skills/yman/) is the fuller
 version of the same rules as a Claude Code skill — the task-list procedure,

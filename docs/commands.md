@@ -159,6 +159,36 @@ has to branch on a missing key. `dir` is relative to `.yman`, as in `ls --json`,
 where the text form's `folder:` line is relative to the repository root
 (`.yman/2.1.fix-login`).
 
+### `plan`
+
+`plan <id>` reads a plan in one call: the task, how far its steps have got,
+and what is left. A step is any task whose `related` carries the id — the set
+`ls --related <id>` filters and `show`'s `related by:` lists. It is built from
+the same single read of every `m.yml` that `show` makes; broken folders are
+skipped.
+
+    30  Ship sync v2
+    status: doing   steps: 7   todo 2, doing 1, blocked 1, done 3
+    2  32  todo     Rewrite merge driver
+    3  34  blocked  Drop old ref            waits on 32
+
+The second line counts **every** step, closed ones included, per status in
+`statuses.list` order; a status the config does not list comes last, and a
+zero count is left out. With no steps it reads `steps: 0` and no rows follow.
+Rows are the open steps, sorted as `ls` sorts (`P ID STATUS TITLE`, no header
+line); `-a` adds the closed ones and `-n N` keeps the first N after sorting.
+A step in status `blocked` gets a last column, `waits on <ids>`: the tasks in
+its own `related` that exist here, are open, and are not tagged `epic` — so
+the epic a step belongs to never reads as something it waits on. `-l` prints
+each step's body under its row, indented as in `ls -l`.
+
+`--json` emits one object —
+`{id, priority, status, title, counts, steps}`, where `counts` maps each
+non-zero status to its number (`{}` when there are no steps) and `steps` is
+`[{id, priority, status, title, tags, assignee, waits_on, dir}]` in row order;
+`waits_on` is `[]` for a step that is not `blocked`, and `-l` adds `body`.
+An unknown id is exit 4, as everywhere.
+
 ### `status`
 
 Reports and never changes anything: the local ref and its short head, the
@@ -265,11 +295,35 @@ editor opens, before `--body-file` reads stdin and before an id is minted, so a
 typo costs neither an id nor a half-written folder. `-t UI -t ui` is one tag.
 `-a/--assignee` is trimmed; blank means unassigned. `--relate` to an id no
 folder here carries warns exactly as `set --relate` does, before the id is
-minted. The body comes from `-m`,
+minted. `--waits-on ID` (repeatable) is `--relate ID` plus `-s blocked`, and
+excludes `-s`; it refuses, before anything else is read, when `blocked` is not
+in `statuses.list` (see `set`). The body comes from `-m`,
 or from `--body-file PATH` (`-` reads stdin); the two exclude each other and
 `-e`. With `-e`, the editor opens before the
 first commit, so a title typed there renames the folder by plain rename — the
 placeholder never enters git history.
+
+`--sections PATH` (`-` reads stdin) creates one task per section of a markdown
+file instead of one from a title; it excludes the title, `-m`, `--body-file`
+and `-e`, and every other flag applies to each task. A line that is `#` or
+starts with `# ` opens a section and is its title, trimmed; the body is
+everything up to the next such line, with blank lines at either end dropped.
+Inside a fenced block — a line starting, after indentation, with three
+backticks or `~~~`, closed by the same marker — a `# ` line is body text, and
+`##` and deeper headings are always body text. CRLF reads like LF. The whole
+file is read and parsed before the first id is minted, and these refuse it,
+`<source>` being the path or `stdin`:
+
+- `<source>: line <n>: text before the first "# " heading` — anything but
+  blank lines above the first heading;
+- `<source>: line <n>: empty title`;
+- `<source>: no "# " heading, so no tasks`.
+
+Tasks are then created in file order, one commit and one `added <id>  <dir>`
+line each, exactly as separate `add` calls would make them; the first failure
+stops the run with the tasks before it committed. Under the `seq` scheme ids
+follow file order, so a plan listed with equal priorities reads in that order;
+under the other schemes, order steps with `prio` afterwards.
 
 ### `edit`
 
@@ -314,6 +368,13 @@ legitimately race it, and the id becomes real the moment that clone's work
 arrives. Re-adding an id the task already relates to is not a change and warns
 about nothing.
 
+`--waits-on ID` (repeatable) says the task waits on another: it is `--relate
+ID` plus `--status blocked`, in the same commit and with the same printed
+lines, and the argument parser refuses it together with `--status`. `blocked`
+is a status name, not a config role; when `statuses.list` lacks it the flag
+fails with `--waits-on needs a "blocked" status; add it to statuses.list in
+.yman/config.toml` before anything is written.
+
 `related` is **one-way**: relating 1 to 2 says nothing about 2. yman maintains
 the field in exactly three places — here, the renumber rewrite in §6, and `rm`
 below — and nowhere else. In particular, an id written into the prose of `t.md`
@@ -353,6 +414,25 @@ take exactly one id.
 
 `cancel` has no fallback on purpose: picking one of several closed statuses by
 position is the guesswork the named roles exist to remove.
+
+**What a close changed.** When `set` or a verb moves a task from an open
+status into a terminal one, yman reads every task once more and reports on
+stderr, after the last id of the call (so `done 32 33` judges a task waiting
+on both after both closed). Exit status and stdout are unaffected.
+
+- A closed task tagged `epic` that open tasks still relate to gets
+  `warning: <id> closed with open tasks relating to it: <ids>` (id order).
+  The close is already committed; the warning is there so a plan is not
+  closed by accident with work left. Closing it frees nothing: its steps
+  relate to it as a container, not a blocker.
+- Otherwise, a task in status `blocked` whose `related` carries a closed id,
+  and which now relates to nothing open except tasks tagged `epic`, gets
+  `note: <id> no longer waits on anything open: yman move <id> <default
+  status>`, one per task in id order. Nothing is moved.
+
+A follow-up that relates to an ordinary task is not a step and is never
+reported. A `set` that changes nothing, or that leaves the task closed,
+reports nothing.
 
 ### `tags rename` / `tags rm`
 
