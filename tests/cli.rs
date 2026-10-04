@@ -5505,3 +5505,184 @@ fn add_sections_refuses_bad_input() {
     }
     assert!(fx.task_dirs(&fx.a).is_empty());
 }
+
+/// The pinned refusal for a title carrying a control character; `shown` is
+/// the trimmed title as Rust's `{:?}` writes it, quotes included.
+fn control_title_error(shown: &str) -> String {
+    format!(
+        "error: invalid title {shown}; titles must not contain line breaks or other \
+         control characters"
+    )
+}
+
+/// `add` refuses a title with a newline, a carriage return, a tab or any other
+/// control character before an id is minted, and `add -e` refuses one the
+/// editor wrote, removing the folder it made. Surrounding whitespace is still
+/// trimmed first, so a trailing newline is not a refusal.
+#[test]
+fn add_refuses_a_title_with_a_control_character() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let head = fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]);
+
+    for (bad, shown) in [
+        ("a\nb", r#""a\nb""#),
+        ("  a\r\nb  ", r#""a\r\nb""#),
+        ("a\rb", r#""a\rb""#),
+        ("a\tb", r#""a\tb""#),
+        ("a\u{1b}[31mb", r#""a\u{1b}[31mb""#),
+        ("a\u{7f}b", r#""a\u{7f}b""#),
+    ] {
+        let out = fx.yman(&fx.a).args(["add", bad]).output().unwrap();
+        assert_eq!(out.status.code(), Some(1), "{bad:?}");
+        assert_eq!(
+            stderr(&out).trim_end(),
+            control_title_error(shown),
+            "{bad:?}"
+        );
+        assert_eq!(stdout(&out), "", "{bad:?}");
+    }
+    assert!(fx.task_dirs(&fx.a).is_empty(), "{:?}", fx.task_dirs(&fx.a));
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]), head);
+
+    // The editor cannot put a newline in the `# ` line, but it can put a
+    // bell in it.
+    let editor = fx.editor_writing("ed-add-bell", "# Ring\u{7}bell\n\nbody\n");
+    let out = fx
+        .yman(&fx.a)
+        .env("EDITOR", &editor)
+        .args(["add", "Placeholder", "-e"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(
+        stderr(&out).trim_end(),
+        format!(
+            "error: t.md invalid after edit: {}; task not added",
+            control_title_error(r#""Ring\u{7}bell""#).trim_start_matches("error: ")
+        )
+    );
+    assert!(fx.task_dirs(&fx.a).is_empty(), "{:?}", fx.task_dirs(&fx.a));
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["status", "--porcelain"]), "");
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]), head);
+
+    fx.yman(&fx.a)
+        .args(["add", "\tFix login\n"])
+        .assert()
+        .success();
+    assert_eq!(fx.title(&fx.a, "1"), "Fix login");
+}
+
+/// `set --title` refuses the same titles with the same message and leaves
+/// the task, its folder and the history alone.
+#[test]
+fn set_refuses_a_title_with_a_control_character() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let head = fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]);
+
+    for (bad, shown) in [
+        ("Fix\nlogout", r#""Fix\nlogout""#),
+        ("Fix\rlogout", r#""Fix\rlogout""#),
+        ("Fix\tlogout", r#""Fix\tlogout""#),
+        ("Fix\u{1}logout", r#""Fix\u{1}logout""#),
+    ] {
+        let out = fx
+            .yman(&fx.a)
+            .args(["set", "1", "--title", bad])
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(1), "{bad:?}");
+        assert_eq!(
+            stderr(&out).trim_end(),
+            control_title_error(shown),
+            "{bad:?}"
+        );
+    }
+    assert_eq!(fx.title(&fx.a, "1"), "Fix login");
+    assert!(fx.a.join(".yman/5.1.fix-login").is_dir());
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]), head);
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["status", "--porcelain"]), "");
+}
+
+/// `add --sections` checks every heading before the first id is minted, so
+/// a bad title in the middle of the file leaves no task behind, not even the
+/// ones above it.
+#[test]
+fn add_sections_refuses_a_title_with_a_control_character() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let head = fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]);
+
+    let plan = fx.tmp.path().join("plan.md");
+    for (text, shown) in [
+        ("# One\nbody\n# Two\tsteps\n# Three\n", r#""Two\tsteps""#),
+        ("# One\n# Two\rsteps\n# Three\n", r#""Two\rsteps""#),
+        ("# One\n# Two\u{1b}[1m\n# Three\n", r#""Two\u{1b}[1m""#),
+    ] {
+        fx.write(&plan, text);
+        let out = fx
+            .yman(&fx.a)
+            .args(["add", "--sections"])
+            .arg(&plan)
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(1), "{text:?}");
+        assert_eq!(
+            stderr(&out).trim_end(),
+            control_title_error(shown),
+            "{text:?}"
+        );
+        assert_eq!(stdout(&out), "", "{text:?}");
+    }
+    assert!(fx.task_dirs(&fx.a).is_empty(), "{:?}", fx.task_dirs(&fx.a));
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]), head);
+
+    // No id was burned either.
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    assert_eq!(
+        fx.task_dirs(&fx.a),
+        [std::path::PathBuf::from("5.1.fix-login")]
+    );
+}
+
+/// `edit` refuses a title the editor left with a control character through
+/// its parse-failure path: nothing is committed, the folder is not renamed,
+/// and the user's text stays on disk to be fixed.
+#[test]
+fn edit_refuses_a_title_with_a_control_character() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let head = fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]);
+
+    for (written, shown) in [
+        ("# Fix\tlogout\n\nbody\n", r#""Fix\tlogout""#),
+        ("# Fix \u{1b}[31mlogout\n", r#""Fix \u{1b}[31mlogout""#),
+    ] {
+        let editor = fx.editor_writing("ed-control", written);
+        let out = fx
+            .yman(&fx.a)
+            .env("EDITOR", &editor)
+            .args(["edit", "1"])
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(1), "{written:?}");
+        assert_eq!(
+            stderr(&out).trim_end(),
+            format!(
+                "error: t.md invalid after edit: {}; fix the file then run: yman edit 1",
+                control_title_error(shown).trim_start_matches("error: ")
+            ),
+            "{written:?}"
+        );
+        assert_eq!(stdout(&out), "", "{written:?}");
+        assert_eq!(fx.read(&fx.a.join(".yman/5.1.fix-login/t.md")), written);
+        assert_eq!(fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]), head);
+    }
+    assert_eq!(
+        fx.task_dirs(&fx.a),
+        [std::path::PathBuf::from("5.1.fix-login")]
+    );
+}

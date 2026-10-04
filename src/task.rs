@@ -118,6 +118,26 @@ impl std::fmt::Display for FolderName {
     }
 }
 
+/// A title as `add`, `set --title`, `add --sections`, `add -e` and `edit`
+/// accept it: trimmed, not empty, and free of control characters. A newline would split
+/// it into a title plus a body line in `t.md` and turn the commit subject
+/// into several lines; a tab or an escape sequence has no business in a
+/// one-line heading either, so `char::is_control` is the whole rule. The
+/// refusal shows the title through `{:?}` so the offending byte is visible
+/// and the terminal is not fed the raw sequence.
+pub fn clean_title(raw: &str) -> Result<String> {
+    let title = raw.trim();
+    if title.is_empty() {
+        bail!("title must not be empty");
+    }
+    if title.contains(char::is_control) {
+        bail!(
+            "invalid title {title:?}; titles must not contain line breaks or other control characters"
+        );
+    }
+    Ok(title.to_string())
+}
+
 /// Lowercase, keep alphanumerics, everything else becomes `-`, collapse and
 /// trim runs, truncate at a char boundary, never return an empty string.
 pub fn slugify(title: &str, max_bytes: usize) -> String {
@@ -621,6 +641,32 @@ mod tests {
         ] {
             let err = extract_title(md).unwrap_err().to_string();
             assert_eq!(err, "t.md must start with \"# Title\"", "for {md:?}");
+        }
+    }
+
+    #[test]
+    fn clean_title_trims_then_refuses_control_characters() {
+        assert_eq!(clean_title("\t Fix login \n").unwrap(), "Fix login");
+        assert_eq!(clean_title("Починить вход").unwrap(), "Починить вход");
+        assert_eq!(
+            clean_title(" \n ").unwrap_err().to_string(),
+            "title must not be empty"
+        );
+        // C0, DEL and C1 (NEL here) alike.
+        for (raw, shown) in [
+            ("a\nb", r#""a\nb""#),
+            ("a\tb", r#""a\tb""#),
+            ("a\u{7f}b", r#""a\u{7f}b""#),
+            ("a\u{85}b", r#""a\u{85}b""#),
+        ] {
+            assert_eq!(
+                clean_title(raw).unwrap_err().to_string(),
+                format!(
+                    "invalid title {shown}; titles must not contain line breaks or other \
+                     control characters"
+                ),
+                "for {raw:?}"
+            );
         }
     }
 

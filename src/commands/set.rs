@@ -65,10 +65,7 @@ fn apply(ctx: &mut Context, a: SetArgs) -> Result<Option<String>> {
     }
 
     if let Some(title) = a.title {
-        let title = title.trim().to_string();
-        if title.is_empty() {
-            bail!("title must not be empty");
-        }
+        let title = task::clean_title(&title)?;
         if title != t.title {
             changes.push(Change {
                 token: "title".to_string(),
