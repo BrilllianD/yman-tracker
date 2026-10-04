@@ -24,6 +24,9 @@ under [Releasing](README.md#releasing) in the README.
   longer nests a second worktree at `.yman/.yman`.
 - `yman init` from a linked worktree of the project refuses to create a
   second `.yman` on the same ref; git does not guard a `--detach` checkout.
+- Under a localized git, `init` and `sync` against an origin with no tasks
+  no longer fail with `fetch failed`, and re-applying an identical change is
+  no longer an error. Every git child now runs with `LC_ALL=C`.
 
 ## [0.6.0] - 2026-10-04
 

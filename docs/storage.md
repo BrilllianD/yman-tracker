@@ -112,6 +112,14 @@ file answers. `tests/cli.rs` pins both numbers.
 `git push`. Publishing is always the explicit refspec
 `refs/yman/local:refs/tasks/main`.
 
+Every `git` that `yman` runs for itself gets `-c core.quotePath=false` and
+`-c color.ui=never` on its command line and `LC_ALL=C` in its environment
+(`src/git.rs`): several decisions read git's own English messages —
+`couldn't find remote ref` for an origin with no tasks yet, `nothing to commit`
+for a change that is already in the tree — and a localized git would turn each
+of them into a failure. The one exception is `yman git`, a raw passthrough that
+keeps the user's locale and flags.
+
 When the repository has no `origin` and `--remote <url>` is given, `init`
 creates the remote — `fetch` and `push` address `origin` by name, so reporting
 the URL without creating it would lead nowhere.
