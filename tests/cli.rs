@@ -2189,6 +2189,127 @@ fn comment_from_editor_and_from_stdin() {
     assert_eq!(stderr(&out).trim(), "error: empty comment");
 }
 
+/// `comment -e` hands the editor a private temp file: a fresh name in
+/// `$TMPDIR`, created without following a link planted at a predictable path,
+/// and gone afterwards on every path — success, a failing editor, an empty
+/// comment, and an editor refused before it ever ran.
+#[cfg(unix)]
+#[test]
+fn comment_editor_temp_file_is_private_and_always_removed() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let wt = fx.a.join(".yman");
+
+    let tmpdir = fx.tmp.path().join("tmpdir");
+    std::fs::create_dir(&tmpdir).unwrap();
+    let leftovers = || -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(&tmpdir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with("yman-comment-"))
+            .collect();
+        names.sort();
+        names
+    };
+
+    // The path the old code always used, planted as a link to someone
+    // else's file.
+    let victim = fx.tmp.path().join("victim");
+    fx.write(&victim, "precious\n");
+    let link = tmpdir.join("yman-comment-1.md");
+    std::os::unix::fs::symlink(&victim, &link).unwrap();
+    let planted = ["yman-comment-1.md".to_string()];
+
+    // An editor that records the path and mode it was handed, then writes.
+    let log = fx.tmp.path().join("editor.log");
+    let editor = fx.tmp.path().join("ed-log");
+    fx.write(
+        &editor,
+        &format!(
+            "#!/bin/sh\necho \"$1\" >> '{log}'\nls -l \"$1\" >> '{log}'\necho 'from the editor' > \"$1\"\n",
+            log = log.display()
+        ),
+    );
+    std::fs::set_permissions(&editor, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    fx.yman(&fx.a)
+        .env("TMPDIR", &tmpdir)
+        .env("EDITOR", &editor)
+        .args(["comment", "1", "-e"])
+        .assert()
+        .success();
+    assert_eq!(fx.read(&victim), "precious\n");
+    assert!(
+        std::fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(leftovers(), planted);
+    let logged = fx.read(&log);
+    let handed = logged.lines().next().unwrap();
+    assert!(
+        handed.starts_with(&format!("{}/yman-comment-", tmpdir.display())),
+        "{logged}"
+    );
+    assert_ne!(handed, link.to_str().unwrap(), "{logged}");
+    assert!(
+        logged.lines().nth(1).unwrap().starts_with("-rw-------"),
+        "{logged}"
+    );
+    let d = fx.read(&fx.a.join(".yman/5.1.fix-login/d.md"));
+    assert!(d.contains("from the editor"), "{d}");
+
+    // Every failure below leaves no temp file and no commit.
+    std::fs::remove_file(&link).unwrap();
+    let head = fx.git(&wt, &["rev-parse", "HEAD"]);
+
+    let out = fx
+        .yman(&fx.a)
+        .env("TMPDIR", &tmpdir)
+        .env("EDITOR", "false")
+        .args(["comment", "1", "-e"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(
+        stderr(&out).trim(),
+        "error: editor exited with status 1; comment not added"
+    );
+    assert_eq!(stdout(&out), "");
+    assert_eq!(leftovers(), Vec::<String>::new());
+
+    let empty = fx.editor_writing("ed-empty", "   \n");
+    let out = fx
+        .yman(&fx.a)
+        .env("TMPDIR", &tmpdir)
+        .env("EDITOR", &empty)
+        .args(["comment", "1", "-e"])
+        .output()
+        .unwrap();
+    assert_eq!(stderr(&out).trim(), "error: empty comment");
+    assert_eq!(leftovers(), Vec::<String>::new());
+
+    let out = fx
+        .yman(&fx.a)
+        .env("TMPDIR", &tmpdir)
+        .env("EDITOR", "")
+        .args(["comment", "1", "-e"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        stderr(&out).trim(),
+        "error: no terminal for vi; set $EDITOR, or use -m / --body-file"
+    );
+    assert_eq!(leftovers(), Vec::<String>::new());
+
+    assert_eq!(fx.git(&wt, &["rev-parse", "HEAD"]), head);
+    assert_eq!(fx.git(&wt, &["status", "--porcelain"]), "");
+}
+
 // -------------------------------------------- init variants and id schemes
 
 /// Environment that makes git speak German, or `None` when this machine

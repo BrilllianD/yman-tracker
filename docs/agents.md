@@ -32,12 +32,12 @@ then `attachments:` and `discussion:`; empty sections omitted, `-n <N>` keeps th
 
 ## Writing
 
-`start`, `done`, `cancel`, `reopen`, `move <id>... <status>` and
-`prio <id>... <0-9>` take several ids, one commit each, and `-m <text>` to
-comment in the same commit. `set <id>` changes any field: `--status`
-`--priority` `--title` `-a/--assignee` `--no-assignee` `--tag/--untag`
-`--link/--unlink` `--relate/--unrelate` `--body <text>` `--body-file <path|->`
-`-m <text>`. Every mutation is its own commit; nothing to save.
+`start`, `done`, `cancel`, `reopen`, `move <id>... <status>` and `prio <id>... <0-9>`
+take several ids, one commit each, and `-m <text>` to comment in the same commit.
+`set <id>` changes any field: `--status` `--priority` `--title` `-a/--assignee`
+`--no-assignee` `--tag/--untag` `--link/--unlink` `--relate/--unrelate` `--body <text>`
+`--body-file <path|->` `-m <text>`. Every mutation is its own commit; nothing to save.
+`comment <id> -m <text>` adds a note; without `-m` it reads stdin to EOF, so pass `-m`.
 
 ## Plans
 

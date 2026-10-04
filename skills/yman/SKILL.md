@@ -128,9 +128,11 @@ success, not failure.
 `prio <id>... <0-9>` all take **several ids** and all take `-m <text>`. Each id
 is its own commit, processed in order.
 
-`comment <id> -m "<text>"` appends to the discussion. With no `-m` and stdin not
-a terminal it reads the comment from stdin, so `yman comment 14 < note.md` is
-safe. `attach <id> <file>...` (`--name <name>` for a single file, `--force` to
+`comment <id> -m "<text>"` appends to the discussion. Always pass `-m`: with no
+`-m` and stdin not a terminal it reads the comment from stdin **until end of
+file**, so a shell whose stdin is an open pipe that never closes hangs there.
+Reading stdin is only safe when it has a definite end, as in
+`yman comment 14 < note.md` or `git log -1 | yman comment 14`. `attach <id> <file>...` (`--name <name>` for a single file, `--force` to
 overwrite; over 5 MiB warns but never refuses) and `detach <id> <name>` handle
 files. `tags rename <old> <new>` and `tags rm <tag> -f` rewrite every task
 carrying a tag in one commit.
@@ -187,7 +189,8 @@ yman show 30 -n 0              # the goal and its body
 | --- | --- | --- |
 | `yman edit <id>` | always opens `$VISUAL`/`$EDITOR`/`vi` | `yman set <id> --body "<text>"` or `--body-file -` |
 | `yman add -e` | opens the editor before the first commit | `yman add "<title>" -m "<body>"` |
-| `yman comment -e` | opens the editor | `yman comment <id> -m "<text>"`, or pipe on stdin |
+| `yman comment -e` | opens the editor | `yman comment <id> -m "<text>"`, or `yman comment <id> < note.md` |
+| `yman comment <id>` without `-m` | reads stdin until EOF; an open pipe hangs | `yman comment <id> -m "<text>"` |
 | `yman rm <id>` without `-f` | prompts on a terminal | `yman rm <id> -f` |
 | `yman tags rm <tag>` without `-f` | prompts on a terminal | `yman tags rm <tag> -f` |
 
