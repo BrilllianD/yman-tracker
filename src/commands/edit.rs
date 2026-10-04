@@ -56,7 +56,11 @@ pub fn run(ctx: &mut Context, id: &str) -> Result<()> {
     let before = task::find(&ctx.ydir, id)?;
     open_editor(&before.dir.join(task::MD_FILE))?;
 
-    let mut t = task::load(&ctx.ydir, &before.dir).map_err(|e| {
+    // A refused title takes the same path as an unparsable file: the text
+    // stays on disk for the user to fix, nothing is committed.
+    let loaded =
+        task::load(&ctx.ydir, &before.dir).and_then(|t| task::clean_title(&t.title).map(|_| t));
+    let mut t = loaded.map_err(|e| {
         anyhow::anyhow!("t.md invalid after edit: {e:#}; fix the file then run: yman edit {id}")
     })?;
 

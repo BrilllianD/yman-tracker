@@ -297,6 +297,14 @@ comma separates the `ls` TAGS column and the flow sequence `m.yml` accepts, and
 whitespace makes `-t` unusable without quoting. Tags are checked before the
 editor opens, before `--body-file` reads stdin and before an id is minted, so a
 typo costs neither an id nor a half-written folder. `-t UI -t ui` is one tag.
+The title is trimmed and refused, at the same point, when it is empty
+(`title must not be empty`) or still contains a control character — a newline,
+a carriage return, a tab, an escape, anything `char::is_control` matches — with
+`invalid title "<t>"; titles must not contain line breaks or other control
+characters`, `<t>` being the trimmed title with those characters escaped
+(`\n`, `\t`, `\u{1b}`). A newline would otherwise leave `t.md` with a one-line
+title and the rest as body, and split the commit subject. `set --title` and
+every `--sections` heading apply the same rule with the same message.
 `-a/--assignee` is trimmed; blank means unassigned. `--relate` to an id no
 folder here carries warns exactly as `set --relate` does, before the id is
 minted. `--waits-on ID` (repeatable) is `--relate ID` plus `-s blocked`, and
@@ -306,9 +314,10 @@ or from `--body-file PATH` (`-` reads stdin); the two exclude each other and
 `-e`. With `-e`, the editor opens before the
 first commit, so a title typed there renames the folder by plain rename — the
 placeholder never enters git history. If the editor cannot be started, exits
-non-zero or is killed, or leaves a `t.md` that no longer parses, the new folder
-is removed and nothing is committed: `editor exited with status N; task not
-added`, or `t.md invalid after edit: <why>; task not added`. The id is not
+non-zero or is killed, or leaves a `t.md` that no longer parses or whose title
+the rule above refuses, the new folder is removed and nothing is committed:
+`editor exited with status N; task not added`, or
+`t.md invalid after edit: <why>; task not added`. The id is not
 spent, and what was typed in the editor is lost with the folder.
 
 `--sections PATH` (`-` reads stdin) creates one task per section of a markdown
@@ -327,6 +336,10 @@ file is read and parsed before the first id is minted, and these refuse it,
 - `<source>: line <n>: empty title`;
 - `<source>: no "# " heading, so no tasks`.
 
+Then every title is checked against the control-character rule above, still
+before the first id is minted, so a bad heading anywhere in the file creates
+no task at all; the refusal names the title, not a line.
+
 Tasks are then created in file order, one commit and one `added <id>  <dir>`
 line each, exactly as separate `add` calls would make them; the first failure
 stops the run with the tasks before it committed. Under the `seq` scheme ids
@@ -341,8 +354,11 @@ terminal; otherwise the command fails at once with
 `no terminal for vi; set $EDITOR, or use -m / --body-file` rather than leaving
 a `vi` waiting on a pipe. The same rule covers `add -e` and `comment -e`. A
 non-zero editor exit aborts and leaves the file alone (under `add -e` it
-removes the new folder instead; see `add`). If the file no longer parses, the command fails but **does not revert the
-user's text**; the next `sync` snapshots it. When nothing changed, it prints
+removes the new folder instead; see `add`). If the file no longer parses, or
+its title carries a control character (the rule under `add`), the command fails
+with `t.md invalid after edit: <why>; fix the file then run: yman edit <id>`,
+commits nothing and **does not revert the user's text**; the next `sync`
+snapshots it. When nothing changed, it prints
 `no changes` and commits nothing. A changed title re-slugs the folder with
 `git mv`.
 
@@ -366,7 +382,9 @@ semantics with insertion order preserved: adding a value already present is not
 a change, and removing one that was never there is quietly accepted. Both
 `--tag` and `--untag` normalize their values the way `add` does, and both refuse
 an invalid one — nothing yman wrote can look like that, so such a value is a
-typo rather than something waiting to be removed. When
+typo rather than something waiting to be removed. `--title` is trimmed and
+refused exactly as `add` refuses a title — empty, or carrying a control
+character — before anything is written. When
 nothing at all changed, `set` prints `no changes` and commits nothing. `-m`
 always counts as a change; an empty message is the `empty comment` error.
 

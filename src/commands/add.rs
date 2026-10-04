@@ -23,16 +23,7 @@ struct Spec {
 }
 
 pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
-    let title = match &a.title {
-        Some(t) => {
-            let t = t.trim();
-            if t.is_empty() {
-                bail!("title must not be empty");
-            }
-            Some(t.to_string())
-        }
-        None => None,
-    };
+    let title = a.title.as_deref().map(task::clean_title).transpose()?;
     // Before the editor, before stdin, before an id is minted: a bad tag must
     // not cost the user a burned id or a half-written folder.
     let tags = tags::normalize_all(&a.tags)?;
@@ -57,7 +48,15 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
             };
             vec![(title, body)]
         }
-        (None, Some(src)) => sections::parse(&super::read_text_source(&src)?, &src)?,
+        (None, Some(src)) => {
+            // Every heading is checked before the first task is created, so
+            // a bad one in the middle leaves none of the others behind.
+            let mut items = sections::parse(&super::read_text_source(&src)?, &src)?;
+            for (title, _) in &mut items {
+                *title = task::clean_title(title)?;
+            }
+            items
+        }
         (None, None) => unreachable!("clap requires a title or --sections"),
     };
 
@@ -137,6 +136,7 @@ fn create(ctx: &mut Context, spec: &Spec, title: String, body: String) -> Result
     if spec.edit {
         let edited = run_editor(&t.dir.join(task::MD_FILE), "task not added").and_then(|()| {
             task::load(&ctx.ydir, &t.dir)
+                .and_then(|edited| task::clean_title(&edited.title).map(|_| edited))
                 .map_err(|e| anyhow!("t.md invalid after edit: {e:#}; task not added"))
         });
         let edited = match edited {

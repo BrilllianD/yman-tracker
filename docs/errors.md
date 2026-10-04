@@ -84,6 +84,7 @@ commit.
 | `default` or the start status is terminal | `invalid .yman/config.toml: statuses.terminal must not contain statuses.default "<s>"` / `… must not contain the start status "<s>"` |
 | every status is terminal | `invalid .yman/config.toml: statuses.terminal marks every status terminal; at least one must stay open` |
 | empty title | `title must not be empty` |
+| title with a line break or another control character (`add`, `set --title`, each `add --sections` heading, the title left by `add -e` or `edit`; tab included) | `invalid title "<t>"; titles must not contain line breaks or other control characters` — `<t>` is the trimmed title with control characters escaped (`\n`, `\t`, `\u{1b}`); under `add -e` it arrives as `t.md invalid after edit: invalid title …; task not added`, under `edit` as `t.md invalid after edit: invalid title …; fix the file then run: yman edit <id>` |
 | empty tag | `tag must not be empty` |
 | tag with a separator or a control character | `invalid tag "<t>"; tags must not contain whitespace, commas or control characters` — `<t>` is the trimmed value |
 | unknown attachment | `no attachment "<name>" on task <id>` |

@@ -9,6 +9,12 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- A title containing a newline, a carriage return, a tab or another control
+  character is refused by `add`, `set --title`, `add --sections`, `add -e` and
+  `edit` with `invalid title "<t>"; titles must not contain line breaks or
+  other control characters`; `edit` leaves the text on disk to be fixed, as it
+  does for a file that does not parse. A newline used to be split into a title and a body line
+  in `t.md` and to break the commit subject over several lines.
 - An `add -e` whose editor fails, or whose edited `t.md` does not parse, no
   longer leaves an untracked task folder behind for `ls` to list and the next
   `sync` to publish. The folder is removed and the error says `task not added`.
