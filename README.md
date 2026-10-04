@@ -339,9 +339,11 @@ yman comment <id> [-m <text>] [-e]
 
 `--name` renames a single file on the way in. `--force` replaces an attachment
 that already exists. Files over 5 MiB get a warning, never a refusal. With
-neither `-m` nor `-e`, `yman comment` reads the comment from stdin when stdin
-is not a terminal — so `git log -1 | yman comment 14` works; typed at a
-terminal, it fails with `empty comment`.
+neither `-m` nor `-e`, `yman comment` reads the comment from stdin until end of
+file when stdin is not a terminal — so `git log -1 | yman comment 14` works,
+but a caller whose stdin is a pipe it never closes waits forever; typed at a
+terminal, it fails with `empty comment`. `-e` edits a private temp file that is
+removed afterwards, whether or not the comment was added.
 
 ### Plumbing
 
@@ -395,7 +397,9 @@ exit codes, and how to recover from a stuck sync. It starts with a block to
 paste into a project's `CLAUDE.md`. The short version: filter with `ls -n`,
 skim bodies with `ls -l -n`, read with `show -n`, close with `done <id> -m`,
 run `yman sync` before a status change and after it (the after is automatic
-under `yman.autosync = push`), never open an editor, and set `YMAN_ACTOR` so
+under `yman.autosync = push`), never open an editor, always give `comment` its
+text with `-m` (without it the comment is read from stdin until end of file,
+which blocks on a pipe left open), and set `YMAN_ACTOR` so
 the work is attributed to the agent. Big work is a plan: an epic task plus
 steps that `--relate` it, read from the epic with `yman plan <id>` (progress
 and open steps in one call) and created in one go with

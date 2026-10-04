@@ -354,7 +354,8 @@ terminal; otherwise the command fails at once with
 `no terminal for vi; set $EDITOR, or use -m / --body-file` rather than leaving
 a `vi` waiting on a pipe. The same rule covers `add -e` and `comment -e`. A
 non-zero editor exit aborts and leaves the file alone (under `add -e` it
-removes the new folder instead; see `add`). If the file no longer parses, or
+removes the new folder instead, under `comment -e` its temp file; see `add`
+and `comment`). If the file no longer parses, or
 its title carries a control character (the rule under `add`), the command fails
 with `t.md invalid after edit: <why>; fix the file then run: yman edit <id>`,
 commits nothing and **does not revert the user's text**; the next `sync`
@@ -513,9 +514,23 @@ like any other: naming a file to attach overrides the ignore rule.
 
 ### `comment`
 
-Text comes from `-m`, or from `$EDITOR` with `-e` (a temp file, initially
-empty), or — when neither is given and stdin is not a terminal — from stdin.
-Empty after trimming is an error. The author is `$YMAN_ACTOR` (trimmed,
+Text comes from `-m`, or from `$EDITOR` with `-e`, or — when neither is given
+and stdin is not a terminal — from stdin, read until end of file. That last
+form waits for EOF: a caller whose stdin is an open pipe it never closes (a
+harness, a CI step) blocks, so a non-interactive caller passes `-m`, or gives
+stdin a definite end (`< note.md`, a pipe from a command that exits,
+`< /dev/null`, which is then an empty comment). At a terminal with neither
+flag the command fails with `empty comment` without reading. Empty after
+trimming is an error.
+
+Under `-e` the editor is resolved first (the rule under `edit`), then handed a
+new, empty file in the temp dir (on unix `$TMPDIR`, else `/tmp`) named
+`yman-comment-<id>-<pid>-<nanos>-<n>.md`. It is created exclusively, mode 0600
+on unix: an existing path, a symlink included, is never opened, truncated or
+followed — another name is tried instead. The file is removed on every path:
+after the comment is committed, when the editor fails
+(`editor exited with status N; comment not added`), and when the text is
+empty. A refused editor creates no file at all. The author is `$YMAN_ACTOR` (trimmed,
 non-empty), else `git config user.name`, else `unknown`. This is the display
 name written into `d.md` only; the git committer is whatever git resolves.
 

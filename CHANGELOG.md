@@ -18,6 +18,16 @@ under [Releasing](README.md#releasing) in the README.
 - An `add -e` whose editor fails, or whose edited `t.md` does not parse, no
   longer leaves an untracked task folder behind for `ls` to list and the next
   `sync` to publish. The folder is removed and the error says `task not added`.
+- `comment -e` no longer writes a fixed `yman-comment-<id>.md` in the temp
+  dir. On a shared `/tmp` a symlink planted at that path made it truncate
+  another file, and two runs on one id shared the file. The temp file now gets
+  a fresh name, is created exclusively with mode 0600 and never through a
+  link, and is removed on every path; a refused editor creates none. A failing
+  editor says `comment not added` instead of `file left as is`.
+- The docs no longer call `comment <id>` with stdin safe for scripts: without
+  `-m` it reads stdin to end of file whenever stdin is not a terminal, so a
+  caller that leaves stdin open blocks. `docs/commands.md`, `yman guide` and
+  the skill now say to pass `-m` or redirect stdin.
 - An id a sync renumber moved a task to is no longer handed out again after
   that task is removed. The history scan read the renumber's `git mv` as a
   rename, not an add.

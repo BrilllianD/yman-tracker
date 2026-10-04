@@ -103,8 +103,9 @@ commit.
 | `reopen` on an open task | `task <id> is not closed (status "<s>"); closed statuses: <terminal joined by ", ">` |
 | `rm` or `tags rm` with no terminal and no `-f` | `refusing to remove without -f` |
 | editor could not be started | `cannot run editor "<program>": <why>` |
-| editor failed | `editor exited with status N; file left as is` (or `editor was killed by a signal; …`) |
+| editor failed during `edit` | `editor exited with status N; file left as is` (or `editor was killed by a signal; …`) |
 | editor failed during `add -e` | `editor exited with status N; task not added` (or `editor was killed by a signal; …`) — the new folder is removed |
+| editor failed during `comment -e` | `editor exited with status N; comment not added` (or `editor was killed by a signal; …`) — the temp file is removed, nothing is committed |
 | no editor resolvable | `no editor configured; set $EDITOR` — currently unreachable, because the resolver falls back to `vi` |
 | neither `$VISUAL` nor `$EDITOR` set, stdin not a terminal | `no terminal for vi; set $EDITOR, or use -m / --body-file` |
 | `rm` or `tags rm` prompt declined | `aborted` |
