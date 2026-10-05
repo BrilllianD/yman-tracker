@@ -625,7 +625,7 @@ so:
 
 ```console
 $ yman sync
-note: task 1 was closed to two different statuses; keep one of done/5.1.fix-login, cancelled/5.1.fix-login
+note: task 1 was closed to two different statuses; keep one of cancelled/5.1.fix-login, done/5.1.fix-login
 error: conflicts in 3 file(s); edit them, remove markers, then: yman sync --continue
 
 $ rm -rf .yman/cancelled/5.1.fix-login

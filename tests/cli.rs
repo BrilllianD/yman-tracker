@@ -4536,6 +4536,8 @@ fn a_broken_folder_in_a_status_dir_is_listed_with_its_path() {
 fn a_split_close_cannot_be_continued_into_a_duplicate_id() {
     let fx = Fx::new();
     fx.yman(&fx.a).arg("init").assert().success();
+    // `done` and `cancelled` are both closed statuses.
+    fx.v2_config(&fx.a);
     fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
     fx.yman(&fx.a).arg("sync").assert().success();
     fx.yman(&fx.b).arg("init").assert().success();
@@ -6674,6 +6676,62 @@ fn moved_folder_and_attachment_merge() {
             assert_eq!(fx.git(clone, &["-C", ".yman", "status", "--porcelain"]), "");
         }
     }
+}
+
+/// A retitle on one side and an attachment on the other leave the attachment
+/// under the old folder. When an unrelated conflict stops the same merge, both
+/// folders are on disk while the conflict is reported, and that is not a task
+/// closed to two statuses: only one of them carries the task, and neither is
+/// under a closed status. The split-close note would point at a fix that does
+/// not apply.
+#[test]
+fn a_retitle_remnant_in_a_stopped_merge_is_not_a_split_close() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).args(["add", "Other"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+
+    fx.yman(&fx.a)
+        .args(["set", "1", "--title", "Repair login"])
+        .assert()
+        .success();
+    let src = fx.b.join("trace.txt");
+    fx.write(&src, "trace\n");
+    fx.yman(&fx.b)
+        .args(["attach", "1", src.to_str().unwrap()])
+        .assert()
+        .success();
+    // Task 2's body is edited both ways, so the merge stops.
+    for (clone, body) in [(&fx.a, "from A"), (&fx.b, "from B")] {
+        fx.write(
+            &clone.join(".yman/5.2.other/t.md"),
+            &format!("# Other\n\n{body}\n"),
+        );
+    }
+    fx.yman(&fx.a).arg("sync").assert().success();
+
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    let err = stderr(&out);
+    assert!(err.contains("5.2.other/t.md"), "{err}");
+    assert!(!err.contains("closed to two different statuses"), "{err}");
+    // The remnant is still there while the merge is stopped.
+    assert!(fx.b.join(".yman/5.1.fix-login/f/trace.txt").exists());
+
+    fx.write(&fx.b.join(".yman/5.2.other/t.md"), "# Other\n\nfrom both\n");
+    let out = fx
+        .yman(&fx.b)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(fx.task_dirs(&fx.b).len(), 2);
+    assert_eq!(
+        fx.read(&fx.b.join(".yman/5.1.repair-login/f/trace.txt")),
+        "trace\n"
+    );
 }
 
 /// What origin holds for the task ref, read straight off the bare remote.

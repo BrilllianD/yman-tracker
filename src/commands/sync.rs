@@ -534,18 +534,32 @@ fn merge_remote(ctx: &Context) -> Result<()> {
 /// side. The unmerged list alone is baffling here: it includes the task's old
 /// path, which no longer exists on disk, and says nothing about the two folders
 /// that now do.
+///
+/// Only folders that carry the task (`m.yml`) under two different closed
+/// statuses count. A stopped merge can also leave a file the other side added
+/// under a folder this side retitled or closed; that remnant has no `m.yml`,
+/// `rejoin_split_folders` moves it once the merge goes through, and calling it
+/// a split close would point at a fix that does not apply.
 fn report_split_closes(ctx: &Context) -> Result<()> {
-    let mut seen: HashMap<String, String> = HashMap::new();
-    for entry in task::list(&ctx.ydir)? {
-        let rel = entry.rel();
-        let Some(f) = FolderName::parse(&entry.dir_name()) else {
+    let cfg = ctx.config();
+    let mut seen: HashMap<String, (String, String)> = HashMap::new();
+    for (parent, name, folder) in task::task_dirs(&ctx.ydir)? {
+        let Some(status) = parent.filter(|s| cfg.is_terminal(s)) else {
             continue;
         };
-        if let Some(first) = seen.insert(f.id.clone(), rel.clone()) {
-            eprintln!(
+        let rel = format!("{status}/{name}");
+        if !ctx.ydir.join(&rel).join(task::META_FILE).exists() {
+            continue;
+        }
+        match seen.get(&folder.id) {
+            Some((first_status, first)) if *first_status != status => eprintln!(
                 "note: task {} was closed to two different statuses; keep one of {first}, {rel}",
-                f.id
-            );
+                folder.id
+            ),
+            Some(_) => {}
+            None => {
+                seen.insert(folder.id, (status, rel));
+            }
         }
     }
     Ok(())

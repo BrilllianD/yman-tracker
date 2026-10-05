@@ -798,8 +798,14 @@ duplicate task id 1: cancelled/5.1.fix-login, done/5.1.fix-login; delete one fol
 with exit 3, and `sync` names the same pair on stderr when the merge fails:
 
 ```
-note: task 1 was closed to two different statuses; keep one of done/5.1.fix-login, cancelled/5.1.fix-login
+note: task 1 was closed to two different statuses; keep one of cancelled/5.1.fix-login, done/5.1.fix-login
 ```
+
+The note fires only for folders that carry the task (`m.yml`) under two
+different closed statuses. A file the other side added under a folder this
+side retitled or closed can be left behind under the old name while a merge is
+stopped; that remnant is not a split close, and `--continue` moves it into the
+folder that carries the task.
 
 Delete the folder you do not want, then rerun `yman sync --continue`.
 
