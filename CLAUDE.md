@@ -30,8 +30,9 @@ past it, bump it in its own `ci:` commit that also fixes any new clippy lints.
 - **Every git call goes through `Git` in `src/git.rs`.** It strips `GIT_DIR`,
   `GIT_WORK_TREE` and friends from the environment (so running inside a hook
   does not leak state) and forces `core.quotePath=false` and `color.ui=never`.
-  The one deliberate exception is `yman git`, which is a raw passthrough so the
-  user's own flags survive.
+  `yman git` bypasses the wrapper so the user's own flags, colour and hooks
+  survive, but strips the same environment (`LEAKY_ENV`); the fixture's
+  `SCRUBBED_ENV` and the `unset` lines in `scripts/*.sh` copy that list.
 - **User-facing strings are part of the contract.** `tests/cli.rs` asserts many
   of them verbatim, and `docs/errors.md` lists the ones the spec pins down.
   Changing wording means changing the test and the doc in the same commit.

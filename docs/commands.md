@@ -769,6 +769,12 @@ Delete the folder you do not want, then rerun `yman sync --continue`.
 ## 7. `git` passthrough
 
 `yman git -- <args>` runs git inside `.yman` with inherited stdio and
-propagates the exit code. It deliberately bypasses the `Git` wrapper, so the
+propagates the exit code; a git killed by a signal exits `128 + signal`, as a
+shell would report it. It deliberately bypasses the `Git` wrapper, so the
 user's own flags — including colour — behave normally, and so do the user's
-hooks: unlike yman's own calls, a `yman git commit` fires `post-commit`.
+hooks: unlike yman's own calls, a `yman git commit` fires `post-commit`. The
+environment is the exception: the repository-local variables the wrapper
+strips (`GIT_DIR`, `GIT_WORK_TREE`, the rest of
+`git rev-parse --local-env-vars`, and `GIT_NAMESPACE`) are stripped here too,
+so `yman git` run from a hook or alias acts on `.yman`, not on the repository
+the hook was running for.

@@ -33,8 +33,8 @@ stdout is meant to be piped.
 | `4` | no task has the given id | the `NotFound` marker error, from `task::find` |
 
 `yman git` is outside this table: it exits with git's own code, which can be
-1, 128 or anything else git uses, so a `3` or `4` after it means nothing to
-yman.
+1, 128 or anything else git uses, or `128 + signal` when git was killed, so a
+`3` or `4` after it means nothing to yman.
 
 A write to a closed pipe is not an error either: `yman ls | head -1` ends
 with yman killed by SIGPIPE once `head` has gone, silently, the way git and

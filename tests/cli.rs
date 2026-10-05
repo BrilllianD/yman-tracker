@@ -2407,6 +2407,93 @@ fn yman_git_passthrough() {
         .output()
         .unwrap();
     assert!(!out.status.success());
+    let out = fx
+        .yman(&fx.a)
+        .args(["git", "--", "rev-parse", "--verify", "-q", "nope"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let out = fx
+        .yman(&fx.a)
+        .args(["git", "--", "frobnicate"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let out = fx
+        .yman(&fx.a)
+        .args([
+            "git",
+            "--",
+            "rev-parse",
+            "--resolve-git-dir",
+            "/nonexistent",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(128));
+}
+
+/// Run from inside a hook or alias, yman inherits the variables git exports
+/// for the main repository. Neither yman's own calls nor `yman git` may act
+/// on that repository instead of `.yman`.
+#[test]
+fn hook_environment_does_not_leak() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let leaky = |cmd: &mut assert_cmd::Command| {
+        cmd.env("GIT_DIR", fx.a.join(".git"))
+            .env("GIT_WORK_TREE", &fx.a)
+            .env("GIT_NAMESPACE", "elsewhere")
+            .env("GIT_CONFIG_COUNT", "1")
+            .env("GIT_CONFIG_KEY_0", "core.bare")
+            .env("GIT_CONFIG_VALUE_0", "true")
+            .env("GIT_CONFIG_PARAMETERS", "'core.bare'='true'");
+    };
+
+    let mut ls = fx.yman(&fx.a);
+    leaky(&mut ls);
+    let out = ls.arg("ls").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stdout(&out).contains("Fix login"), "{}", stdout(&out));
+
+    let mut add = fx.yman(&fx.a);
+    leaky(&mut add);
+    let out = add.args(["add", "Second"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(fx.has_task(&fx.a, "2"));
+    let refs = fx.git(
+        &fx.a,
+        &["for-each-ref", "--format=%(refname)", "refs/namespaces"],
+    );
+    assert_eq!(refs, "", "GIT_NAMESPACE leaked");
+
+    let mut top = fx.yman(&fx.a);
+    leaky(&mut top);
+    let out = top
+        .args(["git", "--", "rev-parse", "--show-toplevel"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stdout(&out).trim_end().ends_with("/.yman"),
+        "{}",
+        stdout(&out)
+    );
+}
+
+/// A git killed by a signal exits the way a shell reports it, `128 + signal`.
+#[cfg(unix)]
+#[test]
+fn yman_git_reports_signal_death() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let out = fx
+        .yman(&fx.a)
+        .args(["git", "--", "-c", "alias.die=!kill -9 $PPID", "die"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(137), "{}", stderr(&out));
 }
 
 #[test]
