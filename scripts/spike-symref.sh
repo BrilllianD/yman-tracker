@@ -1,5 +1,5 @@
 #!/bin/sh
-# Phase-0 spike (YMAN_PLAN.md §8): does `git commit` inside a linked worktree
+# Phase-0 spike (docs/storage.md §2): does `git commit` inside a linked worktree
 # whose HEAD is a symbolic ref outside refs/heads/ move that ref?
 #
 # Run: sh scripts/spike-symref.sh
@@ -49,21 +49,19 @@ git -C .yman commit -q --no-verify -m "task(1): add"
 
 ref=$(git rev-parse refs/yman/local)
 head=$(git -C .yman rev-parse HEAD)
-if [ "$ref" = "$head" ]; then
-	if [ "$ref" = "$root" ]; then fail "ref did not advance at all"; fi
-	echo "commit: PRIMARY (git commit moved refs/yman/local)"
-else
-	echo "commit: FALLBACK (ref $ref != HEAD $head; need update-ref after commit)"
-fi
+[ "$ref" != "$root" ] || fail "ref did not advance at all"
+[ "$ref" = "$head" ] || fail "ref $ref != HEAD $head; commit did not move refs/yman/local"
+echo "commit: git commit moved refs/yman/local"
+
+# ...and HEAD is still the symbolic ref after committing.
+sym=$(git -C .yman symbolic-ref -q HEAD || echo "<detached>")
+[ "$sym" = refs/yman/local ] || fail "HEAD is $sym after commit, not refs/yman/local"
+echo "head:    $sym"
 
 # --- assertion 2: the ref is invisible to branch listing
 branches=$(git branch -a)
 case "$branches" in *yman*) fail "git branch -a mentions yman: $branches";; esac
 echo "branch:  hidden (git branch -a shows only: $(echo "$branches" | tr -d ' *' | tr '\n' ' '))"
-
-# HEAD is still a symbolic ref after committing?
-sym=$(git -C .yman symbolic-ref -q HEAD || echo "<detached>")
-echo "head:    $sym"
 
 # --- assertion 3: ff-only merge of a ref built outside the worktree
 blob=$(printf '# Second\n' | git hash-object -w --stdin)
