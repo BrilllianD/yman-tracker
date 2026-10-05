@@ -14,6 +14,14 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- `.yman/config.toml` refuses a blank, edge-whitespace or repeated
+  `statuses.list` entry. A blank status used to let `add -s ''` commit a task
+  whose `m.yml` read back as broken.
+- `--relate` and `--waits-on` trim their values and refuse a blank one, and
+  `set` refuses a task relating to (or waiting on) itself.
+- Id generation reports an exhausted id space instead of looping forever
+  (`ids.scheme = "random"` with every `random_len` id taken) or overflowing
+  (`seq`/`author` past `u64::MAX`).
 - Ids are sorted by a total order: plain numbers, then `prefix-N` by prefix
   and number, then the rest lexically. The old pairwise rules could form a
   cycle (`9 < 10 < 5-a < 9`), on which Rust's sort may panic. The one visible

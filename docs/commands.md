@@ -317,7 +317,9 @@ characters`, `<t>` being the trimmed title with those characters escaped
 (`\n`, `\t`, `\u{1b}`). A newline would otherwise leave `t.md` with a one-line
 title and the rest as body, and split the commit subject. `set --title` and
 every `--sections` heading apply the same rule with the same message.
-`-a/--assignee` is trimmed; blank means unassigned. `--relate` to an id no
+`-a/--assignee` is trimmed; blank means unassigned. `--relate` and
+`--waits-on` values are trimmed and a blank one is refused (`related id must
+not be empty`); `set` also refuses the task's own id. `--relate` to an id no
 folder here carries warns exactly as `set --relate` does, before the id is
 minted. `--waits-on ID` (repeatable) is `--relate ID` plus `-s blocked`, and
 excludes `-s`; it refuses, before anything else is read, when `blocked` is not

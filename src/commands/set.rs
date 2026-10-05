@@ -102,7 +102,7 @@ fn apply(ctx: &mut Context, a: SetArgs) -> Result<Option<String>> {
     let del_tags = tags::normalize_all(&a.untag)?;
     apply_set(&mut t.meta.tags, &add_tags, &del_tags, "tags", &mut changes);
     apply_set(&mut t.meta.links, &a.link, &a.unlink, "links", &mut changes);
-    let relate = super::dedupe([a.relate, a.waits_on].concat());
+    let relate = super::related_args([a.relate, a.waits_on].concat(), Some(t.id()))?;
     super::warn_unknown_related(ctx, &relate, &t.meta.related)?;
     apply_set(
         &mut t.meta.related,

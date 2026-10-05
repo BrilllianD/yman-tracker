@@ -64,6 +64,24 @@ pub fn assignee_arg(value: String) -> Option<String> {
     (!v.is_empty()).then(|| v.to_string())
 }
 
+/// `--relate` and `--waits-on` values: trimmed, deduplicated, and refused
+/// when blank or when naming `own`, the task being changed. Neither could
+/// ever match a folder, and a task waiting on itself waits on nothing.
+pub fn related_args(values: Vec<String>, own: Option<&str>) -> Result<Vec<String>> {
+    let mut out = Vec::with_capacity(values.len());
+    for v in values {
+        let v = v.trim();
+        if v.is_empty() {
+            anyhow::bail!("related id must not be empty");
+        }
+        if own == Some(v) {
+            anyhow::bail!("task {v} cannot relate to itself");
+        }
+        out.push(v.to_string());
+    }
+    Ok(dedupe(out))
+}
+
 /// Warn about every `--relate` target no folder here carries. Not a refusal:
 /// a concurrent `add` on another clone can legitimately race this, and the id
 /// becomes real the moment that clone's work arrives.

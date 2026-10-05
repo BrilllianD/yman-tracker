@@ -210,6 +210,24 @@ impl Config {
         if self.statuses.list.len() < 2 {
             bail!("invalid .yman/config.toml: statuses.list needs at least 2 entries");
         }
+        // A status is written into `m.yml` and matched as typed: a blank one
+        // reads back as a missing field, an edge space never matches `-s`,
+        // and a repeat is two keys in `status --json`.
+        for (i, e) in self.statuses.list.iter().enumerate() {
+            if e.trim().is_empty() {
+                bail!("invalid .yman/config.toml: statuses.list has an empty entry");
+            }
+            if e.trim() != e || e.chars().any(char::is_control) {
+                bail!(
+                    "invalid .yman/config.toml: statuses.list entry \"{}\" has edge \
+                     whitespace or a control character",
+                    e.escape_debug()
+                );
+            }
+            if self.statuses.list[..i].contains(e) {
+                bail!("invalid .yman/config.toml: statuses.list lists \"{e}\" twice");
+            }
+        }
         if !self.has_status(&self.statuses.default) {
             bail!(
                 "invalid .yman/config.toml: statuses.default \"{}\" is not in statuses.list",
@@ -520,6 +538,34 @@ mod tests {
             ),
             "at least 2",
         );
+    }
+
+    #[test]
+    fn rejects_bad_status_list_entries() {
+        let list = "list = [\"todo\", \"doing\", \"done\"]";
+        reject(
+            &base().replace(list, "list = [\"todo\", \"\", \"done\"]"),
+            "statuses.list has an empty entry",
+        );
+        reject(
+            &base().replace(list, "list = [\"todo\", \"  \", \"done\"]"),
+            "statuses.list has an empty entry",
+        );
+        reject(
+            &base().replace(list, "list = [\"todo\", \" doing\", \"done\"]"),
+            "entry \" doing\" has edge whitespace",
+        );
+        reject(
+            &base().replace(list, "list = [\"todo\", \"do\\ting\", \"done\"]"),
+            "entry \"do\\ting\" has edge whitespace or a control character",
+        );
+        reject(
+            &base().replace(list, "list = [\"todo\", \"done\", \"todo\"]"),
+            "statuses.list lists \"todo\" twice",
+        );
+        // A space inside a name is fine; only terminal names become folders.
+        let ok = base().replace(list, "list = [\"todo\", \"in review\", \"done\"]");
+        Config::parse(&ok).unwrap();
     }
 
     #[test]

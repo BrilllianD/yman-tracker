@@ -104,16 +104,30 @@ pub fn fs_ids(ydir: &Path) -> Result<HashSet<String>> {
         .collect())
 }
 
-/// First id of `scheme` that is not in `taken`.
+/// First id of `scheme` that is not in `taken`, or an error when the scheme
+/// has none left.
 pub fn next_free(
     scheme: Scheme,
     cfg: &Config,
     prefix: Option<&str>,
     taken: &HashSet<String>,
-) -> String {
-    match scheme {
+) -> Result<String> {
+    Ok(match scheme {
         Scheme::Random => {
             let len = cfg.ids.random_len as usize;
+            // Drawing until a free id turns up never ends once there is none:
+            // `random_len = 2` is legal and holds only 256 ids.
+            let in_space = taken
+                .iter()
+                .filter(|id| {
+                    id.strip_prefix("t-").is_some_and(|h| {
+                        h.len() == len && h.bytes().all(|c| matches!(c, b'0'..=b'9' | b'a'..=b'f'))
+                    })
+                })
+                .count() as u128;
+            if in_space >= 16u128.pow(len as u32) {
+                bail!("random id space exhausted (random_len = {len}); raise ids.random_len");
+            }
             let mut rng = rand::rng();
             loop {
                 let mut id = String::with_capacity(len + 2);
@@ -122,7 +136,7 @@ pub fn next_free(
                     id.push(char::from_digit(rng.random_range(0..16), 16).expect("0..16 is hex"));
                 }
                 if !taken.contains(&id) {
-                    return id;
+                    break id;
                 }
             }
         }
@@ -132,7 +146,7 @@ pub fn next_free(
                 .filter_map(|id| parse_all_digits(id))
                 .max()
                 .unwrap_or(0);
-            (max + 1).to_string()
+            successor(max)?.to_string()
         }
         Scheme::Author => {
             let prefix = prefix.unwrap_or("x");
@@ -143,9 +157,16 @@ pub fn next_free(
                 .filter_map(parse_all_digits)
                 .max()
                 .unwrap_or(0);
-            format!("{prefix}-{}", max + 1)
+            format!("{prefix}-{}", successor(max)?)
         }
-    }
+    })
+}
+
+/// `max + 1`, refused rather than wrapped: a hand-made `18446744073709551615`
+/// is all it takes to get there.
+fn successor(max: u64) -> Result<u64> {
+    max.checked_add(1)
+        .ok_or_else(|| anyhow::anyhow!("id space exhausted: {max} is the largest id there can be"))
 }
 
 fn parse_all_digits(s: &str) -> Option<u64> {
@@ -179,7 +200,7 @@ pub fn new_id(ctx: &Context) -> Result<String> {
         _ => None,
     };
     let taken = taken_ids(ctx)?;
-    Ok(next_free(cfg.ids.scheme, cfg, prefix.as_deref(), &taken))
+    next_free(cfg.ids.scheme, cfg, prefix.as_deref(), &taken)
 }
 
 #[cfg(test)]
@@ -197,18 +218,21 @@ mod tests {
 
     #[test]
     fn seq_starts_at_one() {
-        assert_eq!(next_free(Scheme::Seq, &cfg(), None, &set(&[])), "1");
+        assert_eq!(
+            next_free(Scheme::Seq, &cfg(), None, &set(&[])).unwrap(),
+            "1"
+        );
     }
 
     #[test]
     fn seq_takes_max_plus_one() {
         assert_eq!(
-            next_free(Scheme::Seq, &cfg(), None, &set(&["1", "2", "9"])),
+            next_free(Scheme::Seq, &cfg(), None, &set(&["1", "2", "9"])).unwrap(),
             "10"
         );
         // Gaps are never reused: 3 is free but 9 is the high-water mark.
         assert_eq!(
-            next_free(Scheme::Seq, &cfg(), None, &set(&["1", "9"])),
+            next_free(Scheme::Seq, &cfg(), None, &set(&["1", "9"])).unwrap(),
             "10"
         );
     }
@@ -216,7 +240,7 @@ mod tests {
     #[test]
     fn seq_ignores_foreign_ids() {
         assert_eq!(
-            next_free(Scheme::Seq, &cfg(), None, &set(&["t-ab12", "iv-7", "3"])),
+            next_free(Scheme::Seq, &cfg(), None, &set(&["t-ab12", "iv-7", "3"])).unwrap(),
             "4"
         );
     }
@@ -225,15 +249,15 @@ mod tests {
     fn author_scheme_counts_its_own_prefix() {
         let taken = set(&["iv-1", "iv-4", "an-9", "7"]);
         assert_eq!(
-            next_free(Scheme::Author, &cfg(), Some("iv"), &taken),
+            next_free(Scheme::Author, &cfg(), Some("iv"), &taken).unwrap(),
             "iv-5"
         );
         assert_eq!(
-            next_free(Scheme::Author, &cfg(), Some("an"), &taken),
+            next_free(Scheme::Author, &cfg(), Some("an"), &taken).unwrap(),
             "an-10"
         );
         assert_eq!(
-            next_free(Scheme::Author, &cfg(), Some("zz"), &taken),
+            next_free(Scheme::Author, &cfg(), Some("zz"), &taken).unwrap(),
             "zz-1"
         );
     }
@@ -242,7 +266,7 @@ mod tests {
     fn random_scheme_shape_and_uniqueness() {
         let mut c = cfg();
         c.ids.random_len = 4;
-        let id = next_free(Scheme::Random, &c, None, &set(&[]));
+        let id = next_free(Scheme::Random, &c, None, &set(&[])).unwrap();
         assert!(id.starts_with("t-"), "{id}");
         assert_eq!(id.len(), 6);
         assert!(id[2..].bytes().all(|b| b.is_ascii_hexdigit()));
@@ -259,7 +283,23 @@ mod tests {
             taken.insert(format!("t-{i:02x}"));
         }
         taken.remove("t-ff");
-        assert_eq!(next_free(Scheme::Random, &c, None, &taken), "t-ff");
+        assert_eq!(next_free(Scheme::Random, &c, None, &taken).unwrap(), "t-ff");
+        taken.insert("t-ff".into());
+        let err = next_free(Scheme::Random, &c, None, &taken).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "random id space exhausted (random_len = 2); raise ids.random_len"
+        );
+    }
+
+    #[test]
+    fn counting_schemes_refuse_to_wrap() {
+        let max = u64::MAX.to_string();
+        let err = next_free(Scheme::Seq, &cfg(), None, &set(&[&max])).unwrap_err();
+        assert!(err.to_string().starts_with("id space exhausted"), "{err}");
+        let author = format!("iv-{max}");
+        let err = next_free(Scheme::Author, &cfg(), Some("iv"), &set(&[&author])).unwrap_err();
+        assert!(err.to_string().starts_with("id space exhausted"), "{err}");
     }
 
     #[test]
