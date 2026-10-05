@@ -23,6 +23,10 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- `rm` on one clone and a first comment or attachment on the same task on the
+  other no longer merge into a folder holding only `d.md` (or `f/`) that no
+  command could load: sync drops it with
+  `note: dropped <rel>: task <id> was removed on one side; …`.
 - `yman init` whose first push fails no longer stops before `--hooks` and the
   summary: the tracker exists locally, so it finishes and warns
   `not published to origin (<why>); run: yman sync`.

@@ -431,6 +431,14 @@ rename, and a first comment's new `d.md` follows the directory rename, which
 sync asks git to apply rather than stop on. Attachments need one more step; see
 [commands.md](commands.md#rejoining-a-moved-folder).
 
+A comment or attachment added on one clone to a task the other clone removed
+does not conflict either: git sees a delete and an unrelated add, and the
+merge leaves a folder holding only the new files, with no `t.md` or `m.yml`.
+The removal wins, the same rule `m.yml` follows ("removed on one side goes"),
+and ids are never reused, so sync drops the folder with a note rather than
+raising a conflict nobody could resolve into a loadable task — see
+[commands.md](commands.md#dropping-a-removed-tasks-new-files).
+
 ## 7. `config.toml`
 
 Committed inside `.yman/`, so a project agrees on it once.

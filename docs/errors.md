@@ -191,6 +191,7 @@ Never fatal, always stderr:
 | `note: local has unpushed commits; run: yman sync` | `yman refresh` found local ahead of or diverged from the remote |
 | `note: rewrote N reference(s) to renumbered ids` | a collision renumber moved ids other tasks related to |
 | `note: moved N file(s) left under <old> into <rel>` | a merge left files under a folder the other side had moved |
+| `note: dropped <rel>: task <id> was removed on one side; N file(s) added on the other are gone` | a merge left a comment or attachment under a task the other side had removed |
 | `note: dropped N reference(s) to <id>` | `rm` cleared the removed task out of other tasks' `related` |
 | `note: task <id> was closed to two different statuses; keep one of <relA>, <relB>` | a merge renamed one task into two status directories |
 | `note: task folder is now <rel>` | a status change moved the folder into or out of a status directory |
