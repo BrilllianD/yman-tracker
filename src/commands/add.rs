@@ -125,6 +125,17 @@ fn create(
         bail!("folder already exists: {}", folder);
     }
 
+    // The archive directory may not exist yet. Note the outermost directory
+    // this call creates, so an abort can take back exactly what it made and
+    // nothing that was already there.
+    let mut created = dir.as_path();
+    while let Some(up) = created.parent() {
+        if up == ctx.ydir || up.exists() {
+            break;
+        }
+        created = up;
+    }
+    let created = created.to_path_buf();
     std::fs::create_dir_all(&dir)?;
     let mut meta = Meta::new(spec.status.clone(), spec.tags.clone());
     meta.assignee = spec.assignee.clone();
@@ -156,6 +167,17 @@ fn create(
                 // would snapshot and publish the task the user abandoned.
                 if let Err(rm) = std::fs::remove_dir_all(&t.dir) {
                     eprintln!("warning: cannot remove {}: {rm}", t.rel());
+                }
+                // An archive directory made for this task goes too. Git
+                // ignores an empty directory, so `.yman` would read clean
+                // while it stayed on disk. `remove_dir` refuses a non-empty
+                // one, which leaves anything another process put there.
+                let mut up = t.dir.parent();
+                while let Some(d) = up {
+                    if !d.starts_with(&created) || std::fs::remove_dir(d).is_err() {
+                        break;
+                    }
+                    up = d.parent();
                 }
                 return Err(e);
             }

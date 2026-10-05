@@ -332,7 +332,9 @@ or from `--body-file PATH` (`-` reads stdin); the two exclude each other and
 first commit, so a title typed there renames the folder by plain rename — the
 placeholder never enters git history. If the editor cannot be started, exits
 non-zero or is killed, or leaves a `t.md` that no longer parses or whose title
-the rule above refuses, the new folder is removed and nothing is committed:
+the rule above refuses, the new folder is removed, along with a status
+directory created for it (`done/` under an archive config), and nothing is
+committed:
 `editor exited with status N; task not added`, or
 `t.md invalid after edit: <why>; task not added`. The id is not
 spent, and what was typed in the editor is lost with the folder.
@@ -546,7 +548,9 @@ Windows checkout cannot hold. Names compare ignoring case throughout, since
 land under the same name are refused with `attachment "<name>" given more than
 once`, `--force` or not. Every source is checked before any is copied, so a
 refusal leaves nothing behind: no file under `f/`, no `m.yml` entry, no
-commit. The `by` recorded in `m.yml` is
+commit. A copy that fails anyway (a full disk) is rolled back: files already
+copied are removed, files `--force` was replacing are restored, and `m.yml`,
+written only after every copy has landed, is left as it was. The `by` recorded in `m.yml` is
 the actor (see `comment`). An existing attachment of the same
 name needs `--force` — an `m.yml` entry, even one whose file is gone, or a file
 under `f/`. With `--force` the entry is replaced in place, and a file whose

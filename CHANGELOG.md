@@ -29,6 +29,10 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- An aborted `yman add -e` into a closed status under an archive config also
+  removes the status directory it created, and a copy failing part way
+  through `yman attach` (a full disk) restores `f/` as it was, including files
+  `--force` had already replaced, instead of leaving the earlier copies behind.
 - A stopped `sync` no longer says a task "was closed to two different
   statuses" when the second folder is only a file left under the task's old
   name after a retitle or close; the note now needs two folders that carry
