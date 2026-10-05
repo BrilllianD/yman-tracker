@@ -102,9 +102,16 @@ under [Releasing](README.md#releasing) in the README.
   it with a second `note: worktree has uncommitted changes`.
 - `yman ls --help` describes `-a` as including closed tasks (any terminal
   status) rather than "the final status", which predates terminal sets.
-
 - `yman set -a` now trims its value and treats a blank one as unassigned,
   as `yman add -a` always has; it used to store `" bob "` or `"  "` verbatim.
+- `--help` for `edit`, `add -e` and `comment -e` names `$VISUAL` before
+  `$EDITOR`, the order the editor is looked up in, and `yman --help` lists
+  every editor-free way to give a body (`add -m`, `set --body-file` were
+  missing). The agent manual and the skill list `plan` among the commands
+  that take `--json` and say that `ls` and `plan` carry `body` only with
+  `-l`; the docs add the `autosync` key of `status --json`, the
+  `yman.autosync` setting `init` writes, and the `git worktree add failed`
+  error.
 
 ## [0.6.1] - 2026-10-04
 
@@ -253,7 +260,6 @@ under [Releasing](README.md#releasing) in the README.
   claiming and closing, to publish. Before, it described `sync` but never
   asked for it, so agents left task history unpushed. The `claim-task` and
   `close-task` skill evals check both.
-
 - A documentation site, built with mdBook from the README, `docs/` and the
   changelog and published to GitHub Pages:
   <https://brillliand.github.io/yman-tracker/>. `scripts/book.sh` builds it
