@@ -29,6 +29,10 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- A stopped `sync` no longer says a task "was closed to two different
+  statuses" when the second folder is only a file left under the task's old
+  name after a retitle or close; the note now needs two folders that carry
+  the task under two different closed statuses.
 - A `t.md` with CRLF line endings no longer keeps a stray `\r\n` at the top
   of its body, and a UTF-8 BOM no longer breaks `t.md` (`must start with
   "# Title"`) or hides `m.yml`'s first key.

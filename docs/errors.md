@@ -193,7 +193,7 @@ Never fatal, always stderr:
 | `note: moved N file(s) left under <old> into <rel>` | a merge left files under a folder the other side had moved |
 | `note: dropped <rel>: task <id> was removed on one side; N file(s) added on the other are gone` | a merge left a comment or attachment under a task the other side had removed |
 | `note: dropped N reference(s) to <id>` | `rm` cleared the removed task out of other tasks' `related` |
-| `note: task <id> was closed to two different statuses; keep one of <relA>, <relB>` | a merge renamed one task into two status directories |
+| `note: task <id> was closed to two different statuses; keep one of <relA>, <relB>` | a merge moved one task into two different closed-status directories |
 | `note: task folder is now <rel>` | a status change moved the folder into or out of a status directory |
 | `note: <id> no longer waits on anything open: yman move <id> <default status>` | a close (`done`, `cancel`, `move`/`set --status` into a terminal status), or `rm` of an open task not tagged `epic`, left a `blocked` task relating to it with nothing open to wait on; nothing is moved |
 
