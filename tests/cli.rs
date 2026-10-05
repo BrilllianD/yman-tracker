@@ -1203,6 +1203,176 @@ fn conflict_and_continue() {
     assert_eq!(fx.status(&fx.a, "1"), "done");
 }
 
+/// A commit made while a push is in flight must not be recorded as
+/// published: `refs/yman/remote` mirrors what origin got, not a later
+/// re-read of `refs/yman/local`.
+#[cfg(unix)]
+#[test]
+fn a_commit_during_push_stays_unpublished() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let ydir = fx.a.join(".yman");
+    let wrapper = fx.script(
+        "receive-pack-then-commit",
+        &format!(
+            "git receive-pack \"$@\"; rc=$?\n\
+             ( unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY \
+             GIT_COMMON_DIR GIT_QUARANTINE_PATH GIT_ALTERNATE_OBJECT_DIRECTORIES\n\
+             git -C '{}' -c core.hooksPath=/dev/null commit -q --allow-empty \
+             --no-verify -m between ) </dev/null >/dev/null 2>&1\n\
+             exit $rc\n",
+            ydir.display()
+        ),
+    );
+    fx.git(
+        &fx.a,
+        &[
+            "config",
+            "remote.origin.receivepack",
+            wrapper.to_str().unwrap(),
+        ],
+    );
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let out = fx.yman(&fx.a).arg("sync").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+
+    let on_origin = fx.git(&fx.remote, &["rev-parse", "refs/tasks/main"]);
+    assert_eq!(fx.git(&fx.a, &["rev-parse", "refs/yman/remote"]), on_origin);
+    assert_eq!(
+        fx.git(
+            &fx.a,
+            &["rev-list", "--count", "refs/yman/remote..refs/yman/local"]
+        ),
+        "1"
+    );
+    let status = stdout(&fx.yman(&fx.a).arg("status").output().unwrap());
+    assert!(status.contains("ahead 1"), "{status}");
+
+    fx.git(&fx.a, &["config", "--unset", "remote.origin.receivepack"]);
+    let out = fx.yman(&fx.a).arg("sync").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stdout(&out).contains("pushed 1,"), "{}", stdout(&out));
+}
+
+/// A renumber that fails part-way is rolled back to the snapshot commit, not
+/// left half-applied for the next sync to snapshot.
+#[cfg(unix)]
+#[test]
+fn a_failed_renumber_restores_yman() {
+    use std::os::unix::fs::PermissionsExt;
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "A one"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    fx.yman(&fx.b).args(["add", "B two"]).assert().success();
+    fx.yman(&fx.b).args(["add", "B three"]).assert().success();
+    fx.yman(&fx.b).arg("sync").assert().success();
+    fx.yman(&fx.a).args(["add", "A two"]).assert().success();
+    fx.yman(&fx.a).args(["add", "A three"]).assert().success();
+    let local = fx.git(&fx.a, &["rev-parse", "refs/yman/local"]);
+
+    // 2 renumbers first; writing 3's m.yml then fails.
+    let meta = fx.task_dir(&fx.a, "3").join("m.yml");
+    std::fs::set_permissions(&meta, std::fs::Permissions::from_mode(0o444)).unwrap();
+    if std::fs::OpenOptions::new().write(true).open(&meta).is_ok() {
+        eprintln!("skipped: running as root, read-only files are writable");
+        return;
+    }
+    let out = fx.yman(&fx.a).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("renumber aborted; .yman restored"),
+        "{}",
+        stderr(&out)
+    );
+    assert!(!stdout(&out).contains("renumbered"), "{}", stdout(&out));
+    let ydir = fx.a.join(".yman");
+    assert_eq!(fx.git(&ydir, &["status", "--porcelain"]), "");
+    assert_eq!(fx.git(&fx.a, &["rev-parse", "refs/yman/local"]), local);
+    assert_eq!(fx.task_rel(&fx.a, "2"), "5.2.a-two");
+    assert_eq!(fx.task_rel(&fx.a, "3"), "5.3.a-three");
+    assert_eq!(fx.task_dirs(&fx.a).len(), 3);
+
+    // The reset recreated 3's m.yml writable, so a rerun goes through.
+    let out = fx.yman(&fx.a).arg("sync").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("renumbered 2 -> 4"), "{text}");
+    assert!(text.contains("renumbered 3 -> 5"), "{text}");
+}
+
+/// `sync` keeps its fetches out of the user's `FETCH_HEAD`.
+#[test]
+fn sync_leaves_fetch_head_alone() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    let head = fx.a.join(".git/FETCH_HEAD");
+    fx.write(&head, "sentinel\n");
+    fx.yman(&fx.b).arg("init").assert().success();
+    fx.write(&fx.b.join(".git/FETCH_HEAD"), "sentinel\n");
+    fx.yman(&fx.a).arg("sync").assert().success();
+    assert_eq!(fx.read(&head), "sentinel\n");
+    assert_eq!(fx.read(&fx.b.join(".git/FETCH_HEAD")), "sentinel\n");
+}
+
+/// A committed symlink loop under a task folder must not send the marker
+/// scan of `sync --continue` round in circles; the summary counts what the
+/// merge pulled.
+#[cfg(unix)]
+#[test]
+fn continue_ignores_symlinks_and_counts_pulled() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+
+    let f = fx.task_dir(&fx.a, "1").join("f");
+    std::fs::create_dir_all(&f).unwrap();
+    std::os::unix::fs::symlink("..", f.join("loop")).unwrap();
+    fx.yman(&fx.a)
+        .args(["set", "1", "--status", "doing"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b)
+        .args(["set", "1", "--status", "done"])
+        .assert()
+        .success();
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+
+    let mpath = fx.b.join(".yman/5.1.fix-login/m.yml");
+    let resolved: String = fx
+        .read(&mpath)
+        .lines()
+        .filter(|l| {
+            !l.starts_with("<<<<<<<") && !l.starts_with("=======") && !l.starts_with(">>>>>>>")
+        })
+        .filter(|l| !l.starts_with("status: doing"))
+        .map(|l| format!("{l}\n"))
+        .collect();
+    fx.write(&mpath, &resolved);
+    let ydir = fx.b.join(".yman");
+    let pulled = fx.git(&ydir, &["rev-list", "--count", "HEAD..MERGE_HEAD"]);
+    assert_ne!(pulled, "0");
+
+    let out = fx
+        .yman(&fx.b)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stdout(&out).contains(&format!("pulled {pulled}, pushed 2,")),
+        "{}",
+        stdout(&out)
+    );
+}
+
 /// A conflict git could not mark up — here two different binary attachments
 /// under one name — leaves ours on disk with no markers. `--continue` must not
 /// read that as resolved and silently drop theirs.

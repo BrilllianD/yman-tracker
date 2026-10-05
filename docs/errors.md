@@ -138,6 +138,7 @@ commit.
 | git binary absent | `git not found in PATH` |
 | any other git failure | `git <subcommand> failed: <trimmed stderr>` |
 | push lost the race to a moving origin three times (`sync`; `init` when the ref it was rejected for is gone again on refetch) | `origin keeps moving; retry yman sync` |
+| a sync renumber failed part-way | `renumber aborted; .yman restored: <why>` — `.yman` is back at the commit before the renumber |
 | push rejected while finishing a merge | `origin moved while finishing the merge; run: yman sync` |
 | network step failed | `fetch failed` / `push failed` / `merge failed`, with git's stderr printed above; a push origin refused (any rejection but the race, [commands.md](commands.md#6-sync) step 8) also prints git's ` ! [remote rejected] refs/yman/local -> refs/tasks/main (<reason>)` line, and is not retried |
 | `init` fetch failed | `fetch failed (see above); use --offline to skip` |

@@ -236,7 +236,10 @@ fn resolve_remote(ctx: &Context, requested: Option<&str>) -> Result<Option<Strin
 /// Fetch `refs/tasks/main`. A remote that simply has no tasks yet is not an
 /// error; anything else is.
 fn fetch_tasks(ctx: &Context, failure_msg: &str) -> Result<()> {
-    let out = ctx.main.run(&["fetch", "origin", FETCH_REFSPEC])?;
+    // `FETCH_HEAD` is the user's; see `sync::fetch`.
+    let out = ctx
+        .main
+        .run(&["fetch", "--no-write-fetch-head", "origin", FETCH_REFSPEC])?;
     if out.ok() {
         return Ok(());
     }

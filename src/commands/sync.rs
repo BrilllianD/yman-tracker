@@ -7,10 +7,13 @@ use crate::task::{self, FolderName};
 use anyhow::{Result, bail};
 use std::collections::{HashMap, HashSet};
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+/// A successful push carries the commit it published: the caller counts and
+/// reports from that, never from a fresh read of `LOCAL`, which a concurrent
+/// command may have moved since.
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum PushResult {
-    Ok,
-    UpToDate,
+    Ok(String),
+    UpToDate(String),
     Rejected,
 }
 
@@ -26,18 +29,26 @@ pub const PUSH_ATTEMPTS: u32 = 3;
 /// outcome is read from git's verdict on `refs/tasks/main` rather than guessed
 /// from the human-readable stderr, which also carries whatever origin's hooks
 /// printed.
+///
+/// `LOCAL` is resolved once and that commit is pushed by sha. Pushing the ref
+/// by name and then running `update-ref REMOTE LOCAL` read `LOCAL` twice, so
+/// a commit made in between was recorded as published when it was not, and
+/// autosync's `REMOTE == LOCAL` check then skipped it for good.
 pub fn push(ctx: &Context) -> Result<PushResult> {
-    let refspec = format!("{LOCAL}:{REMOTE_REF}");
+    let Some(sha) = ctx.resolve_ref(LOCAL)? else {
+        bail!("nothing to push: {LOCAL} does not exist");
+    };
+    let refspec = format!("{sha}:{REMOTE_REF}");
     let out = ctx
         .main
         .run(&["push", "--porcelain", "--no-verify", "origin", &refspec])?;
     let status = ref_status(&out.stdout);
     if out.ok() {
         // Mirror what origin now has, so `status` and `refresh` agree.
-        ctx.main.ok(&["update-ref", REMOTE, LOCAL])?;
+        ctx.main.ok(&["update-ref", REMOTE, &sha])?;
         return Ok(match status {
-            Some(('=', _)) => PushResult::UpToDate,
-            _ => PushResult::Ok,
+            Some(('=', _)) => PushResult::UpToDate(sha),
+            _ => PushResult::Ok(sha),
         });
     }
     if let Some(('!', summary)) = status
@@ -60,7 +71,8 @@ pub fn push(ctx: &Context) -> Result<PushResult> {
 
 /// The flag and summary of the `refs/tasks/main` line in `push --porcelain`
 /// output: `<flag>\t<from>:<to>\t<summary>`, e.g.
-/// `!\trefs/yman/local:refs/tasks/main\t[rejected] (fetch first)`.
+/// `!\t<sha>:refs/tasks/main\t[rejected] (fetch first)`. `<from>` is the
+/// pushed sha (older code pushed `refs/yman/local` by name).
 fn ref_status(stdout: &str) -> Option<(char, &str)> {
     stdout.lines().find_map(|line| {
         let mut parts = line.splitn(3, '\t');
@@ -172,11 +184,20 @@ fn resume(ctx: &mut Context, no_push: bool) -> Result<()> {
     rejoin_split_folders(ctx)?;
     check_resolved_tasks(ctx)?;
 
+    // What the merge brings in, counted before the commit makes it ours.
+    let mut totals = Totals {
+        pulled: ctx
+            .wt
+            .out(&["rev-list", "--count", "HEAD..MERGE_HEAD"])?
+            .trim()
+            .parse()
+            .unwrap_or(0),
+        ..Totals::default()
+    };
     ctx.wt.ok(&["add", "-A"])?;
-    ctx.wt.ok(&["commit", "-q", "--no-verify", "--no-edit"])?;
+    ctx.wt.commit_merge()?;
     forget_marked(ctx);
 
-    let mut totals = Totals::default();
     if !no_push {
         push_with_count(ctx, &mut totals)?;
     }
@@ -315,7 +336,14 @@ fn has_conflict_markers(dir: &std::path::Path) -> Result<Option<String>> {
     for entry in std::fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
-        if path.is_dir() {
+        // `file_type` does not follow symlinks, and a symlink is skipped:
+        // git stores its target, not a file to scan, and `is_dir` would
+        // follow a committed `f/loop -> ..` forever.
+        let kind = entry.file_type()?;
+        if kind.is_symlink() {
+            continue;
+        }
+        if kind.is_dir() {
             if let Some(found) = has_conflict_markers(&path)? {
                 return Ok(Some(found));
             }
@@ -387,8 +415,7 @@ fn normal(ctx: &mut Context, no_push: bool) -> Result<()> {
         }
         let before_push = ctx.main.rev_parse(REMOTE)?;
         match push(ctx)? {
-            PushResult::Ok | PushResult::UpToDate => {
-                let after = ctx.main.rev_parse(LOCAL)?.unwrap_or_default();
+            PushResult::Ok(after) | PushResult::UpToDate(after) => {
                 totals.pushed += match before_push {
                     Some(before) => count(ctx, &format!("{before}..{after}"))?,
                     None => count(ctx, &after)?,
@@ -421,7 +448,11 @@ fn snapshot_dirty(ctx: &Context) -> Result<()> {
 }
 
 fn fetch(ctx: &Context, had_remote: bool) -> Result<()> {
-    let out = ctx.main.run(&["fetch", "origin", FETCH_REFSPEC])?;
+    // `--no-write-fetch-head`: `FETCH_HEAD` in the main repository is the
+    // user's, left by their own last fetch.
+    let out = ctx
+        .main
+        .run(&["fetch", "--no-write-fetch-head", "origin", FETCH_REFSPEC])?;
     if out.ok() {
         return Ok(());
     }
@@ -609,18 +640,52 @@ fn renumber_collisions(ctx: &mut Context, base: &str) -> Result<usize> {
     taken.extend(remote_ids.iter().cloned());
     taken.extend(ids::ever_assigned(ctx, &[LOCAL, REMOTE])?);
 
+    // Plan first: every lookup that can fail (a task that does not load, an
+    // exhausted id space) fails here, before the first `git mv`.
     let scheme = ctx.config().ids.scheme;
-    let mut pairs: Vec<String> = Vec::new();
-    let mut moves: Vec<(String, String)> = Vec::new();
+    let mut plan: Vec<(task::Task, String)> = Vec::new();
     for old in &colliding {
-        let mut t = task::find(&ctx.ydir, old)?;
+        let t = task::find(&ctx.ydir, old)?;
         let prefix = match scheme {
             Scheme::Author => ids::prefix_of(old).map(|p| p.to_string()),
             _ => None,
         };
         let new = ids::next_free(scheme, ctx.config(), prefix.as_deref(), &taken)?;
         taken.insert(new.clone());
+        plan.push((t, new));
+    }
 
+    // Then apply. `snapshot_dirty` committed every user file before this, so
+    // HEAD is a complete restore point: a failure part-way (a write refused,
+    // a `git mv` that fails) resets to it instead of leaving half a renumber
+    // for the next snapshot to commit.
+    let moves = match apply_renumber(ctx, plan) {
+        Ok(moves) => moves,
+        Err(e) => {
+            let reset = ctx.wt.run(&["reset", "-q", "--hard", "HEAD"])?;
+            // `git mv` leaves the new folder behind once the index forgets
+            // it; without `-x`, so ignored files survive.
+            let clean = ctx.wt.run(&["clean", "-q", "-f", "-d"])?;
+            if !reset.ok() || !clean.ok() {
+                return Err(e.context(
+                    "renumber aborted; restoring .yman failed too, see: yman git status",
+                ));
+            }
+            return Err(e.context("renumber aborted; .yman restored"));
+        }
+    };
+    for (old, new) in &moves {
+        println!("renumbered {old} -> {new}  (id taken on origin)");
+    }
+    Ok(moves.len())
+}
+
+/// The writing half of `renumber_collisions`: move each folder, rewrite its
+/// `m.yml` and every `related` that named it, and commit the batch.
+fn apply_renumber(ctx: &Context, plan: Vec<(task::Task, String)>) -> Result<Vec<(String, String)>> {
+    let mut moves: Vec<(String, String)> = Vec::new();
+    for (mut t, new) in plan {
+        let old = t.id().to_string();
         let old_rel = t.rel();
         t.folder.id = new.clone();
         // `rel`, not the bare folder: a closed task stays in its status
@@ -629,14 +694,14 @@ fn renumber_collisions(ctx: &mut Context, base: &str) -> Result<usize> {
         ctx.wt.ok(&["mv", "--", &old_rel, &new_rel])?;
         t.dir = ctx.ydir.join(&new_rel);
         t.touch();
-        t.write_meta()?;
+        t.write_meta()
+            .map_err(|e| e.context(format!("cannot write {new_rel}/{}", task::META_FILE)))?;
         ctx.wt.ok(&["add", "--", &new_rel])?;
-        println!("renumbered {old} -> {new}  (id taken on origin)");
-        pairs.push(format!("{old}->{new}"));
-        moves.push((old.clone(), new));
+        moves.push((old, new));
     }
 
     let rewritten = rewrite_related(ctx, &moves)?;
+    let pairs: Vec<String> = moves.iter().map(|(o, n)| format!("{o}->{n}")).collect();
     ctx.wt.commit(&format!(
         "yman: renumber {} (sync collision)",
         pairs.join(", ")
@@ -644,7 +709,7 @@ fn renumber_collisions(ctx: &mut Context, base: &str) -> Result<usize> {
     if rewritten > 0 {
         eprintln!("note: rewrote {rewritten} reference(s) to renumbered ids");
     }
-    Ok(colliding.len())
+    Ok(moves)
 }
 
 /// Point every `related:` entry that named a renumbered id at its new one.
@@ -692,8 +757,7 @@ fn push_with_count(ctx: &Context, totals: &mut Totals) -> Result<()> {
         PushResult::Rejected => {
             bail!("origin moved while finishing the merge; run: yman sync")
         }
-        _ => {
-            let after = ctx.main.rev_parse(LOCAL)?.unwrap_or_default();
+        PushResult::Ok(after) | PushResult::UpToDate(after) => {
             totals.pushed = match before {
                 Some(before) => count(ctx, &format!("{before}..{after}"))?,
                 None => count(ctx, &after)?,
@@ -735,6 +799,9 @@ mod tests {
         assert_eq!(ref_status(out), Some(('=', "[up to date]")));
         let out = "To /tmp/r.git\n \trefs/yman/local:refs/tasks/main\tabc..def\nDone\n";
         assert_eq!(ref_status(out), Some((' ', "abc..def")));
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        let out = format!("To /tmp/r.git\n!\t{sha}:refs/tasks/main\t[rejected] (fetch first)\n");
+        assert_eq!(ref_status(&out), Some(('!', "[rejected] (fetch first)")));
         assert_eq!(ref_status("To /tmp/r.git\nDone\n"), None);
         assert_eq!(
             ref_status("!\tHEAD:refs/heads/main\t[rejected] (fetch first)\n"),

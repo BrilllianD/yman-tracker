@@ -19,6 +19,19 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- `yman sync` pushes the commit `refs/yman/local` held when the push began,
+  by sha, and records that commit as published. A commit made by another
+  command during the push used to be marked published without reaching
+  origin, and autosync then never pushed it.
+- A sync renumber that fails part-way resets `.yman` to the commit before it
+  (`renumber aborted; .yman restored`) instead of leaving half-moved folders
+  for the next sync to snapshot.
+- `yman sync --continue` reports how many commits the merge pulled instead
+  of `pulled 0`, gives the git-identity hint when committing fails for want
+  of one, and no longer follows symlinks while scanning for conflict markers
+  (a committed symlink loop recursed until it failed).
+- `yman sync` and `yman init` no longer overwrite the main repository's
+  `FETCH_HEAD`.
 - Run from a git hook or alias, yman strips every variable
   `git rev-parse --local-env-vars` lists, plus `GIT_NAMESPACE`, instead of
   five of them, and `yman git` strips the same set, so it acts on `.yman`

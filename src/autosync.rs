@@ -31,20 +31,23 @@ pub fn after_mutation(ctx: &Context) -> Result<()> {
     if remote.as_deref() == Some(local.as_str()) {
         return Ok(());
     }
-    let range = match remote {
-        Some(_) => format!("{REMOTE}..{LOCAL}"),
-        None => LOCAL.to_string(),
-    };
-    let n: usize = ctx
-        .main
-        .out(&["rev-list", "--count", &range])?
-        .trim()
-        .parse()
-        .unwrap_or(0);
-
     match push(ctx)? {
-        PushResult::Ok => eprintln!("note: pushed {n} task commit(s)"),
-        PushResult::UpToDate => {}
+        PushResult::Ok(sha) => {
+            // Counted against the commit actually pushed, not a re-read of
+            // `LOCAL`.
+            let range = match &remote {
+                Some(r) => format!("{r}..{sha}"),
+                None => sha,
+            };
+            let n: usize = ctx
+                .main
+                .out(&["rev-list", "--count", &range])?
+                .trim()
+                .parse()
+                .unwrap_or(0);
+            eprintln!("note: pushed {n} task commit(s)");
+        }
+        PushResult::UpToDate(_) => {}
         PushResult::Rejected => {
             eprintln!("warning: origin has new task commits; run: yman sync")
         }
