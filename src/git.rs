@@ -211,7 +211,17 @@ impl Git {
     /// post-hooks out too. GPG signing is deliberately left to the user's
     /// config.
     pub fn commit(&self, msg: &str) -> Result<()> {
-        let out = self.run(&["commit", "-q", "--no-verify", "-m", msg])?;
+        self.commit_with(&["commit", "-q", "--no-verify", "-m", msg])
+    }
+
+    /// Conclude a merge with git's own message, with the same failure
+    /// handling (identity hint included) as `commit`.
+    pub fn commit_merge(&self) -> Result<()> {
+        self.commit_with(&["commit", "-q", "--no-verify", "--no-edit"])
+    }
+
+    fn commit_with(&self, args: &[&str]) -> Result<()> {
+        let out = self.run(args)?;
         if out.ok() {
             return Ok(());
         }

@@ -644,7 +644,8 @@ exit 1.
 1. A merge already in progress → exit 3.
 2. A dirty worktree is committed as `yman: snapshot local changes`, reporting
    `snapshotted N local change(s)`.
-3. Fetch `+refs/tasks/main:refs/yman/remote`. A stderr mentioning
+3. Fetch `+refs/tasks/main:refs/yman/remote`, with `--no-write-fetch-head`
+   so the main repository's `FETCH_HEAD` stays the user's. A stderr mentioning
    `couldn't find remote ref` means origin simply has no tasks yet; if we had a
    `REMOTE` before, it is deleted and the disappearance is reported. Any other
    failure is fatal, with git's stderr passed through.
@@ -659,7 +660,8 @@ exit 1.
    task settle on their own; anything it cannot settle falls back to the text
    merge. Conflicts print the unmerged files and exit 3. A clean merge is
    followed by the **rejoin** below.
-8. Push, unless `--no-push`, with `--porcelain`, and read git's verdict from
+8. Push, unless `--no-push`: resolve `LOCAL` once and push that commit,
+   `<sha>:refs/tasks/main`, with `--porcelain`, and read git's verdict from
    the `refs/tasks/main` line on stdout. Four reasons on a `!` line mean
    origin moved after our fetch — the race: `[rejected] (fetch first)`,
    `[rejected] (non-fast-forward)`, and the two ways receive-pack's own
@@ -675,8 +677,10 @@ exit 1.
    ` ! [remote rejected] refs/yman/local -> refs/tasks/main (<reason>)` line.
 9. Report `synced  pulled N, pushed N, renumbered N   refs/yman/local @ <sha>`.
 
-After a successful push, `REMOTE` is set to `LOCAL`, so `status` and `refresh`
-agree with what origin now holds.
+After a successful push, `REMOTE` is set to the commit that was pushed, so
+`status` and `refresh` agree with what origin now holds. A commit another
+command made while the push was in flight stays ahead of `REMOTE` and goes
+out with the next push.
 
 ### Collision renumbering
 
@@ -694,8 +698,12 @@ that is behind moves, because the other side's id is already published.
   the remote, and everything ever assigned on either ref. For `author`, the
   original prefix is kept.
 - Each rename is a `git mv`, the task's `updated` is touched, and one commit
-  covers the batch.
-- Each move prints `renumbered {old} -> {new}  (id taken on origin)`.
+  covers the batch. Every replacement id is chosen and every task loaded
+  before the first move; a failure part-way through the moves resets `.yman`
+  to the commit before the renumber and fails with
+  `renumber aborted; .yman restored`.
+- Each move prints `renumbered {old} -> {new}  (id taken on origin)` once the
+  batch is committed.
 - `related` references to the old id are rewritten to the new one, in the
   same commit as the moves, and `note: rewrote N reference(s) to renumbered
   ids` reports how many changed. A folder that does not load is left alone.
@@ -739,7 +747,11 @@ stays unmerged until the user stages a version, and `--continue` says so:
 `No such file or directory` is not lost. It then checks that `config.toml` loads, that
 every task folder the merge touched still loads and is marker-free, that no
 id has two folders, stages
-everything, commits with `--no-edit`, and pushes.
+everything, commits with `--no-edit` (through the same commit path as every
+other yman commit, so a missing identity gets the same hint), and pushes. Its
+summary counts as `pulled` the commits the merge brought in
+(`HEAD..MERGE_HEAD`); `renumbered` is always 0, since any renumber was done,
+and printed, by the `sync` that stopped. The marker scan skips symlinks.
 
 The folder list comes from both `HEAD..MERGE_HEAD` and the unmerged paths,
 because a rename conflict names paths that survive in neither tree.

@@ -108,8 +108,9 @@ file answers. `tests/cli.rs` pins both numbers.
 | `.yman/.gitattributes` | `**/d.md merge=union`, `**/m.yml merge=ymanmeta` | committed, so every clone inherits it |
 
 `remote.origin.push` is **never** set: that would hijack the user's plain
-`git push`. Publishing is always the explicit refspec
-`refs/yman/local:refs/tasks/main`, pushed with `--porcelain` so that a push
+`git push`. Publishing is always an explicit refspec,
+`<sha>:refs/tasks/main` with `<sha>` the commit `refs/yman/local` held when
+the push began, pushed with `--porcelain` so that a push
 origin rejected because the ref moved (retried) is told apart from one it
 refused (not retried) by git's per-ref line rather than by its stderr — see
 [commands.md](commands.md#6-sync) step 8.
