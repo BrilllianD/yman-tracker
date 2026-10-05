@@ -262,7 +262,9 @@ impl Context {
         }
     }
 
-    /// Checks every command (except `init`, `hooks`, `git`) runs first.
+    /// Checks every command runs first, except the ones
+    /// `Cmd::skips_preflight` lists (`init`, `hooks`, `git`, `guide`,
+    /// `completions`, `man`, `merge-driver`).
     ///
     /// The merge check comes before the config load: a sync merge that
     /// conflicted in `config.toml` leaves it unparseable, and that must still
