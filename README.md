@@ -45,7 +45,9 @@ $ yman ls
 
 ## Install
 
-Requires a Rust toolchain and a `git` binary, 2.42 or newer.
+Requires Rust 1.85 or newer (`rust-version` in `Cargo.toml`) and a `git`
+binary, 2.42 or newer. Nothing checks the git version at run time; CI runs
+the suite against the git that GitHub's `ubuntu-latest` image ships.
 
 ```sh
 cargo install yman-tracker      # from crates.io

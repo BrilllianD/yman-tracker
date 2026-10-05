@@ -83,9 +83,15 @@ pub fn discover() -> Result<Context> {
     ])?;
     let mut lines = out.stdout.lines();
     let (root, common) = match (out.ok(), lines.next(), lines.next()) {
-        (true, Some(top), Some(dir)) => (PathBuf::from(top.trim()), PathBuf::from(dir.trim())),
-        // Older git without `--path-format`, or a layout where one of the two
-        // is unanswerable: ask the way we always did.
+        // Git before 2.31 does not know `--path-format` and echoes it back as
+        // the first line, so both answers must look like absolute paths.
+        (true, Some(top), Some(dir))
+            if Path::new(top.trim()).is_absolute() && Path::new(dir.trim()).is_absolute() =>
+        {
+            (PathBuf::from(top.trim()), PathBuf::from(dir.trim()))
+        }
+        // Older git, or a layout where one of the two is unanswerable: ask
+        // separately, without the flag.
         _ => discover_separately(&here)?,
     };
     let root = yman_parent(&root, &common).unwrap_or(root);
@@ -129,11 +135,17 @@ fn discover_separately(here: &Git) -> Result<(PathBuf, PathBuf)> {
         o if o.ok() => PathBuf::from(o.stdout.trim()),
         _ => bail!("not inside a git repository"),
     };
-    let main = Git::new(&root);
+    // Relative to the directory git ran in, which `-C` makes `root`.
     let common = PathBuf::from(
-        main.out(&["rev-parse", "--path-format=absolute", "--git-common-dir"])?
+        Git::new(&root)
+            .out(&["rev-parse", "--git-common-dir"])?
             .trim(),
     );
+    let common = if common.is_absolute() {
+        common
+    } else {
+        root.join(common)
+    };
     Ok((root, common))
 }
 

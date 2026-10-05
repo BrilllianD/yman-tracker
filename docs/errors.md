@@ -129,7 +129,7 @@ commit.
 | `t.md` unparsable after an edit | `t.md invalid after edit: <why>; fix the file then run: yman edit <id>` |
 | `t.md` unparsable after `add -e` | `t.md invalid after edit: <why>; task not added` — the new folder is removed |
 | invalid config | `invalid .yman/config.toml: <why>` |
-| origin holds a non-yman history | `refs/tasks/main on origin is not a yman history (missing or invalid config.toml): <why>` |
+| the history `init` checks out has no loadable `config.toml` | `<source> is not a yman history (missing or invalid config.toml): <why>` — `<source>` is `refs/tasks/main on origin` when `init` adopted origin's tasks, `refs/yman/local` when it found or repaired a local history |
 | `sync` with no `origin` | `no "origin" remote; tasks are local only. Connect one: yman init --remote <url>` |
 | unrelated histories | `task history unrelated to origin refs/tasks/main; re-init from remote:  rm -rf .yman && git update-ref -d refs/yman/local && yman init` |
 | author prefix unresolvable | `author prefix unknown; run: git config yman.author <prefix>  (or set YMAN_AUTHOR)` |
@@ -137,7 +137,7 @@ commit.
 | git identity missing | `git identity missing; run: git config --global user.name "…" && git config --global user.email "…"` |
 | git binary absent | `git not found in PATH` |
 | any other git failure | `git <subcommand> failed: <trimmed stderr>` |
-| push lost the race to a moving origin three times (`sync`; `init` when the ref it was rejected for is gone again on refetch) | `origin keeps moving; retry yman sync` |
+| push lost the race to a moving origin three times (`sync`) | `origin keeps moving; retry yman sync` |
 | a sync renumber failed part-way | `renumber aborted; .yman restored: <why>` — `.yman` is back at the commit before the renumber |
 | push rejected while finishing a merge | `origin moved while finishing the merge; run: yman sync` |
 | network step failed | `fetch failed` / `push failed` / `merge failed`, with git's stderr printed above; a push origin refused (any rejection but the race, [commands.md](commands.md#6-sync) step 8) also prints git's ` ! [remote rejected] refs/yman/local -> refs/tasks/main (<reason>)` line, and is not retried |
@@ -171,6 +171,7 @@ Never fatal, always stderr:
 | `warning: id scheme is "<s>" (from config.toml); --id-scheme ignored` | `init` on an existing history with a conflicting flag |
 | `warning: origin already points at <url>; --remote ignored` | `init --remote <url>` where origin already exists with a different URL; the same URL is accepted silently |
 | `warning: remote already had tasks; adopted remote state` | two clones initialized the tracker at once |
+| `warning: not published to origin (<why>); run: yman sync` | a fresh `init` created the tracker but its push failed (`push failed`, after git's stderr) or lost the race three times (`origin keeps moving`); hooks and the summary still follow, exit 0 |
 | `warning: refs/tasks/main disappeared from origin; will recreate it` | the ref was deleted server-side |
 | `warning: <name> is N MiB; git is not great at large binaries` | attaching a file over 5 MiB |
 | `warning: installing into core.hooksPath=<p>` | hooks redirected away from `.git/hooks`; `<p>` is the directory as git resolves it (`~/` expanded, a relative value joined onto the toplevel) |

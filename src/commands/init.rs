@@ -57,11 +57,13 @@ pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
         fetch_tasks(ctx, "fetch failed (see above); use --offline to skip")?;
     }
 
-    // Where does the new worktree start?
+    // Where does the new worktree start, and whose history is it?
+    let mut source = LOCAL_HISTORY;
     let fresh = if ctx.main.rev_parse(LOCAL)?.is_some() {
         false
     } else if ctx.main.rev_parse(REMOTE)?.is_some() {
         ctx.main.ok(&["update-ref", LOCAL, REMOTE])?;
+        source = ORIGIN_HISTORY;
         false
     } else {
         let tree = ctx
@@ -78,6 +80,9 @@ pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
     add_worktree(ctx)?;
 
     let scheme = a.id_scheme.map(Scheme::from).unwrap_or(Scheme::Seq);
+    // A push that fails after the tracker exists locally does not undo it:
+    // hooks and the summary still follow, and the failure becomes a warning.
+    let mut unpublished: Option<anyhow::Error> = None;
     if fresh {
         let cfg = Config::new(scheme);
         cfg.save(&ctx.ydir)?;
@@ -87,10 +92,10 @@ pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
         ctx.wt.commit(&format!("yman: init ({scheme})"))?;
         ctx.config = Some(cfg);
         if !offline {
-            publish_fresh(ctx)?;
+            unpublished = publish_fresh(ctx)?;
         }
     } else {
-        ctx.config = Some(load_history_config(ctx)?);
+        ctx.config = Some(load_history_config(ctx, source)?);
         if a.id_scheme.is_some() {
             warn_scheme_ignored(ctx);
         }
@@ -100,7 +105,11 @@ pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
         hooks::install(ctx)?;
     }
 
-    summary(ctx, url.as_deref(), "initialized")
+    summary(ctx, url.as_deref(), "initialized")?;
+    if let Some(e) = unpublished {
+        eprintln!("warning: not published to origin ({e:#}); run: yman sync");
+    }
+    Ok(())
 }
 
 /// Push a tracker we just created. A rejected push means someone created
@@ -108,22 +117,25 @@ pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
 /// history. If the refetch finds no ref after all (created, then deleted
 /// again), there is nothing to adopt and nothing to reset to, so push again —
 /// with the same attempt cap and message as `sync`. The local tracker stands
-/// either way; `yman sync` publishes it later.
-fn publish_fresh(ctx: &mut Context) -> Result<()> {
+/// either way; `yman sync` publishes it later. A push that fails, or keeps
+/// losing the race, comes back as `Ok(Some(why))` for the caller to report.
+fn publish_fresh(ctx: &mut Context) -> Result<Option<anyhow::Error>> {
     for _ in 0..PUSH_ATTEMPTS {
-        if push(ctx)? != PushResult::Rejected {
-            return Ok(());
+        match push(ctx) {
+            Ok(PushResult::Rejected) => {}
+            Ok(_) => return Ok(None),
+            Err(e) => return Ok(Some(e)),
         }
         fetch_tasks(ctx, "fetch failed (see above); use --offline to skip")?;
         if ctx.main.rev_parse(REMOTE)?.is_some() {
             ctx.wt.ok(&["reset", "-q", "--hard", REMOTE])?;
             ctx.main.ok(&["update-ref", LOCAL, REMOTE])?;
             eprintln!("warning: remote already had tasks; adopted remote state");
-            ctx.config = Some(load_history_config(ctx)?);
-            return Ok(());
+            ctx.config = Some(load_history_config(ctx, ORIGIN_HISTORY)?);
+            return Ok(None);
         }
     }
-    bail!("origin keeps moving; retry yman sync")
+    Ok(Some(anyhow::anyhow!("origin keeps moving")))
 }
 
 /// `.yman` is already a worktree: make sure the main-repo side is intact.
@@ -148,7 +160,7 @@ fn repair(ctx: &mut Context, a: &InitArgs, url: Option<&str>) -> Result<()> {
         ctx.set_cfg("yman.author", author)?;
     }
     register_merge_driver(ctx)?;
-    ctx.config = Some(load_history_config(ctx)?);
+    ctx.config = Some(load_history_config(ctx, LOCAL_HISTORY)?);
     if a.id_scheme.is_some() {
         warn_scheme_ignored(ctx);
     }
@@ -187,7 +199,8 @@ fn reattach_head(ctx: &Context) -> Result<()> {
 /// merge, which is what `m.yml` got before the driver existed.
 fn register_merge_driver(ctx: &Context) -> Result<()> {
     // git runs the driver through a shell, so the path is quoted: `yman` need
-    // not be on PATH, and an installed binary may live somewhere with spaces.
+    // not be on PATH, and an installed binary may live somewhere with spaces,
+    // `$`, quotes or backslashes, none of which mean anything inside '…'.
     let exe = std::env::current_exe()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|_| "yman".to_string());
@@ -197,9 +210,15 @@ fn register_merge_driver(ctx: &Context) -> Result<()> {
     )?;
     ctx.set_cfg(
         &format!("merge.{MERGE_DRIVER}.driver"),
-        &format!("\"{exe}\" merge-driver %O %A %B"),
+        &format!("{} merge-driver %O %A %B", sh_quote(&exe)),
     )?;
     Ok(())
+}
+
+/// One shell word, whatever `s` holds: single-quoted, with each `'` closed,
+/// escaped and reopened.
+fn sh_quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
 }
 
 fn warn_scheme_ignored(ctx: &Context) {
@@ -285,11 +304,13 @@ fn add_worktree(ctx: &mut Context) -> Result<()> {
     Ok(())
 }
 
-fn load_history_config(ctx: &Context) -> Result<Config> {
+/// Which history `.yman` holds, for `load_history_config`'s message.
+const ORIGIN_HISTORY: &str = "refs/tasks/main on origin";
+const LOCAL_HISTORY: &str = LOCAL;
+
+fn load_history_config(ctx: &Context, source: &str) -> Result<Config> {
     Config::load(&ctx.ydir).map_err(|e| {
-        anyhow::anyhow!(
-            "{REMOTE_REF} on origin is not a yman history (missing or invalid config.toml): {e:#}"
-        )
+        anyhow::anyhow!("{source} is not a yman history (missing or invalid config.toml): {e:#}")
     })
 }
 
@@ -313,4 +334,29 @@ fn summary(ctx: &Context, url: Option<&str>, verb: &str) -> Result<()> {
     println!("  hooks:    {hooks_state}");
     println!("  tasks:    {tasks}");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sh_quote_survives_the_shell() {
+        for path in [
+            "/usr/bin/yman",
+            "/opt/my tools/yman",
+            "/tmp/a\"b/yman",
+            "/tmp/$HOME/yman",
+            "/tmp/`id`/yman",
+            "/tmp/it's/yman",
+            "\\\\server\\share\\yman.exe",
+        ] {
+            let out = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(format!("printf '%s' {}", sh_quote(path)))
+                .output()
+                .unwrap();
+            assert_eq!(String::from_utf8(out.stdout).unwrap(), path);
+        }
+    }
 }
