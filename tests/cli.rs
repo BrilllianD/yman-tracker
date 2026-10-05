@@ -1451,6 +1451,119 @@ fn a_removed_task_does_not_leave_its_new_files_behind() {
     }
 }
 
+/// A rejoin commits on top of the merge, so HEAD is no longer the merge when
+/// the remnant check runs. That check has to read the merge's own parents —
+/// `HEAD^2` names nothing then — or sync dies before the push and the next
+/// one, seeing nothing to merge, publishes the unloadable remnant.
+#[test]
+fn rejoin_and_drop_in_one_sync_still_push() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).args(["add", "Old idea"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+
+    fx.yman(&fx.a)
+        .args(["set", "1", "--title", "Repair login"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).args(["rm", "-f", "2"]).assert().success();
+    let src = fx.b.join("trace.txt");
+    fx.write(&src, "trace\n");
+    fx.yman(&fx.b)
+        .args(["attach", "1", src.to_str().unwrap()])
+        .assert()
+        .success();
+    // A d.md with no m.yml change, as in the test above.
+    fx.write(
+        &fx.task_dir(&fx.b, "2").join("d.md"),
+        "## 2026-10-05T10:00:00Z — Test B\n\nhi\n\n",
+    );
+    fx.yman(&fx.a).arg("sync").assert().success();
+
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let err = stderr(&out);
+    assert!(
+        err.contains("note: moved 1 file(s) left under 5.1.fix-login into 5.1.repair-login\n"),
+        "{err}"
+    );
+    assert!(
+        err.contains(
+            "note: dropped 5.2.old-idea: task 2 was removed on one side; \
+             1 file(s) added on the other are gone\n"
+        ),
+        "{err}"
+    );
+    assert!(stdout(&out).contains("pushed 5,"), "{}", stdout(&out));
+    assert_eq!(
+        origin_tasks(&fx),
+        fx.git(&fx.b, &["rev-parse", "refs/yman/local"])
+    );
+    let published = fx.git(
+        &fx.remote,
+        &["ls-tree", "-r", "--name-only", "refs/tasks/main"],
+    );
+    assert!(
+        published.contains("5.1.repair-login/f/trace.txt"),
+        "{published}"
+    );
+    assert!(!published.contains("5.1.fix-login/"), "{published}");
+    assert!(!published.contains("5.2."), "{published}");
+    assert_eq!(fx.git(&fx.b, &["-C", ".yman", "status", "--porcelain"]), "");
+
+    fx.yman(&fx.a).arg("sync").assert().success();
+    for clone in [&fx.a, &fx.b] {
+        assert_eq!(
+            fx.task_dirs(clone),
+            vec![std::path::PathBuf::from("5.1.repair-login")]
+        );
+    }
+}
+
+/// `yman rm` leaves an ignored file where it found one, so the folder
+/// outlives the task with nothing tracked in it. The next merge reads it as a
+/// remnant, and `git rm` on a folder git knows nothing of fails: there is
+/// nothing to drop, and the sync goes through.
+#[test]
+fn a_removed_task_leaving_only_an_ignored_file_syncs() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).args(["add", "Other"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+
+    let dir = fx.task_dir(&fx.b, "1");
+    let swap = dir.join(".t.md.swp");
+    fx.write(&swap, "vim swap\n");
+    fx.yman(&fx.b).args(["rm", "-f", "1"]).assert().success();
+    assert!(swap.exists());
+    fx.yman(&fx.a)
+        .args(["comment", "2", "-m", "still open"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(!stderr(&out).contains("dropped"), "{}", stderr(&out));
+    assert_eq!(
+        origin_tasks(&fx),
+        fx.git(&fx.b, &["rev-parse", "refs/yman/local"])
+    );
+    let published = fx.git(
+        &fx.remote,
+        &["ls-tree", "-r", "--name-only", "refs/tasks/main"],
+    );
+    assert!(!published.contains("5.1."), "{published}");
+    assert!(published.contains("5.2.other/d.md"), "{published}");
+    // Untracked, so not ours to delete.
+    assert_eq!(fx.read(&swap), "vim swap\n");
+    assert_eq!(fx.git(&fx.b, &["-C", ".yman", "status", "--porcelain"]), "");
+}
+
 /// A conflict git could not mark up — here two different binary attachments
 /// under one name — leaves ours on disk with no markers. `--continue` must not
 /// read that as resolved and silently drop theirs.

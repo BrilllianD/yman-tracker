@@ -406,11 +406,17 @@ fn normal(ctx: &mut Context, no_push: bool) -> Result<()> {
                 } else {
                     totals.renumbered += renumber_collisions(ctx, &base)?;
                     merge_remote(ctx)?;
+                    // Pinned before the rejoin, whose commit moves HEAD off
+                    // the merge: `HEAD^2` would then name nothing.
+                    let Some(merge) = ctx.wt.rev_parse("HEAD")? else {
+                        bail!("merge left no HEAD in .yman");
+                    };
                     if rejoin_split_folders(ctx)? > 0 {
                         ctx.wt
                             .commit("yman: rejoin files left under a moved folder")?;
                     }
-                    if drop_deleted_remnants(ctx, &base, "HEAD^1", "HEAD^2")? > 0 {
+                    let (ours, theirs) = (format!("{merge}^1"), format!("{merge}^2"));
+                    if drop_deleted_remnants(ctx, &base, &ours, &theirs)? > 0 {
                         ctx.wt
                             .commit("yman: drop files left under a removed task")?;
                     }
@@ -634,11 +640,20 @@ fn drop_deleted_remnants(ctx: &Context, base: &str, ours: &str, theirs: &str) ->
         }
         let files = ctx.wt.out(&["ls-files", "--", &rel])?;
         let n = files.lines().filter(|l| !l.trim().is_empty()).count();
-        ctx.wt.ok(&["rm", "-r", "-q", "--", &rel])?;
+        // `yman rm` leaves ignored and untracked files behind (`*.swp`, a note
+        // dropped in by hand), so the folder can outlive the task with nothing
+        // tracked in it. `git rm` would fail on that pathspec, and there is
+        // nothing for it to do, nor anything the other side lost to report.
+        if n > 0 {
+            ctx.wt.ok(&["rm", "-r", "-q", "--", &rel])?;
+        }
         // `git rm` leaves the emptied directories; anything untracked stays.
         let dir = ctx.ydir.join(&rel);
         for d in [dir.join(task::FILES_DIR), dir] {
             let _ = std::fs::remove_dir(d);
+        }
+        if n == 0 {
+            continue;
         }
         eprintln!(
             "note: dropped {rel}: task {id} was removed on one side; {n} file(s) added on the other are gone"

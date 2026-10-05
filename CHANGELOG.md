@@ -42,6 +42,12 @@ under [Releasing](README.md#releasing) in the README.
   other no longer merge into a folder holding only `d.md` (or `f/`) that no
   command could load: sync drops it with
   `note: dropped <rel>: task <id> was removed on one side; …`.
+- `yman sync` no longer dies after the merge with `Not a valid object name
+  HEAD^2` when one merge needs both a rejoin and a remnant drop, which left
+  the unloadable remnant for the next sync to push. Nor does it die with
+  `pathspec … did not match any files` on a removed task's folder that `rm`
+  left holding only an ignored file such as `*.swp`; there is nothing to drop
+  there, and the sync goes through.
 - `yman init` whose first push fails no longer stops before `--hooks` and the
   summary: the tracker exists locally, so it finishes and warns
   `not published to origin (<why>); run: yman sync`.
