@@ -46,10 +46,9 @@ git -C .yman symbolic-ref HEAD refs/yman/local
 re-runnable:
 
 1. `git commit` inside the worktree moves `refs/yman/local`, and HEAD stays
-   symbolic. No `update-ref` fixup is needed. The script **reports** this
-   rather than enforcing it: it fails only when the ref did not advance at
-   all, prints `FALLBACK` when the ref and HEAD disagree, and prints
-   `<detached>` without failing when HEAD lost its symbolic ref.
+   symbolic. No `update-ref` fixup is needed. Enforced: the script fails when
+   the ref did not advance, when it disagrees with the worktree's HEAD, and
+   when HEAD is no longer the symbolic ref `refs/yman/local`.
 2. `git branch -a` never mentions the ref. Enforced.
 3. `git merge --ff-only` works against a ref built with `commit-tree`.
    Enforced.
