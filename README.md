@@ -722,7 +722,9 @@ of CI.
 `skills/yman/evals/run.sh` tests the agent-facing side: it hands a headless
 agent one prompt per case against a throwaway tracker, then grades the repo it
 leaves behind *and* the commands it reached for — so a run catches the skill
-drifting from the CLI, not just the CLI breaking. It spends real tokens, so it
+drifting from the CLI, not just the CLI breaking. Its ten cases run from
+claiming and closing a task to `plan`, `--waits-on`, `add --sections`, the
+task-list procedure and recovering from an exit-3 merge. It spends real tokens, so it
 is not part of CI either; see [skills/yman/evals/](skills/yman/evals/).
 
 Layout:

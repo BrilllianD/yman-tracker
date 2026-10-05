@@ -27,9 +27,19 @@ if any case failed.
 | `close-task` | `yman done` closes the task locally and looks finished; the skill says to sync before the status change and again after it, so origin must carry the close |
 | `delete-task` | `yman rm` without `-f` refuses off a terminal |
 | `unassigned-query` | reading every task, or dumping `ls --json` into a pipeline, when `ls --assignee -` answers it |
+| `plan-epic` | walking an epic's steps with `ls --related` and a `show` each, when `yman plan <id>` answers in one call; and naming the better-priority step that is blocked |
+| `waits-on` | `set --relate` plus `set --status blocked`, two commits, where `set --waits-on` is one |
+| `add-sections` | one `yman add` per section of a markdown file, retyping it, where `add --sections <file>` makes them all |
+| `task-list` | the skill's task-list procedure: `ls -l`, a markdown table, `show` for at most three candidates |
+| `exit-3-recovery` | a sync merge stopped on a conflict: `yman git merge --abort` or deleting `.yman` instead of fixing the file and running `yman sync --continue` |
 
 Each case is a directory holding `prompt.md` (what the agent is asked) and
-`grade.sh` (what makes it a pass). A grader sources `../../lib.sh` and reads
+`grade.sh` (what makes it a pass). It may also hold `setup.sh`, run in the
+working copy after the shared fixture with the run directory and the binary as
+arguments (a version 2 config through `v2-config.sh`, a second clone, a file
+to read), and `allowed-tools`, one extra `--allowedTools` entry per line
+(`exit-3-recovery` adds `Edit` and `Write` so the agent can fix the
+conflicted file). A grader sources `../../lib.sh` and reads
 three variables: `WORK` (the agent's working copy), `TRANSCRIPT` (the
 stream-json log) and `YMAN` (the binary under test). It calls `fail <reason>`
 for each problem and ends with `verdict`. Lines it prints starting with `NOTE`
@@ -56,6 +66,22 @@ informative: a denial in the transcript means the agent went somewhere the
 skill did not send it.
 
 ## Measured
+
+One run per case, `claude-opus-5-5`, 2026-10-05, for the five cases added
+that day. Each grader was first checked against a scripted ideal run (pass)
+and a scripted wrong one (fail).
+
+| Case | Arm | Verdict | Cost |
+| --- | --- | --- | --- |
+| `plan-epic` | skill | **FAIL** — two `show` calls on top of `yman plan 4`; the grader allows one | $0.15 |
+| `waits-on` | skill | PASS | $0.16 |
+| `add-sections` | skill | PASS | $0.17 |
+| `task-list` | skill | PASS | $0.17 |
+| `exit-3-recovery` | skill | PASS | $0.21 |
+
+The `plan-epic` failure is kept as a finding, not loosened: the skill already
+says `plan` answers the question, and the agent still re-read steps it had
+just been shown.
 
 One run per case, `claude-opus-5`, 2026-09-21:
 
