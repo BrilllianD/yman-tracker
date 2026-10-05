@@ -45,7 +45,7 @@ $ yman ls
 
 ## Install
 
-Requires Rust 1.85 or newer (`rust-version` in `Cargo.toml`) and a `git`
+Requires Rust 1.88 or newer (`rust-version` in `Cargo.toml`) and a `git`
 binary, 2.42 or newer. Nothing checks the git version at run time; CI runs
 the suite against the git that GitHub's `ubuntu-latest` image ships.
 

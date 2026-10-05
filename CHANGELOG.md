@@ -9,7 +9,8 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Added
 
-- `Cargo.toml` declares `rust-version = "1.85"`, which edition 2024 needs.
+- `Cargo.toml` declares `rust-version = "1.88"`, the first release with
+  let-chains, which the code uses.
 
 ### Changed
 
