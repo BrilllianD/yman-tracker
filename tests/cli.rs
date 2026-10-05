@@ -1374,6 +1374,66 @@ fn continue_ignores_symlinks_and_counts_pulled() {
     );
 }
 
+/// `rm` on one clone and a first comment on the other merge cleanly into a
+/// folder holding only `d.md`. Whichever side removed the task, sync drops
+/// the remnant with a note instead of leaving a folder nothing can load.
+#[test]
+fn a_removed_task_does_not_leave_its_new_files_behind() {
+    for remover_first in [true, false] {
+        let fx = Fx::new();
+        fx.yman(&fx.a).arg("init").assert().success();
+        fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+        fx.yman(&fx.a).arg("sync").assert().success();
+        fx.yman(&fx.b).arg("init").assert().success();
+
+        let rm = |fx: &Fx| {
+            fx.yman(&fx.b).args(["rm", "-f", "1"]).assert().success();
+        };
+        // A d.md with no m.yml change: `comment` touching `updated` inside
+        // the same second writes exactly this.
+        let comment = |fx: &Fx| {
+            fx.write(
+                &fx.task_dir(&fx.a, "1").join("d.md"),
+                "## 2026-10-05T10:00:00Z — Test A\n\nhi\n\n",
+            );
+        };
+        let (first, second) = if remover_first {
+            rm(&fx);
+            fx.yman(&fx.b).arg("sync").assert().success();
+            comment(&fx);
+            (&fx.b, &fx.a)
+        } else {
+            comment(&fx);
+            fx.yman(&fx.a).arg("sync").assert().success();
+            rm(&fx);
+            (&fx.a, &fx.b)
+        };
+        let out = fx.yman(second).arg("sync").output().unwrap();
+        assert!(out.status.success(), "{}", stderr(&out));
+        assert!(
+            stderr(&out).contains(
+                "note: dropped 5.1.fix-login: task 1 was removed on one side; \
+                 1 file(s) added on the other are gone"
+            ),
+            "{}",
+            stderr(&out)
+        );
+        assert!(
+            fx.task_dirs(second).is_empty(),
+            "{:?}",
+            fx.task_dirs(second)
+        );
+        let ls = fx.yman(second).arg("ls").output().unwrap();
+        assert!(!stdout(&ls).contains("broken"), "{}", stdout(&ls));
+        let ydir = second.join(".yman");
+        assert_eq!(fx.git(&ydir, &["status", "--porcelain"]), "");
+
+        // And the other clone converges on the same empty tree.
+        fx.yman(first).arg("sync").assert().success();
+        assert!(fx.task_dirs(first).is_empty());
+    }
+}
+
 /// A conflict git could not mark up — here two different binary attachments
 /// under one name — leaves ours on disk with no markers. `--continue` must not
 /// read that as resolved and silently drop theirs.

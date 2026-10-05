@@ -77,6 +77,7 @@ In both `tags` subjects `{n} tasks` is `1 task` when there is exactly one.
 | `sync` renumber | `yman: renumber 2->3, 7->8 (sync collision)` |
 | `sync` merge | `yman: merge origin refs/tasks/main` |
 | `sync` rejoin | `yman: rejoin files left under a moved folder` |
+| `sync` drop | `yman: drop files left under a removed task` |
 
 `{title}` has `"` replaced by `'`. `{pairs}` is space-joined, e.g.
 `status=todo->doing priority=5->2 title tags=+ui,-auth comment` — a changed
@@ -728,6 +729,21 @@ whose destination already exists stays put, with
 `warning: <path> not moved; <dest> already exists`. After a clean merge the
 moves are committed as `yman: rejoin files left under a moved folder`; under
 `--continue` they go into the merge commit, ahead of its checks.
+
+### Dropping a removed task's new files
+
+`rm` on one clone and a first comment or an attachment on the same task on
+the other merge without a conflict into a folder that holds only the new
+files: no `t.md`, no `m.yml`, nothing any command can load. (When the other
+side also changed `m.yml`, git raises a modify/delete conflict instead and
+the merge stops as usual.) After the merge, a task folder with neither file
+whose id the merge base had and one side no longer has is removed with
+`git rm`, printing
+`note: dropped <rel>: task <id> was removed on one side; N file(s) added on the other are gone`.
+A folder broken by hand, whose id both sides still have, is left alone and
+listed as broken. After a clean merge the removal is committed as
+`yman: drop files left under a removed task`; under `--continue` it goes into
+the merge commit, ahead of its checks.
 
 ### `--continue` and `--abort`
 

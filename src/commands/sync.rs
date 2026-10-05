@@ -180,8 +180,12 @@ fn resume(ctx: &mut Context, no_push: bool) -> Result<()> {
     // a hand-resolution that does not load must not be committed and pushed.
     ctx.config = Some(Config::load(&ctx.ydir).map_err(|e| MergePending::new(format!("{e:#}")))?);
     // Staged into the merge commit itself, and before the checks, which
-    // would otherwise read the left-behind folder as a duplicate id.
+    // would otherwise read the left-behind folder as a duplicate id, or a
+    // removed task's remnant as an unloadable task.
     rejoin_split_folders(ctx)?;
+    if let Some(base) = ctx.wt.merge_base("HEAD", "MERGE_HEAD")? {
+        drop_deleted_remnants(ctx, &base, "HEAD", "MERGE_HEAD")?;
+    }
     check_resolved_tasks(ctx)?;
 
     // What the merge brings in, counted before the commit makes it ours.
@@ -406,6 +410,10 @@ fn normal(ctx: &mut Context, no_push: bool) -> Result<()> {
                         ctx.wt
                             .commit("yman: rejoin files left under a moved folder")?;
                     }
+                    if drop_deleted_remnants(ctx, &base, "HEAD^1", "HEAD^2")? > 0 {
+                        ctx.wt
+                            .commit("yman: drop files left under a removed task")?;
+                    }
                 }
             }
         }
@@ -590,6 +598,53 @@ fn rejoin_split_folders(ctx: &Context) -> Result<usize> {
         }
     }
     Ok(moved)
+}
+
+/// A task removed on one side while the other added a file to it — a first
+/// comment's `d.md`, an attachment — merges cleanly: git sees a delete and an
+/// unrelated add. What is left is a folder with neither `t.md` nor `m.yml`,
+/// which no command can load. The removal wins, as it does inside `m.yml`
+/// ("removed on one side goes"), and ids are never reused, so the files go
+/// too, each with a note. Only folders whose id the base had and one side
+/// dropped qualify; a folder broken by hand is left alone. Staged, not
+/// committed. Costs no git process unless such a folder exists.
+fn drop_deleted_remnants(ctx: &Context, base: &str, ours: &str, theirs: &str) -> Result<usize> {
+    let mut remnants: Vec<(String, String)> = Vec::new();
+    for (parent, name, folder) in task::task_dirs(&ctx.ydir)? {
+        let rel = match parent {
+            Some(p) => format!("{p}/{name}"),
+            None => name,
+        };
+        let dir = ctx.ydir.join(&rel);
+        if !dir.join(task::MD_FILE).exists() && !dir.join(task::META_FILE).exists() {
+            remnants.push((rel, folder.id));
+        }
+    }
+    if remnants.is_empty() {
+        return Ok(0);
+    }
+    let base_ids = tree_ids(ctx, base)?;
+    let our_ids = tree_ids(ctx, ours)?;
+    let their_ids = tree_ids(ctx, theirs)?;
+    let mut dropped = 0;
+    for (rel, id) in remnants {
+        if !base_ids.contains(&id) || (our_ids.contains(&id) && their_ids.contains(&id)) {
+            continue;
+        }
+        let files = ctx.wt.out(&["ls-files", "--", &rel])?;
+        let n = files.lines().filter(|l| !l.trim().is_empty()).count();
+        ctx.wt.ok(&["rm", "-r", "-q", "--", &rel])?;
+        // `git rm` leaves the emptied directories; anything untracked stays.
+        let dir = ctx.ydir.join(&rel);
+        for d in [dir.join(task::FILES_DIR), dir] {
+            let _ = std::fs::remove_dir(d);
+        }
+        eprintln!(
+            "note: dropped {rel}: task {id} was removed on one side; {n} file(s) added on the other are gone"
+        );
+        dropped += 1;
+    }
+    Ok(dropped)
 }
 
 /// Every task id in `rev`'s tree, read from the folder names alone.
