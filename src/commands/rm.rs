@@ -15,8 +15,9 @@ pub fn run(ctx: &mut Context, a: RmArgs) -> Result<()> {
         if !std::io::stdin().is_terminal() {
             bail!("refusing to remove without -f");
         }
-        print!("remove task {id} \"{}\"? [y/N] ", t.title);
-        std::io::stdout().flush()?;
+        // stderr: stdout is data, and a prompt is not.
+        eprint!("remove task {id} \"{}\"? [y/N] ", t.title);
+        std::io::stderr().flush()?;
         let mut answer = String::new();
         std::io::stdin().lock().read_line(&mut answer)?;
         if !matches!(answer.trim(), "y" | "Y") {

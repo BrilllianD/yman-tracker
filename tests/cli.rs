@@ -808,6 +808,7 @@ fn rm_requires_force_without_a_tty() {
     let out = fx.yman(&fx.a).args(["rm", "1"]).output().unwrap();
     assert!(!out.status.success());
     assert_eq!(stderr(&out).trim(), "error: refusing to remove without -f");
+    assert_eq!(stdout(&out), "", "no prompt or anything else on stdout");
 
     let out = fx.yman(&fx.a).args(["rm", "1", "-f"]).output().unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
@@ -1156,8 +1157,24 @@ fn conflict_and_continue() {
     let out = fx.yman(&fx.b).arg("sync").output().unwrap();
     assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
     let err = stderr(&out);
-    assert!(err.contains("5.1.fix-login/m.yml"), "{err}");
+    assert!(
+        err.contains("note: unmerged files:\n  5.1.fix-login/m.yml\n"),
+        "{err}"
+    );
     assert!(err.contains("yman sync --continue"), "{err}");
+    // Every stderr line yman wrote is prefixed or continues one.
+    for line in err
+        .lines()
+        .filter(|l| !l.starts_with("Auto-merging") && !l.starts_with("CONFLICT"))
+    {
+        assert!(
+            ["error: ", "warning: ", "note: ", "  "]
+                .iter()
+                .any(|p| line.starts_with(p))
+                || line.starts_with("Automatic merge failed"),
+            "unprefixed stderr line {line:?} in\n{err}"
+        );
+    }
 
     // Any mutating command is refused until the merge is settled.
     let out = fx.yman(&fx.b).args(["add", "Nope"]).output().unwrap();
@@ -2305,7 +2322,7 @@ fn refresh_manual() {
     let out = fx.yman(&fx.a).arg("refresh").output().unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
     assert!(
-        stderr(&out).contains("refreshed: 1 new commit(s)"),
+        stderr(&out).contains("note: refreshed 1 new commit(s)"),
         "{}",
         stderr(&out)
     );
@@ -2423,7 +2440,9 @@ fn hooks_install_remove_status() {
     let out = fx.yman(&fx.a).args(["hooks", "install"]).output().unwrap();
     assert!(!out.status.success());
     assert!(
-        stderr(&out).contains("add this line to it"),
+        stderr(&out).contains(
+            "note: hook post-merge exists; add this line to it:\n    yman refresh --quiet"
+        ),
         "{}",
         stderr(&out)
     );
@@ -3708,7 +3727,7 @@ fn assert_unreadable_hook_refused(fx: &Fx, why: &str, check: &dyn Fn()) {
     let err = stderr(&out);
     assert!(
         err.contains(&format!(
-            "hook post-merge: cannot read {}: {why}; not replacing it",
+            "warning: hook post-merge: cannot read {}: {why}; not replacing it",
             hook.display()
         )),
         "{err}"

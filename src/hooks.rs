@@ -89,12 +89,14 @@ pub fn install(ctx: &Context) -> Result<()> {
         match state(&dir, name) {
             HookState::Installed => println!("hook {name}: already installed"),
             HookState::Foreign => {
-                eprintln!("hook {name} exists; add this line to it:\n    yman refresh --quiet");
+                eprintln!(
+                    "note: hook {name} exists; add this line to it:\n    yman refresh --quiet"
+                );
                 refused.push(name);
             }
             HookState::Unreadable(why) => {
                 eprintln!(
-                    "hook {name}: cannot read {}: {why}; not replacing it",
+                    "warning: hook {name}: cannot read {}: {why}; not replacing it",
                     path.display()
                 );
                 refused.push(name);

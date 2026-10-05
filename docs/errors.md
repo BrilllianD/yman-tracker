@@ -14,13 +14,12 @@ This split is a contract, not a style choice: `cd $(yman path 14)` and
 `yman ls --json \| jq` must stay usable. Nothing decorative goes to stdout, and
 there is no colour anywhere.
 
-The code does not yet honour the table everywhere. Today's exceptions: the
-`rm` and `tags rm` confirmation prompts are written to stdout, and a few stderr
-lines carry no prefix — `refreshed: N new commit(s)`, the hook advice
-`hook <name> exists; add this line to it:`, the refusal
-`hook <name>: cannot read <path>: <why>; not replacing it` and the indented list of
-conflicting files `sync` prints. None of them appears on a command whose
-stdout is meant to be piped.
+The `rm` and `tags rm` confirmation prompts are on stderr too, since they
+are not data. A stderr line that starts with two spaces continues the
+prefixed line above it: the command to add under
+`note: hook <name> exists; add this line to it:`, and each file under the
+`note: unmerged files:` that `sync` prints when a merge stops. Git's own
+output, passed through on a failure, is the one other unprefixed text.
 
 ## Exit codes
 
@@ -142,8 +141,8 @@ commit.
 | push rejected while finishing a merge | `origin moved while finishing the merge; run: yman sync` |
 | network step failed | `fetch failed` / `push failed` / `merge failed`, with git's stderr printed above; a push origin refused (any rejection but the race, [commands.md](commands.md#6-sync) step 8) also prints git's ` ! [remote rejected] refs/yman/local -> refs/tasks/main (<reason>)` line, and is not retried |
 | `init` fetch failed | `fetch failed (see above); use --offline to skip` |
-| `hooks install` met a hook it does not own | `<n> hook(s) not installed: <names>`, after `hook <name> exists; add this line to it:` and the line itself on stderr for each |
-| `hooks install` met a hook it cannot read (permission denied, not UTF-8, a dangling symlink) | the same `<n> hook(s) not installed: <names>`, after `hook <name>: cannot read <path>: <why>; not replacing it` on stderr for each; `<why>` is `not valid UTF-8`, `dangling symlink` or the OS error |
+| `hooks install` met a hook it does not own | `<n> hook(s) not installed: <names>`, after `note: hook <name> exists; add this line to it:` and the line itself on stderr for each |
+| `hooks install` met a hook it cannot read (permission denied, not UTF-8, a dangling symlink) | the same `<n> hook(s) not installed: <names>`, after `warning: hook <name>: cannot read <path>: <why>; not replacing it` on stderr for each; `<why>` is `not valid UTF-8`, `dangling symlink` or the OS error |
 | `man --dir` cannot write | `cannot create <dir>: <why>` / `cannot write man pages to <dir>: <why>` |
 | `m.yml` merge driver could not fall back | `git merge-file failed`, with git's stderr printed above — reaches the user through git's own merge output |
 

@@ -498,7 +498,7 @@ so its line reads `<id>: tags -<old>` where the others read
 `no changes`.
 
 `tags rm <tag>` drops it. On a terminal it prompts
-`remove tag "<tag>" from <n> tasks? [y/N] ` (`1 task` for one) on stdout — asked only once the count is
+`remove tag "<tag>" from <n> tasks? [y/N] ` (`1 task` for one) on stderr — asked only once the count is
 known, since confirming a removal without knowing it touches forty tasks is not
 consent. Anything but `y`/`Y` aborts. Without a terminal and without `-f` it
 refuses with `refusing to remove without -f`, the same wording as `rm`.
@@ -512,7 +512,7 @@ of the count.
 
 ### `rm`
 
-On a terminal, prompts `remove task 14 "Fix login"? [y/N]`; anything but `y`/`Y`
+On a terminal, prompts `remove task 14 "Fix login"? [y/N]` on stderr; anything but `y`/`Y`
 aborts. Without a terminal and without `-f`, it refuses rather than assume
 consent.
 
@@ -587,7 +587,7 @@ name written into `d.md` only; the git committer is whatever git resolves.
    `note: .yman has uncommitted changes, refresh skipped`; the lazy path
    stays silent.
 4. Otherwise fast-forward (`merge --ff-only`) and report
-   `refreshed: N new commit(s)` unless quiet.
+   `note: refreshed N new commit(s)` unless quiet.
 
 `yman refresh` additionally prints `up to date` when there was nothing to do.
 
@@ -621,7 +621,7 @@ toplevel), and the install warning names the resolved path; otherwise
 add and exits non-zero after processing both hooks. A hook yman cannot read —
 permission denied, content that is not UTF-8, a dangling symlink — is refused
 the same way, since it cannot tell whose it is: `install` prints
-`hook <name>: cannot read <path>: <why>; not replacing it` and counts it among
+`warning: hook <name>: cannot read <path>: <why>; not replacing it` and counts it among
 the hooks not installed, and nothing is written through a dangling link. A
 symlink to a readable file is judged by its target. `remove` deletes only
 marked files (a marked symlink loses the link, not its target); `status`
@@ -659,7 +659,8 @@ exit 1.
    goes through the field-wise merge driver
    ([storage.md](storage.md#merging-myml)), so edits to different fields of one
    task settle on their own; anything it cannot settle falls back to the text
-   merge. Conflicts print the unmerged files and exit 3. A clean merge is
+   merge. Conflicts print `note: unmerged files:`, then each file indented by
+   two spaces, and exit 3. A clean merge is
    followed by the **rejoin** below.
 8. Push, unless `--no-push`: resolve `LOCAL` once and push that commit,
    `<sha>:refs/tasks/main`, with `--porcelain`, and read git's verdict from
