@@ -7,7 +7,15 @@ under [Releasing](README.md#releasing) in the README.
 
 ## [Unreleased]
 
+### Removed
+
+- The `no editor configured; set $EDITOR` error, which could never fire: the
+  editor resolver always falls back to `vi` or refuses earlier.
+
 ### Fixed
+
+- `yman ls --help` describes `-a` as including closed tasks (any terminal
+  status) rather than "the final status", which predates terminal sets.
 
 - `yman set -a` now trims its value and treats a blank one as unassigned,
   as `yman add -a` always has; it used to store `" bob "` or `"  "` verbatim.

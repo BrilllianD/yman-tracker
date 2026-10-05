@@ -37,9 +37,8 @@ pub fn open_editor(path: &Path) -> Result<()> {
 pub fn run_editor(path: &Path, aftermath: &str) -> Result<()> {
     let spec = resolve_editor()?;
     let mut parts = spec.split_whitespace();
-    let Some(program) = parts.next() else {
-        bail!("no editor configured; set $EDITOR");
-    };
+    // `resolve_editor` never returns a blank spec, so there is a first word.
+    let program = parts.next().unwrap_or("vi");
     let status = Command::new(program)
         .args(parts)
         .arg(path)

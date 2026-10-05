@@ -207,7 +207,7 @@ pub struct LsArgs {
     /// Only tasks carrying all of these tags (repeatable)
     #[arg(short = 't', long = "tag", value_name = "TAG", action = ArgAction::Append)]
     pub tags: Vec<String>,
-    /// Include tasks in the final status
+    /// Include closed tasks (those in a terminal status)
     #[arg(short = 'a', long)]
     pub all: bool,
     /// Only tasks whose title or body contains TEXT (case-insensitive)
