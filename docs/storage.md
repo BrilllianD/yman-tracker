@@ -253,8 +253,9 @@ Free-form body. May be empty.
 The title is the first non-blank line, which after trimming must be `#`,
 whitespace, then a non-empty title (so `   # Title` is accepted). Blank lines
 before it are skipped; anything else non-blank is a parse error
-(`t.md must start with "# Title"`). The body is everything after the title line
-with one leading blank line stripped. On write, leading and trailing newlines
+(`t.md must start with "# Title"`). A leading UTF-8 BOM is skipped, here and
+in `m.yml`. The body is everything after the title line with one leading
+blank line (`\n` or `\r\n`) stripped. On write, leading and trailing newlines
 of the body are dropped and exactly one `\n` ends the file; otherwise the body
 is kept as is — `#`, `---` and code fences inside it are preserved.
 
@@ -409,7 +410,7 @@ with no whitespace in it, ` — `, an author. Any other line beginning with `## 
 is prose and stays inside the entry it was written in, so quoting a markdown
 heading in a comment does not inflate the comment count `ls` reports.
 Unparsable chunks are kept as raw text, so a hand-edited or union-merged file
-never makes `show` fail.
+never makes `show` fail; they are not comments, and the count leaves them out.
 
 Two things the writer does to keep that true:
 

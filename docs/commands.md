@@ -237,7 +237,8 @@ counts once. Column headers follow the `ls` rule: terminal only.
     auth  1
     ui    3
 
-`--json` emits `[{tag, tasks}]` in the same order. Folders that would not load
+`--json` emits `[{tag, tasks}]` in the same order. It belongs to the listing:
+given with `rename` or `rm` it is a usage error, exit 2. Folders that would not load
 are skipped with `warning: skipped <n> unreadable task folder(s): <rels>` on
 stderr; `ls` is the command that lists them properly.
 
@@ -492,7 +493,9 @@ their arguments the way `add` does, match stored tags folded, and touch only
 `m.yml` — a tag never names the folder, so nothing is renamed or moved.
 
 `tags rename <old> <new>` replaces `old` in place, keeping its position in the
-list. A task already carrying `new` loses `old` rather than gaining a duplicate,
+list; a task carrying `old` in several spellings (`UI` and `ui`, by hand) ends
+with `new` once, where the first was. A task already carrying `new` loses `old`
+rather than gaining a duplicate,
 so its line reads `<id>: tags -<old>` where the others read
 `<id>: tags +<new> -<old>`. `old` and `new` that normalize to the same value is
 `no changes`.
@@ -793,7 +796,8 @@ note: task 1 was closed to two different statuses; keep one of done/5.1.fix-logi
 
 Delete the folder you do not want, then rerun `yman sync --continue`.
 
-`--abort` runs `git merge --abort` and reports `merge aborted`.
+`--abort` runs `git merge --abort` and reports `merge aborted`. It pushes
+nothing, so `--no-push` beside it is a usage error, exit 2, as is `--continue`.
 
 ## 7. `git` passthrough
 

@@ -5930,6 +5930,62 @@ fn tags_folds_case_and_counts_a_task_once() {
     assert_eq!(out, "ui  1\n", "{out:?}");
 }
 
+/// Renaming replaces every spelling of the old tag, not just the first.
+#[test]
+fn tags_rename_replaces_every_folded_match() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Fix login", "-t", "bug"])
+        .assert()
+        .success();
+    let meta = fx.a.join(".yman").join("5.1.fix-login").join("m.yml");
+    let text = fx
+        .read(&meta)
+        .replace("tags:\n- bug", "tags:\n- UI\n- bug\n- ui");
+    std::fs::write(&meta, text).unwrap();
+
+    fx.yman(&fx.a)
+        .args(["tags", "rename", "ui", "x"])
+        .assert()
+        .success();
+    let json = stdout(&fx.yman(&fx.a).args(["ls", "--json"]).output().unwrap());
+    assert!(json.contains("\"tags\":[\"x\",\"bug\"]"), "{json}");
+}
+
+/// `--json` shapes the listing only; with a subcommand it is refused rather
+/// than ignored, and so is `--no-push` next to `--abort`.
+#[test]
+fn flags_that_would_be_ignored_are_refused() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    for args in [
+        &["tags", "--json", "rename", "a", "b"][..],
+        &["tags", "--json", "rm", "a", "-f"][..],
+        &["sync", "--abort", "--no-push"][..],
+    ] {
+        let out = fx.yman(&fx.a).args(args).output().unwrap();
+        assert_eq!(out.status.code(), Some(2), "{args:?}: {}", stderr(&out));
+    }
+    let out = fx.yman(&fx.a).args(["tags", "--json"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out).trim_end(), "[]");
+}
+
+/// An unparsable `d.md` chunk is shown, not counted as a comment.
+#[test]
+fn raw_discussion_chunks_are_not_comments() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.write(
+        &fx.task_dir(&fx.a, "1").join("d.md"),
+        "stray text\n\n## 2026-10-05T10:00:00Z — Ann\n\nhi\n",
+    );
+    let json = stdout(&fx.yman(&fx.a).args(["ls", "--json"]).output().unwrap());
+    assert!(json.contains("\"comments\":1"), "{json}");
+}
+
 #[test]
 fn tags_reports_an_unreadable_folder_on_stderr() {
     let fx = Fx::new();

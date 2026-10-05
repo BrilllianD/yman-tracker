@@ -28,6 +28,16 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- A `t.md` with CRLF line endings no longer keeps a stray `\r\n` at the top
+  of its body, and a UTF-8 BOM no longer breaks `t.md` (`must start with
+  "# Title"`) or hides `m.yml`'s first key.
+- The comment count in `ls` and `ls --json` leaves out unparsable `d.md`
+  chunks.
+- `yman tags rename` replaces every spelling of the old tag on a task, not
+  only the first (`[UI, ui]` renamed to `x` gave `[x, ui]`).
+- `yman tags --json rename …` and `yman sync --abort --no-push` are refused
+  as usage errors instead of silently ignoring the extra flag.
+- Shell completions offer file paths for `--body-file` and `--sections`.
 - `rm` on one clone and a first comment or attachment on the same task on the
   other no longer merge into a folder holding only `d.md` (or `f/`) that no
   command could load: sync drops it with

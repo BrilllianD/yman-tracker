@@ -172,7 +172,8 @@ pub fn slugify(title: &str, max_bytes: usize) -> String {
 
 /// Split `t.md` into its H1 title and the body below it.
 pub fn extract_title(md: &str) -> Result<(String, String)> {
-    let mut rest = md;
+    // A BOM is an editor's signature, not part of the heading.
+    let mut rest = md.strip_prefix('\u{feff}').unwrap_or(md);
     let mut title: Option<String> = None;
     loop {
         let (line, tail) = match rest.find('\n') {
@@ -200,8 +201,12 @@ pub fn extract_title(md: &str) -> Result<(String, String)> {
     let Some(title) = title else {
         bail!("t.md must start with \"# Title\"");
     };
-    // One blank line directly under the title is separator, not body.
-    let body = rest.strip_prefix('\n').unwrap_or(rest);
+    // One blank line directly under the title is separator, not body, in
+    // either line ending.
+    let body = rest
+        .strip_prefix("\r\n")
+        .or_else(|| rest.strip_prefix('\n'))
+        .unwrap_or(rest);
     Ok((title, body.to_string()))
 }
 
@@ -480,7 +485,11 @@ impl Task {
     pub fn comment_count(&self) -> usize {
         let path = self.dir.join(DISCUSSION_FILE);
         match std::fs::read_to_string(path) {
-            Ok(text) => crate::discussion::parse(&text).len(),
+            // Raw chunks are kept for `show`, but they are not comments.
+            Ok(text) => crate::discussion::parse(&text)
+                .iter()
+                .filter(|e| matches!(e, crate::discussion::Entry::Comment { .. }))
+                .count(),
             Err(_) => 0,
         }
     }
@@ -764,5 +773,15 @@ mod tests {
         // name could never be a status.
         assert!(parent_of(ydir, &ydir.join("a").join("b").join("5.1.x")).is_err());
         assert!(parent_of(ydir, &ydir.join("5.9.other").join("5.1.x")).is_err());
+    }
+
+    #[test]
+    fn crlf_and_bom_titles() {
+        let (title, body) = extract_title("# Fix login\r\n\r\nbody\r\n").unwrap();
+        assert_eq!(title, "Fix login");
+        assert_eq!(body, "body\r\n");
+        let (title, body) = extract_title("\u{feff}# Fix login\n\nbody\n").unwrap();
+        assert_eq!(title, "Fix login");
+        assert_eq!(body, "body\n");
     }
 }
