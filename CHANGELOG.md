@@ -7,6 +7,11 @@ under [Releasing](README.md#releasing) in the README.
 
 ## [Unreleased]
 
+### Changed
+
+- `yman add --sections` walks the task history for taken ids once per run
+  instead of once per section.
+
 ### Removed
 
 - The `no editor configured; set $EDITOR` error, which could never fire: the
@@ -14,6 +19,11 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- `yman add --sections` refuses a code fence that is never closed
+  (`<source>: line <n>: unclosed code fence`) instead of swallowing every
+  later heading, and a fence line with an info string (```` ```sh ````) inside
+  an open block no longer closes it. Fences follow CommonMark: a longer fence
+  holds shorter ones.
 - `m.yml` round trips: a value with Unicode whitespace at an edge (U+00A0)
   is quoted so it reads back intact; a comment after a quoted scalar
   (`status: 'todo'  # x`) no longer fails as unterminated; the libyaml

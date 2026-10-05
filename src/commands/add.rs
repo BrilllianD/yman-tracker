@@ -6,6 +6,7 @@ use crate::sections;
 use crate::tags;
 use crate::task::{self, FolderName, Meta, Task};
 use anyhow::{Result, anyhow, bail};
+use std::collections::HashSet;
 
 use super::edit::run_editor;
 use super::quote_title;
@@ -88,16 +89,26 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
         related,
         edit: a.edit,
     };
+    // One history walk for the whole run: each minted id joins the set, so
+    // `--sections` with k headings does not cost k walks.
+    let mut taken = ids::taken_ids(ctx)?;
     // One commit per task, as the multi-id verbs do; the first failure stops
     // the run with the tasks before it already committed.
     for (title, body) in items {
-        create(ctx, &spec, title, body)?;
+        create(ctx, &spec, title, body, &mut taken)?;
     }
     Ok(())
 }
 
-fn create(ctx: &mut Context, spec: &Spec, title: String, body: String) -> Result<()> {
-    let id = ids::new_id(ctx)?;
+fn create(
+    ctx: &mut Context,
+    spec: &Spec,
+    title: String,
+    body: String,
+    taken: &mut HashSet<String>,
+) -> Result<()> {
+    let id = ids::new_id(ctx, taken)?;
+    taken.insert(id.clone());
     let folder = FolderName {
         priority: spec.priority,
         id: id.clone(),

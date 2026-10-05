@@ -3,8 +3,12 @@
 //! Parsed by hand, like `t.md` titles: a line starting with `# ` opens a
 //! section and is its title; everything up to the next one is the body. A
 //! heading inside a fenced code block (``` or ~~~) is body text, so a shell
-//! comment in an example does not split a task in two. `##` and deeper are
-//! body text too — a step's body can have its own structure.
+//! comment in an example does not split a task in two. Fences follow
+//! CommonMark: three or more of one character open one, and only a run of the
+//! same character, at least as long and with nothing after it, closes it. An
+//! unclosed fence is refused rather than swallowing every later heading.
+//! `##` and deeper are body text too — a step's body can have its own
+//! structure.
 
 use anyhow::{Result, bail};
 
@@ -13,14 +17,17 @@ use anyhow::{Result, bail};
 pub fn parse(text: &str, source: &str) -> Result<Vec<(String, String)>> {
     let source = if source == "-" { "stdin" } else { source };
     let mut out: Vec<(String, Vec<&str>)> = Vec::new();
-    let mut fence: Option<&str> = None;
+    // The open fence: its character, its length, and the line it opened on.
+    let mut fence: Option<(char, usize, usize)> = None;
     for (n, line) in text.lines().enumerate() {
         let n = n + 1;
-        let head = line.trim_start();
-        let marker = ["```", "~~~"].into_iter().find(|m| head.starts_with(m));
-        match (fence, marker) {
-            (Some(open), Some(m)) if open == m => fence = None,
-            (None, Some(m)) => fence = Some(m),
+        match (fence, fence_of(line)) {
+            (Some((c, len, _)), Some((m, mlen, info)))
+                if m == c && mlen >= len && info.is_empty() =>
+            {
+                fence = None
+            }
+            (None, Some((m, mlen, _))) => fence = Some((m, mlen, n)),
             (None, None) if line == "#" || line.starts_with("# ") => {
                 let title = line[1..].trim();
                 if title.is_empty() {
@@ -37,6 +44,9 @@ pub fn parse(text: &str, source: &str) -> Result<Vec<(String, String)>> {
             None => bail!("{source}: line {n}: text before the first \"# \" heading"),
         }
     }
+    if let Some((_, _, n)) = fence {
+        bail!("{source}: line {n}: unclosed code fence");
+    }
     if out.is_empty() {
         bail!("{source}: no \"# \" heading, so no tasks");
     }
@@ -44,6 +54,15 @@ pub fn parse(text: &str, source: &str) -> Result<Vec<(String, String)>> {
         .into_iter()
         .map(|(title, body)| (title, trim_blank_lines(&body)))
         .collect())
+}
+
+/// A fence line: its character, run length, and what follows the run (the
+/// info string on an opening fence; must be empty on a closing one).
+fn fence_of(line: &str) -> Option<(char, usize, &str)> {
+    let head = line.trim_start();
+    let c = head.chars().next().filter(|c| matches!(c, '`' | '~'))?;
+    let len = head.bytes().take_while(|&b| b == c as u8).count();
+    (len >= 3).then(|| (c, len, head[len..].trim()))
 }
 
 /// The body without blank lines at either end, as `t.md` stores it.
@@ -108,5 +127,29 @@ mod tests {
             parse("", "-").unwrap_err().to_string(),
             "stdin: no \"# \" heading, so no tasks"
         );
+    }
+
+    #[test]
+    fn an_unclosed_fence_is_refused() {
+        let err = parse("# One\n\n```sh\n# not a heading\n# Two\n", "plan.md").unwrap_err();
+        assert_eq!(err.to_string(), "plan.md: line 3: unclosed code fence");
+    }
+
+    #[test]
+    fn a_fence_line_with_an_info_string_does_not_close() {
+        let got = titles("# One\n```\n```sh\n# inside\n```\n# Two\n");
+        assert_eq!(got.len(), 2, "{got:?}");
+        assert_eq!(got[0].1, "```\n```sh\n# inside\n```");
+        assert_eq!(got[1].0, "Two");
+    }
+
+    #[test]
+    fn a_longer_fence_holds_a_shorter_one() {
+        let got = titles("# One\n````md\n```\n# inside\n```\n````\n# Two\n");
+        assert_eq!(got.len(), 2, "{got:?}");
+        assert_eq!(got[1].0, "Two");
+        // And a different character does not close it either.
+        let got = titles("# One\n~~~\n```\n# inside\n~~~~\n# Two\n");
+        assert_eq!(got.len(), 2, "{got:?}");
     }
 }
