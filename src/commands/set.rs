@@ -76,14 +76,16 @@ fn apply(ctx: &mut Context, a: SetArgs) -> Result<Option<String>> {
         }
     }
 
-    if a.no_assignee {
+    // `-a ""` is `--no-assignee` spelled the way `add` accepts it.
+    let assignee = a.assignee.map(super::assignee_arg);
+    if a.no_assignee || matches!(assignee, Some(None)) {
         if let Some(old) = t.meta.assignee.take() {
             changes.push(Change {
                 token: format!("assignee={old}->-"),
                 line: format!("assignee {old} -> -"),
             });
         }
-    } else if let Some(who) = a.assignee
+    } else if let Some(Some(who)) = assignee
         && t.meta.assignee.as_deref() != Some(who.as_str())
     {
         let old = t.meta.assignee.clone().unwrap_or_else(|| "-".into());

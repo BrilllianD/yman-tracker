@@ -7,6 +7,11 @@ under [Releasing](README.md#releasing) in the README.
 
 ## [Unreleased]
 
+### Fixed
+
+- `yman set -a` now trims its value and treats a blank one as unassigned,
+  as `yman add -a` always has; it used to store `" bob "` or `"  "` verbatim.
+
 ## [0.6.1] - 2026-10-04
 
 ### Fixed
