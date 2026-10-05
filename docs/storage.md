@@ -459,6 +459,7 @@ Validated on every load; each failure is reported as
 |---|
 | `version` is `1` or `2` |
 | `statuses.list.len() >= 2` |
+| every `statuses.list` entry is non-blank, has no edge whitespace or control character, and appears once |
 | `statuses.list` contains `statuses.default` |
 | `statuses.start`, `.done`, `.cancel`, `.terminal` need `version = 2` |
 | `statuses.start`, `.done`, `.cancel` are in `statuses.list` |
@@ -537,6 +538,10 @@ project.
 | `seq` | `1`, `2`, `14` | highest all-digit id taken, plus one |
 | `author` | `iv-1`, `an-3` | highest `{prefix}-N` taken, plus one |
 | `random` | `t-7f3a` | `t-` plus `random_len` hex chars, redrawn until free |
+
+A scheme with no id left fails instead of looping or wrapping: `random` once
+every `random_len`-character id is taken, `seq` and `author` past
+`18446744073709551615`.
 
 "Taken" means the union of the ids on disk **and every id that ever had a file
 added under it** across `LOCAL` and `REMOTE`

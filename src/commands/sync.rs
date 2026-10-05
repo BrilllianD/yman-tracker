@@ -618,7 +618,7 @@ fn renumber_collisions(ctx: &mut Context, base: &str) -> Result<usize> {
             Scheme::Author => ids::prefix_of(old).map(|p| p.to_string()),
             _ => None,
         };
-        let new = ids::next_free(scheme, ctx.config(), prefix.as_deref(), &taken);
+        let new = ids::next_free(scheme, ctx.config(), prefix.as_deref(), &taken)?;
         taken.insert(new.clone());
 
         let old_rel = t.rel();

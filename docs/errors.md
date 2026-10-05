@@ -81,6 +81,9 @@ commit.
 | unsupported config version | `invalid .yman/config.toml: unsupported version <n> (this yman understands 1 and 2)` |
 | a status role on a version 1 config | `invalid .yman/config.toml: statuses.<key> needs version = 2; bump version in .yman/config.toml` |
 | a status role outside the list | `invalid .yman/config.toml: statuses.<start\|done\|cancel> "<s>" is not in statuses.list` |
+| a blank `statuses.list` entry | `invalid .yman/config.toml: statuses.list has an empty entry` |
+| a `statuses.list` entry with edge whitespace or a control character | `invalid .yman/config.toml: statuses.list entry "<s>" has edge whitespace or a control character` — `<s>` has control characters escaped |
+| a repeated `statuses.list` entry | `invalid .yman/config.toml: statuses.list lists "<s>" twice` |
 | a terminal entry outside the list | `invalid .yman/config.toml: statuses.terminal entry "<s>" is not in statuses.list` |
 | a terminal entry unusable as a directory | `invalid .yman/config.toml: statuses.terminal entry "<s>" is not a usable directory name; use letters, digits, "_" and "-"` |
 | a repeated terminal entry | `invalid .yman/config.toml: statuses.terminal lists "<s>" twice` |
@@ -94,6 +97,10 @@ commit.
 | title with a line break or another control character (`add`, `set --title`, each `add --sections` heading, the title left by `add -e` or `edit`; tab included) | `invalid title "<t>"; titles must not contain line breaks or other control characters` — `<t>` is the trimmed title with control characters escaped (`\n`, `\t`, `\u{1b}`); under `add -e` it arrives as `t.md invalid after edit: invalid title …; task not added`, under `edit` as `t.md invalid after edit: invalid title …; fix the file then run: yman edit <id>` |
 | empty tag | `tag must not be empty` |
 | tag with a separator or a control character | `invalid tag "<t>"; tags must not contain whitespace, commas or control characters` — `<t>` is the trimmed value |
+| blank `--relate` or `--waits-on` value | `related id must not be empty` |
+| `set --relate` or `--waits-on` naming the task itself | `task <id> cannot relate to itself` |
+| `ids.scheme = "random"` with every id of `random_len` taken | `random id space exhausted (random_len = <n>); raise ids.random_len` |
+| `seq` or `author` scheme past the largest id | `id space exhausted: <max> is the largest id there can be` |
 | unknown attachment | `no attachment "<name>" on task <id>` |
 | attachment name already used | `attachment "<name>" already exists on task <id>; use --force` |
 | two sources with the same attachment name | `attachment "<name>" given more than once` |

@@ -32,7 +32,7 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
     }
     // Before an id is minted, so the warning cannot read as being about the
     // task we are creating.
-    let related = super::dedupe([a.related, a.waits_on.clone()].concat());
+    let related = super::related_args([a.related, a.waits_on.clone()].concat(), None)?;
     super::warn_unknown_related(ctx, &related, &[])?;
     if a.edit {
         // Refuse before the folder exists; see `edit::resolve_editor`.

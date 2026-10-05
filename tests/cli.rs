@@ -3477,6 +3477,53 @@ fn set_assignee_is_trimmed_and_blank_clears() {
     assert_eq!(assignee(&fx), None);
 }
 
+/// `--relate` values are trimmed; a blank one or the task's own id is
+/// refused before anything is written.
+#[test]
+fn relate_values_are_trimmed_and_checked() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v2_config(&fx.a);
+    fx.yman(&fx.a).args(["add", "One"]).assert().success();
+    fx.yman(&fx.a).args(["add", "Two"]).assert().success();
+    let head = fx.git(&fx.a, &["rev-parse", "refs/yman/local"]);
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["add", "Three", "--relate", " "])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).contains("error: related id must not be empty"),
+        "{}",
+        stderr(&out)
+    );
+    for flag in ["--relate", "--waits-on"] {
+        let out = fx
+            .yman(&fx.a)
+            .args(["set", "1", flag, "1"])
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(1));
+        assert!(
+            stderr(&out).contains("error: task 1 cannot relate to itself"),
+            "{}",
+            stderr(&out)
+        );
+    }
+    assert_eq!(fx.git(&fx.a, &["rev-parse", "refs/yman/local"]), head);
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["set", "1", "--relate", " 2 "])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stdout(&out).contains("1: related +2\n"), "{}", stdout(&out));
+    assert!(!stderr(&out).contains("does not exist"), "{}", stderr(&out));
+}
+
 /// Relating to an id nobody here has warns and commits anyway — the other
 /// clone that owns it may not have synced yet.
 #[test]
