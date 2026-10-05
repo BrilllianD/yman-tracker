@@ -25,7 +25,7 @@ usage() {
 usage: sh scripts/synthetic-project.sh [--tasks N] [--force] [dir]
 
   --tasks N   how many tasks to create (default 1000)
-  --force     replace a non-empty output directory
+  --force     replace a non-empty output directory (only under target/)
   dir         where to build it (default target/synthetic)
 
   YMAN_BIN=<path>  use this binary instead of building --release
@@ -72,6 +72,13 @@ real_git=$(command -v git) || fail "git is not on PATH"
 
 if [ -e "$out" ]; then
 	if [ "$force" -eq 1 ]; then
+		# `rm -rf` on a path from the command line: only ever inside target/,
+		# so `--force .` cannot take the checkout with it.
+		abs=$(CDPATH= cd -- "$out" && pwd -P)
+		case $abs/ in
+			"$(CDPATH= cd -- "$root" && pwd -P)/target/"?*) ;;
+			*) fail "--force only replaces a directory under $root/target, not $abs";;
+		esac
 		rm -rf "$out"
 	elif [ -n "$(ls -A "$out" 2>/dev/null || true)" ]; then
 		fail "$out is not empty; pass --force to replace it"
@@ -85,7 +92,9 @@ runlog=$report/run.log
 : > "$runlog"
 
 # Same isolation the spike and tests/common/mod.rs each set up for themselves:
-# nothing here touches the network or the developer's real git configuration.
+# nothing here touches the network or the developer's real git configuration,
+# and the variables the fixture scrubs (SCRUBBED_ENV plus the two YMAN_ ones)
+# are unset here too.
 home=$out/home
 mkdir -p "$home"
 cat > "$home/.gitconfig" <<'CFG'
@@ -103,10 +112,15 @@ GIT_CONFIG_NOSYSTEM=1
 EDITOR=true
 VISUAL=""
 TERM=dumb
-export HOME GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM EDITOR VISUAL TERM
-unset YMAN_AUTHOR
-unset GIT_DIR
-unset GIT_WORK_TREE
+LC_ALL=C
+GIT_CEILING_DIRECTORIES=$(dirname -- "$out")
+export HOME GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM EDITOR VISUAL TERM LC_ALL \
+	GIT_CEILING_DIRECTORIES
+unset YMAN_AUTHOR YMAN_ACTOR
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR \
+	GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_AUTHOR_DATE \
+	GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL GIT_COMMITTER_DATE \
+	GIT_DEFAULT_REF_FORMAT
 
 # --- measurement helpers ----------------------------------------------------
 

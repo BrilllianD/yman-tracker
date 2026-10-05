@@ -8,7 +8,7 @@ use std::process::Command;
 use tempfile::TempDir;
 
 /// Removed from every child's environment: what `LEAKY_ENV` in `src/git.rs`
-/// strips (keep the two in step), the author and committer overrides, which
+/// strips (keep the two in step, and the `unset` lists in `scripts/*.sh`), the author and committer overrides, which
 /// would beat the `user.name` the scenarios assert, and the ref-format
 /// override, which would beat the fixture's `init.defaultRefFormat`.
 const SCRUBBED_ENV: [&str; 12] = [
