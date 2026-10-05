@@ -102,11 +102,12 @@ commit.
 | `ids.scheme = "random"` with every id of `random_len` taken | `random id space exhausted (random_len = <n>); raise ids.random_len` |
 | `seq` or `author` scheme past the largest id | `id space exhausted: <max> is the largest id there can be` |
 | unknown attachment | `no attachment "<name>" on task <id>` |
-| attachment name already used | `attachment "<name>" already exists on task <id>; use --force` |
+| attachment name already used, ignoring case (an `m.yml` entry or a file under `f/`) | `attachment "<name>" already exists on task <id>; use --force` |
 | two sources with the same attachment name | `attachment "<name>" given more than once` |
 | `--name` with several files | `--name only works with a single file` |
 | attachment source unusable | `cannot attach <path>: <why>` / `… not a regular file` / `… no file name` |
 | attachment name with a separator, or `.` / `..` | `attachment name "<name>" must not contain a path separator` |
+| attachment name a Windows checkout cannot hold | `attachment name "<name>" is not portable: <why>` — `<why>` is `contains '<c>'` (one of `:*?"<>\|`), `contains a control character`, `ends with '.'`, `ends with a space` or `it is empty`; `<name>` has control characters escaped |
 | `add` onto an existing folder | `folder already exists: <dir>` |
 | empty comment (`comment`, or `-m` on `set` and the verbs) | `empty comment` |
 | `--body-file` cannot be read | `cannot read <path>: <why>` — `<why>` is the OS error text |

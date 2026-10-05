@@ -462,6 +462,85 @@ fn attach_detach() {
     );
 }
 
+/// `--force` is about the attachment, not the file: a listed entry whose
+/// file is gone still needs it, and a different-case name replaces the old
+/// entry and file instead of adding a second pair.
+#[test]
+fn attach_force_matches_entries_and_case() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let src = fx.tmp.path().join("a.png");
+    fx.write(&src, "one");
+    let attach = |extra: &[&str]| {
+        fx.yman(&fx.a)
+            .args(["attach", "1", src.to_str().unwrap()])
+            .args(extra)
+            .output()
+            .unwrap()
+    };
+    let fdir = fx.a.join(".yman/5.1.fix-login/f");
+    assert!(attach(&[]).status.success());
+
+    // The entry stays, the file is gone: still taken.
+    std::fs::remove_file(fdir.join("a.png")).unwrap();
+    let out = attach(&[]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).contains("attachment \"a.png\" already exists on task 1; use --force"),
+        "{}",
+        stderr(&out)
+    );
+    assert!(attach(&["--force"]).status.success());
+
+    // Same name, other case: refused without --force, replaced with it.
+    let out = attach(&["--name", "A.PNG"]);
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    let out = attach(&["--name", "A.PNG", "--force"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    let files: Vec<String> = std::fs::read_dir(&fdir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(files, ["A.PNG"]);
+    let json = stdout(&fx.yman(&fx.a).args(["ls", "--json"]).output().unwrap());
+    assert!(json.contains("\"attachments\":1"), "{json}");
+    let tracked = fx.git(&fx.a.join(".yman"), &["ls-files", "5.1.fix-login/f"]);
+    assert_eq!(tracked, "5.1.fix-login/f/A.PNG");
+}
+
+/// Names a Windows checkout cannot hold are refused before anything is copied.
+#[test]
+fn attach_refuses_unportable_names() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let src = fx.tmp.path().join("a.png");
+    fx.write(&src, "one");
+    for (name, why) in [
+        ("a:b", "contains ':'"),
+        ("what?", "contains '?'"),
+        ("a|b", "contains '|'"),
+        ("trail.", "ends with '.'"),
+        ("trail ", "ends with a space"),
+        ("tab\there", "contains a control character"),
+        ("", "it is empty"),
+    ] {
+        let out = fx
+            .yman(&fx.a)
+            .args(["attach", "1", src.to_str().unwrap(), "--name", name])
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(1), "{name:?}");
+        let shown = name.escape_debug().to_string();
+        assert_eq!(
+            stderr(&out).trim_end(),
+            format!("error: attachment name \"{shown}\" is not portable: {why}")
+        );
+    }
+    assert!(!fx.a.join(".yman/5.1.fix-login/f").exists());
+}
+
 /// `attach` checks every source before copying any, so a failure on a later
 /// file leaves neither an untracked copy of an earlier one nor a commit.
 #[test]

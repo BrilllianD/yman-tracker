@@ -19,6 +19,11 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- `yman attach` needs `--force` whenever the task already lists the name,
+  even when its file is gone, and compares names ignoring case: `--force
+  A.png` over `a.png` replaces the file and the entry rather than adding a
+  second entry. Names a Windows checkout cannot hold (`:*?"<>|`, control
+  characters, a trailing `.` or space) are refused.
 - `yman add --sections` refuses a code fence that is never closed
   (`<source>: line <n>: unclosed code fence`) instead of swallowing every
   later heading, and a fence line with an info string (```` ```sh ````) inside
