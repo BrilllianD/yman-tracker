@@ -92,11 +92,11 @@ pub fn refresh(ctx: &Context, quiet: bool) -> Result<RefreshReport> {
 
 /// Only reached with `REMOTE` known to be strictly ahead of `LOCAL`.
 fn fast_forward(ctx: &Context, quiet: bool) -> Result<RefreshReport> {
+    // The caller prints the reason, once; `quiet` callers print nothing.
     if ctx.wt.is_dirty()? {
-        if !quiet {
-            eprintln!("note: .yman has uncommitted changes, refresh skipped");
-        }
-        return Ok(RefreshReport::skip("worktree has uncommitted changes"));
+        return Ok(RefreshReport::skip(
+            ".yman has uncommitted changes, refresh skipped",
+        ));
     }
 
     let n: usize = ctx

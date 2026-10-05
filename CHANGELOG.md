@@ -14,6 +14,9 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- `yman refresh` on a dirty `.yman` prints one note,
+  `note: .yman has uncommitted changes, refresh skipped`, instead of following
+  it with a second `note: worktree has uncommitted changes`.
 - `yman ls --help` describes `-a` as including closed tasks (any terminal
   status) rather than "the final status", which predates terminal sets.
 

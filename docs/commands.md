@@ -571,10 +571,9 @@ name written into `d.md` only; the git committer is whatever git resolves.
    reports it, as `note: local has unpushed commits; run: yman sync`; the lazy
    path stays silent. `yman status` shows the same situation as
    `ahead N, behind M` with `→ run: yman sync`.
-3. The worktree is dirty → skip, and print
-   `note: .yman has uncommitted changes, refresh skipped` unless quiet.
-   `yman refresh` then also prints `note: worktree has uncommitted changes`,
-   so that command shows two notes for one event.
+3. The worktree is dirty → skip. Only `yman refresh` reports it, as
+   `note: .yman has uncommitted changes, refresh skipped`; the lazy path
+   stays silent.
 4. Otherwise fast-forward (`merge --ff-only`) and report
    `refreshed: N new commit(s)` unless quiet.
 
