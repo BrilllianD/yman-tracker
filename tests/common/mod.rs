@@ -11,12 +11,23 @@ use tempfile::TempDir;
 /// strips (keep the two in step, and the `unset` lists in `scripts/*.sh`), the author and committer overrides, which
 /// would beat the `user.name` the scenarios assert, and the ref-format
 /// override, which would beat the fixture's `init.defaultRefFormat`.
-const SCRUBBED_ENV: [&str; 12] = [
+const SCRUBBED_ENV: [&str; 23] = [
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CONFIG",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT",
+    "GIT_OBJECT_DIRECTORY",
     "GIT_DIR",
     "GIT_WORK_TREE",
+    "GIT_IMPLICIT_WORK_TREE",
+    "GIT_GRAFT_FILE",
     "GIT_INDEX_FILE",
-    "GIT_OBJECT_DIRECTORY",
+    "GIT_NO_REPLACE_OBJECTS",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_PREFIX",
+    "GIT_SHALLOW_FILE",
     "GIT_COMMON_DIR",
+    "GIT_NAMESPACE",
     "GIT_AUTHOR_NAME",
     "GIT_AUTHOR_EMAIL",
     "GIT_AUTHOR_DATE",

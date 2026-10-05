@@ -42,13 +42,33 @@ pub struct Git {
 pub const NO_HOOKS: &str = "/dev/null";
 
 /// Env vars that would leak repository state into our invocations when `yman`
-/// is run from inside a git hook, alias, or filter.
-const LEAKY_ENV: [&str; 5] = [
+/// is run from inside a git hook, alias, or filter: everything
+/// `git rev-parse --local-env-vars` lists (a unit test keeps the two in step),
+/// plus `GIT_NAMESPACE`, which silently rewrites every ref name.
+///
+/// `GIT_CONFIG_KEY_<n>` / `GIT_CONFIG_VALUE_<n>` cannot be listed, but git
+/// reads none of them without `GIT_CONFIG_COUNT`, so stripping that one is
+/// enough. `GIT_CONFIG_GLOBAL`, `GIT_CONFIG_NOSYSTEM` and
+/// `GIT_CEILING_DIRECTORIES` stay: they say which config and which repository
+/// the user means, not where a hook happens to run. The list is static, not
+/// asked of git at run time, because the spawn count is part of the contract.
+pub const LEAKY_ENV: [&str; 16] = [
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CONFIG",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT",
+    "GIT_OBJECT_DIRECTORY",
     "GIT_DIR",
     "GIT_WORK_TREE",
+    "GIT_IMPLICIT_WORK_TREE",
+    "GIT_GRAFT_FILE",
     "GIT_INDEX_FILE",
-    "GIT_OBJECT_DIRECTORY",
+    "GIT_NO_REPLACE_OBJECTS",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_PREFIX",
+    "GIT_SHALLOW_FILE",
     "GIT_COMMON_DIR",
+    "GIT_NAMESPACE",
 ];
 
 impl Git {
@@ -225,4 +245,23 @@ fn git_failure(args: &[&str], out: &Output) -> anyhow::Error {
         detail = format!("exit status {}", out.status);
     }
     anyhow!("git {sub} failed: {detail}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every variable git itself calls repository-local is stripped.
+    #[test]
+    fn leaky_env_covers_local_env_vars() {
+        let out = Command::new("git")
+            .args(["rev-parse", "--local-env-vars"])
+            .output()
+            .expect("git runs");
+        let listed = String::from_utf8(out.stdout).unwrap();
+        assert!(!listed.trim().is_empty());
+        for var in listed.lines() {
+            assert!(LEAKY_ENV.contains(&var), "LEAKY_ENV misses {var}");
+        }
+    }
 }

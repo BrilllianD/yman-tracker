@@ -19,6 +19,11 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- Run from a git hook or alias, yman strips every variable
+  `git rev-parse --local-env-vars` lists, plus `GIT_NAMESPACE`, instead of
+  five of them, and `yman git` strips the same set, so it acts on `.yman`
+  rather than on the repository the hook was running for. A `yman git` whose
+  git is killed by a signal exits `128 + signal` instead of 1.
 - `yman attach` needs `--force` whenever the task already lists the name,
   even when its file is gone, and compares names ignoring case: `--force
   A.png` over `a.png` replaces the file and the entry rather than adding a
