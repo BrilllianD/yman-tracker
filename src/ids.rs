@@ -193,14 +193,16 @@ pub fn taken_ids(ctx: &Context) -> Result<HashSet<String>> {
     Ok(taken)
 }
 
-pub fn new_id(ctx: &Context) -> Result<String> {
+/// A fresh id, avoiding `taken` (from `taken_ids`). The caller owns the set
+/// so a run that mints several ids walks the history once and adds each new
+/// id to it.
+pub fn new_id(ctx: &Context, taken: &HashSet<String>) -> Result<String> {
     let cfg = ctx.config();
     let prefix = match cfg.ids.scheme {
         Scheme::Author => Some(author_prefix(ctx)?),
         _ => None,
     };
-    let taken = taken_ids(ctx)?;
-    next_free(cfg.ids.scheme, cfg, prefix.as_deref(), &taken)
+    next_free(cfg.ids.scheme, cfg, prefix.as_deref(), taken)
 }
 
 #[cfg(test)]

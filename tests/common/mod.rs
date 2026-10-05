@@ -128,6 +128,13 @@ impl Fx {
     /// is the number the performance notes quote.
     #[cfg(unix)]
     pub fn git_spawns(&self, dir: &Path, args: &[&str]) -> usize {
+        self.git_spawn_log(dir, args).len()
+    }
+
+    /// The git subcommand of every spawn `git_spawns` counts, in order: the
+    /// first argument that is not an option (`-c k=v` and `-C dir` skipped).
+    #[cfg(unix)]
+    pub fn git_spawn_log(&self, dir: &Path, args: &[&str]) -> Vec<String> {
         use std::os::unix::fs::PermissionsExt;
 
         let shim_dir = self.tmp.path().join("shim");
@@ -135,7 +142,14 @@ impl Fx {
         let shim = shim_dir.join("git");
         std::fs::write(
             &shim,
-            "#!/bin/sh\nprintf 'x\\n' >> \"$GIT_SPAWN_LOG\"\nPATH=\"$YMAN_REAL_PATH\"\nexport PATH\nexec git \"$@\"\n",
+            "#!/bin/sh\n\
+             sub=; skip=0\n\
+             for a in \"$@\"; do\n\
+             \tif [ $skip = 1 ]; then skip=0; continue; fi\n\
+             \tcase $a in -c|-C) skip=1;; -*) ;; *) sub=$a; break;; esac\n\
+             done\n\
+             printf '%s\\n' \"$sub\" >> \"$GIT_SPAWN_LOG\"\n\
+             PATH=\"$YMAN_REAL_PATH\"\nexport PATH\nexec git \"$@\"\n",
         )
         .unwrap();
         std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -150,7 +164,7 @@ impl Fx {
             .args(args)
             .assert()
             .success();
-        self.read(&log).lines().count()
+        self.read(&log).lines().map(str::to_string).collect()
     }
 
     /// Run git, panic on failure, return trimmed stdout.

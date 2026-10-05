@@ -339,8 +339,9 @@ file instead of one from a title; it excludes the title, `-m`, `--body-file`
 and `-e`, and every other flag applies to each task. A line that is `#` or
 starts with `# ` opens a section and is its title, trimmed; the body is
 everything up to the next such line, with blank lines at either end dropped.
-Inside a fenced block — a line starting, after indentation, with three
-backticks or `~~~`, closed by the same marker — a `# ` line is body text, and
+Inside a fenced block — opened by a line starting, after indentation, with
+three or more backticks or `~`, closed only by a run of the same character at
+least as long with nothing after it — a `# ` line is body text, and
 `##` and deeper headings are always body text. CRLF reads like LF. The whole
 file is read and parsed before the first id is minted, and these refuse it,
 `<source>` being the path or `stdin`:
@@ -348,14 +349,16 @@ file is read and parsed before the first id is minted, and these refuse it,
 - `<source>: line <n>: text before the first "# " heading` — anything but
   blank lines above the first heading;
 - `<source>: line <n>: empty title`;
-- `<source>: no "# " heading, so no tasks`.
+- `<source>: no "# " heading, so no tasks`;
+- `<source>: line <n>: unclosed code fence` — `<n>` is the opening line.
 
 Then every title is checked against the control-character rule above, still
 before the first id is minted, so a bad heading anywhere in the file creates
 no task at all; the refusal names the title, not a line.
 
 Tasks are then created in file order, one commit and one `added <id>  <dir>`
-line each, exactly as separate `add` calls would make them; the first failure
+line each, exactly as separate `add` calls would make them, except that the
+history is walked for taken ids once for the whole file rather than per task; the first failure
 stops the run with the tasks before it committed. Under the `seq` scheme ids
 follow file order, so a plan listed with equal priorities reads in that order;
 under the other schemes, order steps with `prio` afterwards.

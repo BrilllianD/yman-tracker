@@ -6342,6 +6342,44 @@ fn add_sections_creates_one_task_per_heading() {
     assert_eq!(stdout(&out), "added 5  5.5.from-stdin\n");
 }
 
+/// k sections cost one history walk, not k: the taken-id set is computed once
+/// and each minted id joins it.
+#[cfg(unix)]
+#[test]
+fn add_sections_walks_history_once() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let plan = fx.tmp.path().join("plan.md");
+    fx.write(&plan, "# One\n# Two\n# Three\n");
+    let log = fx.git_spawn_log(&fx.a, &["add", "--sections", plan.to_str().unwrap()]);
+    assert_eq!(log.iter().filter(|s| *s == "log").count(), 1, "{log:?}");
+    assert_eq!(log.iter().filter(|s| *s == "commit").count(), 3, "{log:?}");
+    let ids: Vec<String> = ["1", "2", "3"]
+        .iter()
+        .map(|id| fx.title(&fx.a, id))
+        .collect();
+    assert_eq!(ids, ["One", "Two", "Three"]);
+}
+
+/// An unclosed fence would swallow every later heading; it is refused.
+#[test]
+fn add_sections_refuses_an_unclosed_fence() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let out = fx
+        .yman(&fx.a)
+        .args(["add", "--sections", "-"])
+        .write_stdin("# One\n\n```sh\n# Two\n")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        stderr(&out).trim_end(),
+        "error: stdin: line 3: unclosed code fence"
+    );
+    assert!(fx.task_dirs(&fx.a).is_empty());
+}
+
 /// A bad sections file fails before an id is minted; `--sections` excludes a
 /// title and every other body source.
 #[test]
