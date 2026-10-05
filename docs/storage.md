@@ -216,18 +216,17 @@ Non-ASCII survives: `"Первая задача"` → `первая-задача
 
 ### Case-insensitive and normalizing filesystems
 
-Only Linux is tested. The one guard in the code is for terminal statuses:
-two that differ only in ASCII case are rejected (§7), because they would be one
-directory. Everything else below is known to behave differently off Linux and
-is not checked:
+Only Linux is tested. The guards in the code are for terminal statuses (two
+that differ only in ASCII case are rejected, §7, because they would be one
+directory) and attachment names (below). Everything else below is known to
+behave differently off Linux and is not checked:
 
 - **Case-insensitive filesystems** (the macOS and Windows defaults). Slugs
   cannot collide, because `slugify` lowercases. Attachment names and `author`
-  prefixes are not lowercased, though. `A.png` and `a.png` attached on Linux
-  are two files that one checkout on macOS or Windows cannot hold. There,
-  `attach --force a.png` over an existing `A.png` overwrites the file (the
-  `exists()` check folds case) but adds a second `m.yml` entry (entries are
-  matched exactly). Two prefixes that differ only in case (`IV` and `iv`) mint
+  prefixes are not lowercased, though. `attach` compares names ignoring case,
+  so it never creates `A.png` beside `a.png`, and `attach --force a.png` over
+  an existing `A.png` replaces both the file and the entry. A hand edit or a
+  merge can still bring two such files together. Two prefixes that differ only in case (`IV` and `iv`) mint
   ids that name distinct folders on Linux and can fold into one elsewhere.
 - **Unicode normalization.** HFS+ stores names in NFD; APFS, the macOS default
   since 2017, keeps whatever form it is given. A Cyrillic slug minted on Linux
@@ -235,9 +234,10 @@ is not checked:
   sequence unless `core.precomposeunicode` is set, which git on macOS enables
   by default in new repositories.
 - **Windows names.** A terminal status called `con`, `nul`, `aux` or another
-  reserved device name passes validation but cannot be a directory there.
-  Attachment names are checked only for `/`, `\`, `.` and `..`, so `:`, `*`,
-  `?`, `"`, `<`, `>` and `|` get through and break a Windows checkout.
+  reserved device name passes validation but cannot be a directory there, and
+  so can an attachment of that name. Otherwise `attach` refuses what Windows
+  cannot hold: `:`, `*`, `?`, `"`, `<`, `>`, `|`, control characters and a
+  trailing `.` or space.
 
 ## 6. File formats
 

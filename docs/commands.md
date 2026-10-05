@@ -533,13 +533,19 @@ task or an epic frees nothing, as closing one does not.
 ### `attach` / `detach`
 
 Each source must be an existing, readable regular file. `--name` applies to a
-single file only, and must not contain a path separator. Two sources that would
+single file only, and must not contain a path separator. Every name, given or
+taken from the source, must also be portable: no `:` `*` `?` `"` `<` `>` `|`
+or control character, no trailing `.` or space, not empty — the names a
+Windows checkout cannot hold. Names compare ignoring case throughout, since
+`a.png` and `A.png` are one file on macOS and Windows. Two sources that would
 land under the same name are refused with `attachment "<name>" given more than
 once`, `--force` or not. Every source is checked before any is copied, so a
 refusal leaves nothing behind: no file under `f/`, no `m.yml` entry, no
 commit. The `by` recorded in `m.yml` is
 the actor (see `comment`). An existing attachment of the same
-name needs `--force`. Files over 5 MiB produce a warning, never a refusal. An
+name needs `--force` — an `m.yml` entry, even one whose file is gone, or a file
+under `f/`. With `--force` the entry is replaced in place, and a file whose
+name differs only in case is removed, so the task keeps one of each. Files over 5 MiB produce a warning, never a refusal. An
 attachment listed in `m.yml` whose file is already gone can still be detached —
 the entry is simply dropped. Each copied file is staged with `git add -f`, so a
 name matching `.yman/.gitignore` (`*.swp`, `*~`, `.#*`, `*.orig`) is committed

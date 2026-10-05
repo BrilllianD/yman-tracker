@@ -42,18 +42,28 @@ pub fn run(ctx: &mut Context, a: AttachArgs) -> Result<()> {
         if name.contains('/') || name.contains('\\') || name == "." || name == ".." {
             bail!("attachment name \"{name}\" must not contain a path separator");
         }
+        check_portable(&name)?;
         // `--force` replaces an attachment already on the task; it cannot
-        // make two of this call's files one.
-        if plan.iter().any(|(_, n, _, _)| *n == name) {
+        // make two of this call's files one. Case-folded, because on macOS
+        // and Windows `a.png` and `A.png` are one file.
+        if plan.iter().any(|(_, n, _, _)| fold(n) == fold(&name)) {
             bail!("attachment \"{name}\" given more than once");
         }
-        let dest = fdir.join(&name);
-        if dest.exists() && !a.force {
+        // The entry and the file are checked alike: an entry whose file is
+        // gone is still an attachment, and a stray file is still in the way.
+        let taken = t
+            .meta
+            .attachments
+            .iter()
+            .any(|x| fold(&x.name) == fold(&name))
+            || !same_name_files(&fdir, &name)?.is_empty();
+        if taken && !a.force {
             bail!(
                 "attachment \"{name}\" already exists on task {}; use --force",
                 t.id()
             );
         }
+        let dest = fdir.join(&name);
         plan.push((src, name, dest, meta.len()));
     }
 
@@ -66,6 +76,13 @@ pub fn run(ctx: &mut Context, a: AttachArgs) -> Result<()> {
             );
         }
         std::fs::create_dir_all(&fdir)?;
+        // `--force A.png` over `a.png`: the old spelling goes, so a
+        // case-sensitive clone does not end up holding both.
+        for old in same_name_files(&fdir, &name)? {
+            if old != name {
+                std::fs::remove_file(fdir.join(&old))?;
+            }
+        }
         std::fs::copy(src, &dest)?;
 
         let entry = Attachment {
@@ -74,7 +91,12 @@ pub fn run(ctx: &mut Context, a: AttachArgs) -> Result<()> {
             added: task::now(),
             by: by.clone(),
         };
-        match t.meta.attachments.iter().position(|x| x.name == name) {
+        match t
+            .meta
+            .attachments
+            .iter()
+            .position(|x| fold(&x.name) == fold(&name))
+        {
             Some(i) => t.meta.attachments[i] = entry,
             None => t.meta.attachments.push(entry),
         }
@@ -98,6 +120,52 @@ pub fn run(ctx: &mut Context, a: AttachArgs) -> Result<()> {
     ctx.wt
         .commit(&format!("task({}): attach {}", t.id(), names.join(", ")))?;
     Ok(())
+}
+
+fn fold(name: &str) -> String {
+    name.to_lowercase()
+}
+
+/// Files under `f/` whose name equals `name` ignoring case.
+fn same_name_files(fdir: &Path, name: &str) -> Result<Vec<String>> {
+    let entries = match std::fs::read_dir(fdir) {
+        Ok(e) => e,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => bail!("cannot read {}: {e}", fdir.display()),
+    };
+    let mut out = Vec::new();
+    for entry in entries {
+        let n = entry?.file_name().to_string_lossy().into_owned();
+        if fold(&n) == fold(name) {
+            out.push(n);
+        }
+    }
+    Ok(out)
+}
+
+/// Names a Windows checkout cannot hold: the characters NTFS reserves,
+/// control characters, and a trailing dot or space, which Windows strips.
+fn check_portable(name: &str) -> Result<()> {
+    let why = if name.is_empty() {
+        Some("it is empty".to_string())
+    } else if let Some(c) = name.chars().find(|c| ":*?\"<>|".contains(*c)) {
+        Some(format!("contains '{c}'"))
+    } else if name.chars().any(char::is_control) {
+        Some("contains a control character".to_string())
+    } else if name.ends_with('.') {
+        Some("ends with '.'".to_string())
+    } else if name.ends_with(' ') {
+        Some("ends with a space".to_string())
+    } else {
+        None
+    };
+    match why {
+        Some(why) => bail!(
+            "attachment name \"{}\" is not portable: {why}",
+            name.escape_debug()
+        ),
+        None => Ok(()),
+    }
 }
 
 pub fn run_detach(ctx: &mut Context, a: DetachArgs) -> Result<()> {
