@@ -18,3 +18,7 @@ From step 44: (1) `attach` still leaves earlier copies behind if a `std::fs::cop
 
 From step 59: the comment in `src/commands/completions.rs` (~line 19, "`generate` panics on a closed pipe, and a plain write turns that into an ordinary error") now holds only on non-unix; on unix SIGPIPE kills the process first.
 
+## 2026-10-05T14:46:07Z — Bronnikov Aleksandr
+
+2abbb27: CRLF/BOM, comment_count, tags rename, -yman fallback, value hints, refused flags
+
