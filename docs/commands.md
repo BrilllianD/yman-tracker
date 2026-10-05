@@ -746,7 +746,11 @@ whose id the merge base had and one side no longer has is removed with
 `git rm`, printing
 `note: dropped <rel>: task <id> was removed on one side; N file(s) added on the other are gone`.
 A folder broken by hand, whose id both sides still have, is left alone and
-listed as broken. After a clean merge the removal is committed as
+listed as broken. Untracked and ignored files stay on disk, and with them the
+folder; one holding nothing tracked at all — what `rm` leaves behind around a
+`*.swp` — has nothing to remove from git and is passed over without a note.
+The parents compared are the merge commit's own, even when a rejoin
+commit has already moved HEAD past it. After a clean merge the removal is committed as
 `yman: drop files left under a removed task`; under `--continue` it goes into
 the merge commit, ahead of its checks.
 
