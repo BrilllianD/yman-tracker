@@ -159,13 +159,15 @@ fn rename(ctx: &mut Context, a: TagRenameArgs) -> Result<()> {
     }
     let hits = walk(ctx, &old, |list| {
         let i = list.iter().position(|have| tags::fold(have) == old)?;
-        if list.iter().any(|have| tags::fold(have) == new) {
-            // The task already carries the destination: the rename is a
-            // removal here, not a duplicate entry.
-            list.remove(i);
+        // Every spelling of `old` goes (`[UI, ui]` is one tag twice), and
+        // `new` lands once, where the first one was — unless the task
+        // already carries it, which makes the rename a removal here.
+        let had_new = list.iter().any(|have| tags::fold(have) == new);
+        list.retain(|have| tags::fold(have) != old);
+        if had_new {
             return Some(format!("-{old}"));
         }
-        list[i] = new.clone();
+        list.insert(i, new.clone());
         Some(format!("+{new} -{old}"))
     })?;
     apply(ctx, hits, |n| {

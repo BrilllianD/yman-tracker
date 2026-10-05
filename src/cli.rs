@@ -1,7 +1,7 @@
 //! clap derive types. No logic lives here.
 
 use crate::config::Scheme;
-use clap::{ArgAction, ArgGroup, Args, Parser, Subcommand, ValueEnum};
+use clap::{ArgAction, ArgGroup, Args, Parser, Subcommand, ValueEnum, ValueHint};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -177,7 +177,7 @@ pub struct AddArgs {
     #[arg(short = 'm', long, value_name = "TEXT")]
     pub message: Option<String>,
     /// Body read from a file, `-` for stdin
-    #[arg(long = "body-file", value_name = "PATH", conflicts_with_all = ["message", "edit"])]
+    #[arg(long = "body-file", value_name = "PATH", value_hint = ValueHint::FilePath, conflicts_with_all = ["message", "edit"])]
     pub body_file: Option<String>,
     /// Open the new t.md in $EDITOR
     #[arg(short = 'e', long)]
@@ -195,7 +195,7 @@ pub struct AddArgs {
     #[arg(long = "waits-on", value_name = "ID", action = ArgAction::Append)]
     pub waits_on: Vec<String>,
     /// One task per `# Title` section of a markdown file, `-` for stdin
-    #[arg(long, value_name = "PATH", conflicts_with_all = ["title", "message", "body_file", "edit"])]
+    #[arg(long, value_name = "PATH", value_hint = ValueHint::FilePath, conflicts_with_all = ["title", "message", "body_file", "edit"])]
     pub sections: Option<String>,
 }
 
@@ -349,7 +349,7 @@ pub struct SetArgs {
     #[arg(long, value_name = "TEXT", conflicts_with = "body_file")]
     pub body: Option<String>,
     /// Replace the body with a file's contents, `-` for stdin
-    #[arg(long = "body-file", value_name = "PATH")]
+    #[arg(long = "body-file", value_name = "PATH", value_hint = ValueHint::FilePath)]
     pub body_file: Option<String>,
 }
 
@@ -443,6 +443,9 @@ pub enum HooksAction {
 }
 
 #[derive(Args, Debug)]
+// `--json` only shapes the listing; after `rename` or `rm` it would be
+// silently ignored, so it is refused there.
+#[command(args_conflicts_with_subcommands = true)]
 pub struct TagsArgs {
     /// Without a subcommand, list the tags in use
     #[command(subcommand)]
@@ -493,7 +496,7 @@ pub struct SyncArgs {
     #[arg(long)]
     pub abort: bool,
     /// Merge the remote state but do not push
-    #[arg(long = "no-push")]
+    #[arg(long = "no-push", conflicts_with = "abort")]
     pub no_push: bool,
 }
 

@@ -273,6 +273,8 @@ pub fn parse(text: &str) -> Result<Meta> {
     let mut related: Vec<String> = Vec::new();
     let mut unknown: Vec<Unknown> = Vec::new();
 
+    // A BOM would otherwise glue itself to the first key.
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let lines: Vec<&str> = text.lines().collect();
     let mut i = 0;
     while i < lines.len() {
@@ -1070,6 +1072,16 @@ updated: 2026-09-16T10:00:00Z
                 format!("{bad}\ncreated: 2026-09-16T10:00:00Z\nupdated: 2026-09-16T10:00:00Z\n");
             assert!(parse(&text).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn a_bom_is_not_part_of_the_first_key() {
+        let m = parse(
+            "\u{feff}status: todo\ncreated: 2026-09-16T10:00:00Z\nupdated: 2026-09-16T10:00:00Z\n",
+        )
+        .unwrap();
+        assert_eq!(m.status, "todo");
+        assert!(m.unknown.is_empty());
     }
 
     #[test]

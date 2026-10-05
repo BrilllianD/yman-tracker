@@ -17,9 +17,11 @@ pub const FETCH_REFSPEC: &str = "+refs/tasks/main:refs/yman/remote";
 /// Name of the `.yman` directory, and the line added to `info/exclude`.
 pub const YDIR_NAME: &str = ".yman";
 
-/// `COMMON/worktrees/yman`, the name we would get if git did not sanitize.
+/// `COMMON/worktrees/-yman`: git names a worktree's private dir after its
+/// basename with a leading dot sanitized to `-`. Only a fallback for when
+/// `.yman/.git` cannot be read; that file is the authority.
 fn default_wt_gitdir(common: &Path) -> PathBuf {
-    common.join("worktrees").join("yman")
+    common.join("worktrees").join("-yman")
 }
 
 /// Follow `.yman/.git` (a file reading `gitdir: <path>`) to the worktree's
