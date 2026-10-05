@@ -526,7 +526,10 @@ mod tests {
 
     #[test]
     fn rejects_bad_version() {
-        reject(&base().replace("version = 1", "version = 3"), "version 3");
+        reject(
+            &base().replace("version = 1", "version = 3"),
+            "unsupported version 3 (this yman understands 1 and 2)",
+        );
     }
 
     #[test]
@@ -778,7 +781,8 @@ mod tests {
     fn rejects_several_terminal_statuses_without_a_named_done() {
         reject(
             &v2().replace("done = \"done\"\n", ""),
-            "statuses.done must say which one",
+            "statuses.terminal lists more than one closed status, so statuses.done must say \
+             which one `yman done` means",
         );
     }
 

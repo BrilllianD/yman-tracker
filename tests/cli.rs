@@ -2059,8 +2059,13 @@ fn push_declined_by_hook_is_not_retried() {
     assert_eq!(fx.runs(&hooks), 1);
     let err = stderr(&out);
     assert!(err.contains("policy: tasks are read-only here"), "{err}");
-    assert!(err.contains("(pre-receive hook declined)"), "{err}");
-    assert!(err.contains("push failed"), "{err}");
+    assert!(
+        err.contains(
+            "\n ! [remote rejected] refs/yman/local -> refs/tasks/main (pre-receive hook declined)\n"
+        ),
+        "{err}"
+    );
+    assert!(err.ends_with("error: push failed\n"), "{err}");
     assert!(!err.contains("origin keeps moving"), "{err}");
     assert_eq!(origin_tasks(&fx), before);
 }
@@ -5486,26 +5491,157 @@ fn guide_needs_no_repository() {
     assert!(expected.lines().count() <= 72, "agents.md must stay short");
 }
 
-/// `completions` needs no repository, offers every subcommand `--help` lists,
-/// and keeps the hidden `merge-driver` out.
-#[test]
-fn completions_cover_every_subcommand() {
-    let fx = Fx::new();
-    let nowhere = tempfile::tempdir().unwrap();
-    let help = stdout(&fx.yman(nowhere.path()).arg("--help").output().unwrap());
-    let subcommands: Vec<&str> = help
-        .lines()
+/// The subcommands a `--help` page lists under `Commands:`, without `help`.
+fn help_commands(help: &str) -> Vec<String> {
+    help.lines()
         .skip_while(|l| *l != "Commands:")
         .skip(1)
         .take_while(|l| l.starts_with("  "))
         .filter_map(|l| l.split_whitespace().next())
-        .collect();
-    assert!(subcommands.contains(&"completions"), "{help}");
+        .filter(|w| *w != "help")
+        .map(str::to_string)
+        .collect()
+}
+
+/// The lines after the first one that trims to `start`, up to the first that
+/// trims to `end`; empty when `start` is not there.
+fn block<'s>(script: &'s str, start: &str, end: &str) -> Vec<&'s str> {
+    script
+        .lines()
+        .skip_while(|l| l.trim() != start)
+        .skip(1)
+        .take_while(|l| l.trim() != end)
+        .collect()
+}
+
+/// Does `script`, a completion script for `shell`, offer `path`'s last word
+/// as a subcommand of the words before it, and complete what follows it?
+/// Each check is a whole token in the shape that shell's generator writes, so
+/// `ls`, `rm` or `set` cannot pass by being a substring of something else,
+/// and `tags rm` is told apart from the top-level `rm`.
+fn completes(shell: &str, script: &str, path: &[&str]) -> bool {
+    let (leaf, parents) = path.split_last().unwrap();
+    match shell {
+        "bash" => {
+            let parent = std::iter::once("yman")
+                .chain(parents.iter().copied())
+                .collect::<Vec<_>>()
+                .join("__subcmd__");
+            let offered = block(script, &format!("{parent})"), ";;")
+                .first()
+                .and_then(|l| l.trim().strip_prefix("opts=\""))
+                .is_some_and(|opts| opts.trim_end_matches('"').split(' ').any(|w| w == *leaf));
+            let dispatched = script
+                .lines()
+                .any(|l| l.trim() == format!("{parent},{leaf})"));
+            offered && dispatched
+        }
+        "zsh" => {
+            let fname = |p: &[&str]| {
+                std::iter::once("_yman")
+                    .chain(p.iter().copied())
+                    .collect::<Vec<_>>()
+                    .join("__subcmd__")
+                    + "_commands() {"
+            };
+            let offered = block(script, &fname(parents), "}")
+                .iter()
+                .any(|l| l.starts_with(&format!("'{leaf}:")));
+            let dispatched = script.lines().any(|l| l == fname(path));
+            offered && dispatched
+        }
+        "fish" => {
+            let cond = match parents {
+                [] => "\"__fish_yman_needs_command\"".to_string(),
+                [p] => format!(
+                    "\"__fish_yman_using_subcommand {p}; and not __fish_seen_subcommand_from "
+                ),
+                _ => unreachable!("one level of nesting"),
+            };
+            let offered = script.lines().any(|l| {
+                l.starts_with(&format!("complete -c yman -n {cond}"))
+                    && l.contains(&format!(" -f -a \"{leaf}\" -d '"))
+            });
+            // A command with subcommands of its own continues its condition
+            // with `; and not __fish_seen_subcommand_from ...`.
+            let dispatched = match parents {
+                [] => format!("complete -c yman -n \"__fish_yman_using_subcommand {leaf}"),
+                [p] => format!(
+                    "complete -c yman -n \"__fish_yman_using_subcommand {p}; and __fish_seen_subcommand_from {leaf}"
+                ),
+                _ => unreachable!("one level of nesting"),
+            };
+            offered
+                && script.lines().any(|l| {
+                    l.strip_prefix(&dispatched)
+                        .is_some_and(|rest| rest.starts_with('"') || rest.starts_with(';'))
+                })
+        }
+        "elvish" => {
+            let key = |p: &[&str]| {
+                format!(
+                    "&'{}'= {{",
+                    std::iter::once("yman")
+                        .chain(p.iter().copied())
+                        .collect::<Vec<_>>()
+                        .join(";")
+                )
+            };
+            let offered = block(script, &key(parents), "}")
+                .iter()
+                .any(|l| l.trim().starts_with(&format!("cand {leaf} '")));
+            offered && script.lines().any(|l| l.trim() == key(path))
+        }
+        "powershell" => {
+            let key = |p: &[&str]| {
+                format!(
+                    "'{}' {{",
+                    std::iter::once("yman")
+                        .chain(p.iter().copied())
+                        .collect::<Vec<_>>()
+                        .join(";")
+                )
+            };
+            let offered = block(script, &key(parents), "}").iter().any(|l| {
+                l.trim().starts_with(&format!(
+                    "[CompletionResult]::new('{leaf}', '{leaf}', [CompletionResultType]::ParameterValue,"
+                ))
+            });
+            offered && script.lines().any(|l| l.trim() == key(path))
+        }
+        _ => unreachable!("{shell}"),
+    }
+}
+
+/// `completions` needs no repository, offers every subcommand `--help` lists
+/// and the nested ones under `tags` and `hooks`, each as an exact token of
+/// the shell's own syntax, and keeps the hidden `merge-driver` out.
+#[test]
+fn completions_cover_every_subcommand() {
+    let fx = Fx::new();
+    let nowhere = tempfile::tempdir().unwrap();
+    let help = |args: &[&str]| {
+        let out = fx.yman(nowhere.path()).args(args).output().unwrap();
+        help_commands(&stdout(&out))
+    };
+    let top = help(&["--help"]);
+    assert!(top.iter().any(|s| s == "completions"), "{top:?}");
+    let mut paths: Vec<Vec<String>> = top.iter().map(|s| vec![s.clone()]).collect();
+    for (parent, expected) in [
+        ("tags", &["rename", "rm"][..]),
+        ("hooks", &["install", "remove", "status"][..]),
+    ] {
+        let nested = help(&[parent, "--help"]);
+        assert_eq!(nested, expected, "{parent}");
+        paths.extend(nested.into_iter().map(|s| vec![parent.to_string(), s]));
+    }
 
     for (shell, head) in [
         ("bash", "_yman() {"),
         ("zsh", "#compdef yman"),
         ("fish", "# Print an optspec"),
+        ("elvish", "use builtin;"),
+        ("powershell", "using namespace System.Management.Automation"),
     ] {
         let out = fx
             .yman(nowhere.path())
@@ -5515,10 +5651,14 @@ fn completions_cover_every_subcommand() {
         assert!(out.status.success(), "{shell}: {}", stderr(&out));
         assert_eq!(stderr(&out), "", "{shell}");
         let script = stdout(&out);
-        assert!(script.starts_with(head), "{shell}: {script}");
-        for sub in &subcommands {
-            assert!(script.contains(sub), "{shell} lacks {sub}");
+        assert!(script.trim_start().starts_with(head), "{shell}: {script}");
+        for path in &paths {
+            let path: Vec<&str> = path.iter().map(String::as_str).collect();
+            assert!(completes(shell, &script, &path), "{shell} lacks {path:?}");
         }
+        // The check is not vacuous: a name that is no subcommand fails it.
+        assert!(!completes(shell, &script, &["nope"]), "{shell}");
+        assert!(!completes(shell, &script, &["tags", "install"]), "{shell}");
         assert!(!script.contains("merge-driver"), "{shell}");
     }
 
@@ -6370,6 +6510,12 @@ fn moved_folder_and_attachment_merge() {
         fx.yman(&fx.a).arg("sync").assert().success();
         let out = fx.yman(&fx.b).arg("sync").output().unwrap();
         assert!(out.status.success(), "{verb}: {}", stderr(&out));
+        // A version 1 close keeps the folder where it is: nothing to move.
+        let note = match verb {
+            "retitle" => "note: moved 1 file(s) left under 5.1.fix-login into 5.1.repair-login\n",
+            _ => "",
+        };
+        assert_eq!(stderr(&out), note, "{verb}");
         fx.yman(&fx.a).arg("sync").assert().success();
 
         for clone in [&fx.a, &fx.b] {
@@ -6938,6 +7084,16 @@ fn add_sections_refuses_bad_input() {
         "error: stdin: no \"# \" heading, so no tasks"
     );
 
+    let out = fx
+        .yman(&fx.a)
+        .args(["add", "--sections", "-"])
+        .write_stdin("# One\n#   \n")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(stderr(&out).trim_end(), "error: stdin: line 2: empty title");
+    assert!(fx.task_dirs(&fx.a).is_empty());
+
     let p = plan.to_str().unwrap();
     for args in [
         &["add", "Title", "--sections", p][..],
@@ -7130,5 +7286,976 @@ fn edit_refuses_a_title_with_a_control_character() {
     assert_eq!(
         fx.task_dirs(&fx.a),
         [std::path::PathBuf::from("5.1.fix-login")]
+    );
+}
+
+// ------------------------------------- flags and pinned messages, by command
+
+/// `--version` and `-V` print the package version on stdout, anywhere.
+#[test]
+fn version_prints_the_package_version() {
+    let fx = Fx::new();
+    let nowhere = tempfile::tempdir().unwrap();
+    for flag in ["--version", "-V"] {
+        let out = fx.yman(nowhere.path()).arg(flag).output().unwrap();
+        assert!(out.status.success(), "{flag}: {}", stderr(&out));
+        assert_eq!(
+            stdout(&out),
+            format!("yman {}\n", env!("CARGO_PKG_VERSION")),
+            "{flag}"
+        );
+        assert_eq!(stderr(&out), "", "{flag}");
+    }
+}
+
+/// The explicit values of `--refresh` and `--autosync` are stored as given,
+/// and a later `init` can switch either one back.
+#[test]
+fn init_takes_explicit_refresh_and_autosync_values() {
+    let fx = Fx::new();
+    let out = fx
+        .yman(&fx.a)
+        .args(["init", "--refresh", "lazy", "--autosync", "off"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stdout(&out).contains("\n  refresh:  lazy\n"),
+        "{}",
+        stdout(&out)
+    );
+    assert_eq!(fx.git(&fx.a, &["config", "yman.refresh"]), "lazy");
+    assert_eq!(fx.git(&fx.a, &["config", "yman.autosync"]), "off");
+
+    // From push and manual back to off and lazy.
+    fx.yman(&fx.a)
+        .args(["init", "--refresh", "manual", "--autosync", "push"])
+        .assert()
+        .success();
+    fx.yman(&fx.a)
+        .args(["init", "--refresh", "lazy", "--autosync", "off"])
+        .assert()
+        .success();
+    assert_eq!(fx.git(&fx.a, &["config", "yman.refresh"]), "lazy");
+    assert_eq!(fx.git(&fx.a, &["config", "yman.autosync"]), "off");
+
+    // Off: a change stays local and nothing is said about pushing.
+    let before = origin_tasks(&fx);
+    let out = fx.yman(&fx.a).args(["add", "A one"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stderr(&out), "");
+    assert_eq!(origin_tasks(&fx), before);
+    fx.yman(&fx.a).arg("sync").assert().success();
+
+    // Lazy: a plain fetch is picked up by the next command.
+    fx.yman(&fx.b).arg("init").assert().success();
+    fx.yman(&fx.b).args(["add", "B two"]).assert().success();
+    fx.yman(&fx.b).arg("sync").assert().success();
+    fx.git(&fx.a, &["fetch", "origin"]);
+    let text = stdout(&fx.yman(&fx.a).arg("ls").output().unwrap());
+    assert!(text.contains("B two"), "{text}");
+}
+
+/// `init --remote` adds `origin` when there is none, and leaves an existing
+/// one alone: silently for the same URL, with a warning for another.
+#[test]
+fn init_remote_adds_origin_or_keeps_the_existing_one() {
+    let fx = Fx::new();
+    let url = fx.remote.to_str().unwrap();
+    fx.git(&fx.b, &["remote", "remove", "origin"]);
+    let out = fx
+        .yman(&fx.b)
+        .args(["init", "--remote", url])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(
+        stderr(&out),
+        format!("note: added remote \"origin\" -> {url}\n")
+    );
+    assert_eq!(fx.git(&fx.b, &["remote", "get-url", "origin"]), url);
+    assert_eq!(
+        origin_tasks(&fx),
+        fx.git(&fx.b, &["rev-parse", "refs/yman/local"])
+    );
+
+    let existing = fx.git(&fx.a, &["remote", "get-url", "origin"]);
+    let elsewhere = fx.tmp.path().join("elsewhere.git");
+    let out = fx
+        .yman(&fx.a)
+        .arg("init")
+        .arg("--remote")
+        .arg(&elsewhere)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(
+        stderr(&out),
+        format!("warning: origin already points at {existing}; --remote ignored\n")
+    );
+    assert_eq!(fx.git(&fx.a, &["remote", "get-url", "origin"]), existing);
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["init", "--remote", &existing])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stderr(&out), "", "the same URL is accepted silently");
+}
+
+/// A fetch `init` cannot do is an error that points at `--offline`, with
+/// git's own reason printed above it; `--offline` then gets the tracker up.
+#[test]
+fn init_reports_a_failed_fetch() {
+    let fx = Fx::new();
+    let missing = fx.tmp.path().join("missing.git");
+    fx.git(
+        &fx.a,
+        &["remote", "set-url", "origin", missing.to_str().unwrap()],
+    );
+    let out = fx.yman(&fx.a).arg("init").output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    let err = stderr(&out);
+    assert!(
+        err.ends_with("\nerror: fetch failed (see above); use --offline to skip\n"),
+        "{err}"
+    );
+    assert!(
+        err.contains(missing.to_str().unwrap()),
+        "git's reason: {err}"
+    );
+    assert!(!fx.a.join(".yman").exists());
+
+    fx.yman(&fx.a)
+        .args(["init", "--offline"])
+        .assert()
+        .success();
+    assert!(fx.a.join(".yman/config.toml").is_file());
+}
+
+/// The path `add` would create is already taken by something that is not a
+/// task folder. Nothing is written over it and nothing is committed.
+#[test]
+fn add_refuses_a_folder_that_already_exists() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let ydir = fx.a.join(".yman");
+    let head = fx.git(&ydir, &["rev-parse", "HEAD"]);
+    fx.write(&ydir.join("5.1.fix-login"), "in the way\n");
+
+    let out = fx.yman(&fx.a).args(["add", "Fix login"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(
+        stderr(&out).trim_end(),
+        "error: folder already exists: 5.1.fix-login"
+    );
+    assert_eq!(stdout(&out), "");
+    assert_eq!(fx.read(&ydir.join("5.1.fix-login")), "in the way\n");
+    assert_eq!(fx.git(&ydir, &["rev-parse", "HEAD"]), head);
+}
+
+/// With the `author` scheme and no prefix anywhere — no `yman.author`, no
+/// `$YMAN_AUTHOR`, and a `user.name` without a single letter to take initials
+/// from — `add` says how to set one.
+#[test]
+fn author_prefix_unknown_says_how_to_set_one() {
+    let fx = Fx::new();
+    fx.yman(&fx.a)
+        .args(["init", "--id-scheme", "author"])
+        .assert()
+        .success();
+    fx.git(&fx.a, &["config", "user.name", "42"]);
+
+    let out = fx.yman(&fx.a).args(["add", "Fix login"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(
+        stderr(&out).trim_end(),
+        "error: author prefix unknown; run: git config yman.author <prefix>  (or set YMAN_AUTHOR)"
+    );
+    assert!(fx.task_dirs(&fx.a).is_empty());
+
+    // The advice works.
+    fx.git(&fx.a, &["config", "yman.author", "iv"]);
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    assert!(fx.has_task(&fx.a, "iv-1"));
+}
+
+/// A commit git refuses for want of an identity is reported as such, with
+/// the commands that fix it. `user.useConfigOnly` stops git from guessing a
+/// name and address from the machine, so the refusal does not depend on the
+/// host the test runs on.
+#[test]
+fn a_missing_git_identity_is_named() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let head = fx.git(&fx.a, &["rev-parse", "refs/yman/local"]);
+    for scope in ["--global", "--local"] {
+        fx.git(&fx.a, &["config", scope, "--unset", "user.name"]);
+        fx.git(&fx.a, &["config", scope, "--unset", "user.email"]);
+    }
+    fx.git(&fx.a, &["config", "user.useConfigOnly", "true"]);
+
+    let out = fx
+        .yman(&fx.a)
+        .env_remove("EMAIL")
+        .args(["add", "Fix login"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(
+        stderr(&out).trim_end(),
+        "error: git identity missing; run: git config --global user.name \"…\" && git config --global user.email \"…\""
+    );
+    assert_eq!(fx.git(&fx.a, &["rev-parse", "refs/yman/local"]), head);
+}
+
+/// `--name` stores one file under another name, and is refused with several
+/// files, with a name that is a path, and for a source that is not a file.
+///
+/// `cannot attach <path>: no file name` is not exercised: `Path::file_name`
+/// is `None` only for a root or a path ending in `..`, and both are
+/// directories, which the `not a regular file` check refuses first.
+#[test]
+fn attach_name_stores_one_file_under_another_name() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let src = fx.tmp.path().join("screenshot.png");
+    let other = fx.tmp.path().join("trace.txt");
+    fx.write(&src, "png\n");
+    fx.write(&other, "trace\n");
+    let ydir = fx.a.join(".yman");
+    let head = fx.git(&ydir, &["rev-parse", "HEAD"]);
+
+    let refused = |args: &[&std::ffi::OsStr], expected: &str| {
+        let out = fx
+            .yman(&fx.a)
+            .args(["attach", "1"])
+            .args(args)
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(1), "{args:?}: {}", stderr(&out));
+        assert_eq!(stderr(&out).trim_end(), expected, "{args:?}");
+        assert_eq!(stdout(&out), "", "{args:?}");
+        assert!(!fx.task_dir(&fx.a, "1").join("f").exists(), "{args:?}");
+        assert_eq!(fx.git(&ydir, &["rev-parse", "HEAD"]), head, "{args:?}");
+    };
+    refused(
+        &[
+            src.as_os_str(),
+            other.as_os_str(),
+            "--name".as_ref(),
+            "x.png".as_ref(),
+        ],
+        "error: --name only works with a single file",
+    );
+    for name in ["shots/x.png", "shots\\x.png", ".", ".."] {
+        refused(
+            &[src.as_os_str(), "--name".as_ref(), name.as_ref()],
+            &format!("error: attachment name \"{name}\" must not contain a path separator"),
+        );
+    }
+    let dir = fx.tmp.path().join("a-directory");
+    std::fs::create_dir(&dir).unwrap();
+    refused(
+        &[dir.as_os_str()],
+        &format!("error: cannot attach {}: not a regular file", dir.display()),
+    );
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["attach", "1"])
+        .arg(&src)
+        .args(["--name", "login-error.png"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stdout(&out).starts_with("attached login-error.png -> "),
+        "{}",
+        stdout(&out)
+    );
+    let fdir = fx.task_dir(&fx.a, "1").join("f");
+    assert_eq!(fx.read(&fdir.join("login-error.png")), "png\n");
+    assert!(!fdir.join("screenshot.png").exists());
+    let shown = stdout(&fx.yman(&fx.a).args(["show", "1"]).output().unwrap());
+    assert!(shown.contains("login-error.png   (added "), "{shown}");
+}
+
+/// A file over 5 MiB is attached with a warning; one of exactly 5 MiB is not.
+#[test]
+fn attach_warns_about_a_large_file() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let five = 5 * 1024 * 1024;
+    for (name, len, warning) in [
+        ("edge.bin", five, String::new()),
+        (
+            "big.bin",
+            five + 1,
+            "warning: big.bin is 5 MiB; git is not great at large binaries\n".to_string(),
+        ),
+    ] {
+        let src = fx.tmp.path().join(name);
+        std::fs::File::create(&src).unwrap().set_len(len).unwrap();
+        let out = fx
+            .yman(&fx.a)
+            .args(["attach", "1"])
+            .arg(&src)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{name}: {}", stderr(&out));
+        assert_eq!(stderr(&out), warning, "{name}");
+        let copy = fx.task_dir(&fx.a, "1").join("f").join(name);
+        assert_eq!(std::fs::metadata(copy).unwrap().len(), len, "{name}");
+    }
+}
+
+/// `start`, `move`, `cancel` and `reopen` take `-m`/`--message` like `done`:
+/// the status change and the comment land in one commit.
+#[test]
+fn verbs_take_a_message() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v2_config(&fx.a);
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let count = || -> u32 {
+        fx.git(&fx.a, &["rev-list", "--count", "refs/yman/local"])
+            .parse()
+            .unwrap()
+    };
+
+    for (args, change, note) in [
+        (
+            &["start", "1", "-m", "on it"][..],
+            "status=todo->doing",
+            "on it",
+        ),
+        (
+            &["move", "1", "blocked", "--message", "waiting on review"][..],
+            "status=doing->blocked",
+            "waiting on review",
+        ),
+        (
+            &["cancel", "1", "-m", "not needed"][..],
+            "status=blocked->cancelled",
+            "not needed",
+        ),
+        (
+            &["reopen", "1", "--message", "needed after all"][..],
+            "status=cancelled->todo",
+            "needed after all",
+        ),
+    ] {
+        let before = count();
+        let out = fx.yman(&fx.a).args(args).output().unwrap();
+        assert!(out.status.success(), "{args:?}: {}", stderr(&out));
+        assert!(stdout(&out).contains("1: commented"), "{}", stdout(&out));
+        assert_eq!(count(), before + 1, "{args:?}: one commit");
+        let subject = fx.git(&fx.a, &["log", "-1", "--format=%s", "refs/yman/local"]);
+        assert_eq!(
+            subject,
+            format!("task(1): set {change} comment"),
+            "{args:?}"
+        );
+        let d = fx.read(&fx.task_dir(&fx.a, "1").join("d.md"));
+        assert!(d.contains(note), "{args:?}: {d}");
+    }
+    assert_eq!(fx.status(&fx.a, "1"), "todo");
+}
+
+/// Every long flag of the read commands prints what its short form prints,
+/// and each pair changes the output, so neither spelling is ignored.
+#[test]
+fn long_read_flags_match_their_short_forms() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v2_config(&fx.a);
+    let add = |args: &[&str]| {
+        fx.yman(&fx.a).arg("add").args(args).assert().success();
+    };
+    add(&["Epic", "-t", "epic"]);
+    add(&["Step one", "-p", "2", "--relate", "1", "-m", "body one"]);
+    add(&["Step two", "-p", "3", "--relate", "1"]);
+    add(&["Closed step", "--relate", "1"]);
+    fx.yman(&fx.a).args(["done", "4"]).assert().success();
+    for n in 1..=3 {
+        fx.yman(&fx.a)
+            .args(["comment", "1", "-m", &format!("note {n}")])
+            .assert()
+            .success();
+    }
+
+    let run = |args: &[&str]| -> String {
+        let out = fx.yman(&fx.a).args(args).output().unwrap();
+        assert!(out.status.success(), "{args:?}: {}", stderr(&out));
+        stdout(&out)
+    };
+    for (base, short, long) in [
+        (&["ls"][..], &["-a"][..], &["--all"][..]),
+        (&["ls"], &["-q", "step"], &["--grep", "step"]),
+        (&["ls"], &["-n", "1"], &["--limit", "1"]),
+        (&["ls"], &["-l"], &["--long"]),
+        (&["plan", "1"], &["-a"], &["--all"]),
+        (&["plan", "1"], &["-n", "1"], &["--limit", "1"]),
+        (&["plan", "1"], &["-l"], &["--long"]),
+        (&["show", "1"], &["-n", "1"], &["--comments", "1"]),
+        (&["log"], &["-n", "2"], &["--number", "2"]),
+    ] {
+        let plain = run(base);
+        let with_short = run(&[base, short].concat());
+        let with_long = run(&[base, long].concat());
+        assert_ne!(with_short, plain, "{base:?} {short:?} changes nothing");
+        assert_eq!(with_long, with_short, "{base:?}: {long:?} vs {short:?}");
+    }
+}
+
+/// `--message` and `--edit` on `add` and `comment` do what `-m` and `-e` do.
+#[test]
+fn long_message_and_edit_flags_write_the_task() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+
+    fx.yman(&fx.a)
+        .args(["add", "Fix login", "--message", "OAuth breaks"])
+        .assert()
+        .success();
+    assert_eq!(
+        fx.read(&fx.task_dir(&fx.a, "1").join("t.md")),
+        "# Fix login\n\nOAuth breaks\n"
+    );
+
+    let editor = fx.editor_writing("ed-long-add", "# Write docs\n\nfrom the editor\n");
+    fx.yman(&fx.a)
+        .env("EDITOR", &editor)
+        .args(["add", "Placeholder", "--edit"])
+        .assert()
+        .success();
+    assert_eq!(fx.title(&fx.a, "2"), "Write docs");
+
+    fx.yman(&fx.a)
+        .args(["comment", "1", "--message", "said with --message"])
+        .assert()
+        .success();
+    let editor = fx.editor_writing("ed-long-comment", "said with --edit\n");
+    fx.yman(&fx.a)
+        .env("EDITOR", &editor)
+        .args(["comment", "1", "--edit"])
+        .assert()
+        .success();
+    let d = fx.read(&fx.task_dir(&fx.a, "1").join("d.md"));
+    assert!(d.contains("said with --message"), "{d}");
+    assert!(d.contains("said with --edit"), "{d}");
+}
+
+/// `EDITOR="code --wait"`: the value is split on whitespace, the first word
+/// is the program, and the file comes after the rest.
+#[cfg(unix)]
+#[test]
+fn an_editor_with_arguments_is_split_on_whitespace() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let log = fx.tmp.path().join("editor-args.log");
+    let editor = fx.script(
+        "ed-args",
+        &format!(
+            "printf '%s\\n' \"$@\" > '{}'\nfor f; do :; done\nprintf '# Repair login\\n' > \"$f\"\n",
+            log.display()
+        ),
+    );
+
+    let out = fx
+        .yman(&fx.a)
+        .env("EDITOR", format!("{}  --wait   -n", editor.display()))
+        .args(["edit", "1"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let t_md = fx.a.join(".yman/5.1.fix-login/t.md");
+    assert_eq!(fx.read(&log), format!("--wait\n-n\n{}\n", t_md.display()));
+    assert_eq!(fx.title(&fx.a, "1"), "Repair login");
+}
+
+/// An editor that cannot be started is named, without its arguments, and
+/// the file is left alone.
+#[test]
+fn an_editor_that_cannot_start_is_named() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let missing = fx.tmp.path().join("no-such-editor");
+
+    let out = fx
+        .yman(&fx.a)
+        .env("EDITOR", format!("{} --wait", missing.display()))
+        .args(["edit", "1"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(
+        stderr(&out).starts_with(&format!(
+            "error: cannot run editor \"{}\": ",
+            missing.display()
+        )),
+        "{}",
+        stderr(&out)
+    );
+    assert_eq!(fx.title(&fx.a, "1"), "Fix login");
+}
+
+/// `refresh --quiet` is what the hooks run: it does its work and prints
+/// nothing at all, on stdout or stderr, whatever it finds.
+#[test]
+fn refresh_quiet_says_nothing() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "A one"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    let quiet = || {
+        let out = fx
+            .yman(&fx.a)
+            .args(["refresh", "--quiet"])
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", stderr(&out));
+        assert_eq!(stdout(&out), "");
+        assert_eq!(stderr(&out), "");
+    };
+
+    // Up to date: no "up to date".
+    quiet();
+
+    // Behind but dirty: skipped, without the note.
+    fx.yman(&fx.b).args(["add", "B two"]).assert().success();
+    fx.yman(&fx.b).arg("sync").assert().success();
+    fx.git(&fx.a, &["fetch", "origin"]);
+    let t_md = fx.a.join(".yman/5.1.a-one/t.md");
+    fx.write(&t_md, "# A one\n\nmid-edit\n");
+    quiet();
+    assert!(!fx.has_task(&fx.a, "2"));
+
+    // Behind and clean: applied, without the note.
+    fx.git(&fx.a, &["-C", ".yman", "checkout", "--", "."]);
+    quiet();
+    assert_eq!(fx.title(&fx.a, "2"), "B two");
+
+    // Diverged: skipped, without the note.
+    fx.yman(&fx.a).args(["add", "A three"]).assert().success();
+    fx.yman(&fx.b).args(["add", "B four"]).assert().success();
+    fx.yman(&fx.b).arg("sync").assert().success();
+    fx.git(&fx.a, &["fetch", "origin"]);
+    quiet();
+    assert_eq!(fx.title(&fx.a, "3"), "A three");
+}
+
+/// The refresh in front of an ordinary command fails — here the `.yman`
+/// index is locked — and the command runs anyway, after a warning.
+#[test]
+fn a_failing_lazy_refresh_warns_and_the_command_runs() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "A one"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    fx.yman(&fx.b).args(["add", "B two"]).assert().success();
+    fx.yman(&fx.b).arg("sync").assert().success();
+    fx.git(&fx.a, &["fetch", "origin"]);
+
+    let gitdir = fx.git(&fx.a, &["-C", ".yman", "rev-parse", "--absolute-git-dir"]);
+    let lock = std::path::Path::new(&gitdir).join("index.lock");
+    fx.write(&lock, "");
+    let out = fx.yman(&fx.a).arg("ls").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let err = stderr(&out);
+    assert!(
+        err.starts_with("warning: refresh failed: git merge failed: "),
+        "{err}"
+    );
+    let text = stdout(&out);
+    assert!(text.contains("A one") && !text.contains("B two"), "{text}");
+
+    std::fs::remove_file(&lock).unwrap();
+    let text = stdout(&fx.yman(&fx.a).arg("ls").output().unwrap());
+    assert!(text.contains("B two"), "{text}");
+}
+
+/// Two trackers created apart share no history; `sync` refuses to merge them
+/// and prints the way out, which works.
+#[test]
+fn sync_refuses_an_unrelated_history() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "From A"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b)
+        .args(["init", "--offline"])
+        .assert()
+        .success();
+    fx.yman(&fx.b).args(["add", "From B"]).assert().success();
+    let before = origin_tasks(&fx);
+
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(
+        stderr(&out).trim_end(),
+        "error: task history unrelated to origin refs/tasks/main; re-init from remote:  rm -rf .yman && git update-ref -d refs/yman/local && yman init"
+    );
+    assert_eq!(origin_tasks(&fx), before);
+
+    std::fs::remove_dir_all(fx.b.join(".yman")).unwrap();
+    fx.git(&fx.b, &["update-ref", "-d", "refs/yman/local"]);
+    fx.yman(&fx.b).arg("init").assert().success();
+    assert_eq!(fx.title(&fx.b, "1"), "From A");
+}
+
+/// A fetch that fails for any reason but a missing task ref stops `sync`
+/// with git's reason printed above `fetch failed`.
+#[test]
+fn sync_reports_a_failed_fetch() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "A one"]).assert().success();
+    let local = fx.git(&fx.a, &["rev-parse", "refs/yman/local"]);
+    let missing = fx.tmp.path().join("missing.git");
+    fx.git(
+        &fx.a,
+        &["remote", "set-url", "origin", missing.to_str().unwrap()],
+    );
+
+    let out = fx.yman(&fx.a).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    let err = stderr(&out);
+    assert!(err.ends_with("\nerror: fetch failed\n"), "{err}");
+    assert!(
+        err.contains(missing.to_str().unwrap()),
+        "git's reason: {err}"
+    );
+    assert_eq!(fx.git(&fx.a, &["rev-parse", "refs/yman/local"]), local);
+}
+
+/// B holds a sync merge stopped on a conflict in task 1's `m.yml`: A moved
+/// the task to doing, B to done.
+fn conflicted(fx: &Fx) {
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    fx.yman(&fx.a).args(["start", "1"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).args(["done", "1"]).assert().success();
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+}
+
+/// Settle `conflicted` B's `m.yml` by keeping B's side, `done`.
+fn resolve_to_done(fx: &Fx) {
+    fx.git(
+        &fx.b,
+        &[
+            "-C",
+            ".yman",
+            "checkout",
+            "--ours",
+            "--",
+            "5.1.fix-login/m.yml",
+        ],
+    );
+}
+
+/// A plain `sync` while its own merge is unresolved is exit 3, and names
+/// both ways out.
+#[test]
+fn sync_during_an_unresolved_merge_is_exit_3() {
+    let fx = Fx::new();
+    conflicted(&fx);
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert_eq!(
+        stderr(&out).trim_end(),
+        "error: merge in progress; resolve then: yman sync --continue  (or --abort)"
+    );
+}
+
+/// `--continue` refuses a resolution that leaves a task unloadable, or a
+/// file of the task with markers in it, and stays at exit 3 until it is fixed.
+#[test]
+fn continue_refuses_an_invalid_task() {
+    let fx = Fx::new();
+    conflicted(&fx);
+    let mpath = fx.b.join(".yman/5.1.fix-login/m.yml");
+    let t_md = fx.b.join(".yman/5.1.fix-login/t.md");
+    let cont = || {
+        fx.yman(&fx.b)
+            .args(["sync", "--continue"])
+            .output()
+            .unwrap()
+    };
+
+    // Markers gone, but what is left is not an m.yml.
+    fx.write(&mpath, "status: [\n");
+    let out = cont();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert!(
+        stderr(&out).starts_with("error: conflict markers or invalid task in 5.1.fix-login: "),
+        "{}",
+        stderr(&out)
+    );
+
+    // m.yml settled, but markers pasted into a file git never conflicted on.
+    resolve_to_done(&fx);
+    let text = fx.read(&t_md);
+    fx.write(
+        &t_md,
+        &format!("{text}<<<<<<< ours\nmine\n=======\ntheirs\n>>>>>>> theirs\n"),
+    );
+    let out = cont();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert_eq!(
+        stderr(&out).trim_end(),
+        "error: conflict markers or invalid task in 5.1.fix-login: t.md still has merge markers"
+    );
+
+    fx.write(&t_md, &text);
+    let out = cont();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(fx.status(&fx.b, "1"), "done");
+}
+
+/// `sync --continue --no-push` commits the merge and stops there: no push is
+/// attempted and origin is untouched until the next `sync`.
+#[cfg(unix)]
+#[test]
+fn continue_no_push_commits_the_merge_and_stops() {
+    let fx = Fx::new();
+    conflicted(&fx);
+    resolve_to_done(&fx);
+    let before = origin_tasks(&fx);
+
+    let spawned = fx.git_spawn_log(&fx.b, &["sync", "--continue", "--no-push"]);
+    assert!(!spawned.iter().any(|s| s == "push"), "{spawned:?}");
+    assert_eq!(origin_tasks(&fx), before);
+    let parents = fx.git(
+        &fx.b,
+        &["rev-list", "--parents", "-n", "1", "refs/yman/local"],
+    );
+    assert_eq!(parents.split(' ').count(), 3, "a merge commit: {parents}");
+    assert_eq!(fx.status(&fx.b, "1"), "done");
+
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(
+        origin_tasks(&fx),
+        fx.git(&fx.b, &["rev-parse", "refs/yman/local"])
+    );
+}
+
+/// Origin moves while B is resolving: the merge is committed, its push is
+/// rejected, and the next `sync` merges again and publishes.
+#[test]
+fn origin_moving_while_a_merge_is_finished_is_reported() {
+    let fx = Fx::new();
+    conflicted(&fx);
+    fx.yman(&fx.a).args(["add", "Meanwhile"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    let moved = origin_tasks(&fx);
+    resolve_to_done(&fx);
+
+    let out = fx
+        .yman(&fx.b)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(
+        stderr(&out).trim_end(),
+        "error: origin moved while finishing the merge; run: yman sync"
+    );
+    assert_eq!(origin_tasks(&fx), moved);
+    let text = stdout(&fx.yman(&fx.b).arg("status").output().unwrap());
+    assert!(!text.contains("merge:"), "the merge is committed: {text}");
+
+    fx.yman(&fx.b).arg("sync").assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    assert_eq!(fx.status(&fx.a, "1"), "done");
+    assert_eq!(fx.title(&fx.b, "2"), "Meanwhile");
+}
+
+/// A file a merge left under a moved folder is not moved over one of the
+/// same name the other side already put there: the warning names both.
+#[test]
+fn a_left_behind_file_is_not_moved_over_an_existing_one() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+
+    // A retitles, and a stray file lands in the new folder by hand, so the
+    // two `m.yml` merge cleanly and only the files collide.
+    fx.yman(&fx.a)
+        .args(["set", "1", "--title", "Repair login"])
+        .assert()
+        .success();
+    fx.write(&fx.a.join(".yman/5.1.repair-login/f/trace.txt"), "from A\n");
+    let ours = fx.b.join("trace.txt");
+    fx.write(&ours, "from B\n");
+    fx.yman(&fx.b)
+        .args(["attach", "1", ours.to_str().unwrap()])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(
+        stderr(&out),
+        "warning: 5.1.fix-login/f/trace.txt not moved; 5.1.repair-login/f/trace.txt already exists\n"
+    );
+    // Neither copy is lost: B's stays where the merge left it.
+    assert_eq!(
+        fx.read(&fx.b.join(".yman/5.1.repair-login/f/trace.txt")),
+        "from A\n"
+    );
+    assert_eq!(
+        fx.read(&fx.b.join(".yman/5.1.fix-login/f/trace.txt")),
+        "from B\n"
+    );
+}
+
+/// The `m.yml` merge driver run by hand, outside any repository: a field-wise
+/// merge, a conflict it leaves to git's markers, and a fallback that fails.
+#[test]
+fn merge_driver_runs_directly() {
+    let fx = Fx::new();
+    let dir = tempfile::tempdir().unwrap();
+    let meta = |status: &str, tags: &[&str]| {
+        let mut text = format!("status: {status}\n");
+        if tags.is_empty() {
+            text.push_str("tags: []\n");
+        } else {
+            text.push_str("tags:\n");
+            for t in tags {
+                text.push_str(&format!("- {t}\n"));
+            }
+        }
+        text.push_str(
+            "assignee: null\ncreated: 2026-01-01T00:00:00Z\nupdated: 2026-01-01T00:00:00Z\n\
+             attachments: []\nlinks: []\nrelated: []\n",
+        );
+        text
+    };
+    let files = |base: &str, ours: &str, theirs: &str| {
+        for (name, text) in [("base", base), ("ours", ours), ("theirs", theirs)] {
+            std::fs::write(dir.path().join(name), text).unwrap();
+        }
+    };
+    let driver = || {
+        fx.yman(dir.path())
+            .args(["merge-driver", "base", "ours", "theirs"])
+            .output()
+            .unwrap()
+    };
+
+    // Disjoint fields: merged, exit 0.
+    files(
+        &meta("todo", &[]),
+        &meta("doing", &[]),
+        &meta("todo", &["ui"]),
+    );
+    let out = driver();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stderr(&out), "");
+    let merged = fx.read(&dir.path().join("ours"));
+    assert!(merged.contains("status: doing\n"), "{merged}");
+    assert!(merged.contains("tags:\n- ui\n"), "{merged}");
+
+    // The same field changed on both sides: git's markers, exit 1.
+    files(&meta("todo", &[]), &meta("doing", &[]), &meta("done", &[]));
+    let out = driver();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    let marked = fx.read(&dir.path().join("ours"));
+    assert!(marked.contains("<<<<<<< ours\n"), "{marked}");
+    assert!(marked.contains(">>>>>>> theirs\n"), "{marked}");
+
+    // Unparsable and binary: `git merge-file` itself fails.
+    files(&meta("todo", &[]), "status: [\0\n", &meta("done", &[]));
+    let out = driver();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    let err = stderr(&out);
+    assert!(err.ends_with("\nerror: git merge-file failed\n"), "{err}");
+}
+
+/// With no `git` on `PATH`, both the wrapped calls and the `yman git`
+/// passthrough say so.
+#[test]
+fn a_missing_git_binary_is_named() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let empty = fx.tmp.path().join("empty-path");
+    std::fs::create_dir(&empty).unwrap();
+
+    for args in [&["ls"][..], &["git", "--", "status"][..]] {
+        let out = fx
+            .yman(&fx.a)
+            .env("PATH", &empty)
+            .args(args)
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(1), "{args:?}: {}", stderr(&out));
+        assert_eq!(stderr(&out), "error: git not found in PATH\n", "{args:?}");
+        assert_eq!(stdout(&out), "", "{args:?}");
+    }
+}
+
+/// `man --dir` names the directory it could not create, or could not write
+/// a page into.
+#[test]
+fn man_dir_reports_what_it_cannot_write() {
+    let fx = Fx::new();
+    let nowhere = tempfile::tempdir().unwrap();
+
+    let file = nowhere.path().join("a-file");
+    fx.write(&file, "");
+    let under_a_file = file.join("man1");
+    let out = fx
+        .yman(nowhere.path())
+        .arg("man")
+        .arg("--dir")
+        .arg(&under_a_file)
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(
+        stderr(&out).starts_with(&format!(
+            "error: cannot create {}: ",
+            under_a_file.display()
+        )),
+        "{}",
+        stderr(&out)
+    );
+
+    // A directory where the first page goes: no permission bits involved, so
+    // this holds for root too.
+    let dir = nowhere.path().join("man1");
+    std::fs::create_dir_all(dir.join("yman.1")).unwrap();
+    let out = fx
+        .yman(nowhere.path())
+        .arg("man")
+        .arg("--dir")
+        .arg(&dir)
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(
+        stderr(&out).starts_with(&format!(
+            "error: cannot write man pages to {}: ",
+            dir.display()
+        )),
+        "{}",
+        stderr(&out)
     );
 }
