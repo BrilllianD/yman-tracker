@@ -510,6 +510,37 @@ fn attach_force_matches_entries_and_case() {
     assert_eq!(tracked, "5.1.fix-login/f/A.PNG");
 }
 
+/// `detach` compares names ignoring case, as `attach` does, and removes the
+/// file under the spelling it was stored with, not the one typed.
+#[test]
+fn detach_matches_names_ignoring_case() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let src = fx.tmp.path().join("a.png");
+    fx.write(&src, "one");
+    fx.yman(&fx.a)
+        .args(["attach", "1", src.to_str().unwrap()])
+        .assert()
+        .success();
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["detach", "1", "A.png"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "detached a.png\n");
+    assert!(!fx.a.join(".yman/5.1.fix-login/f/a.png").exists());
+    let json = stdout(&fx.yman(&fx.a).args(["ls", "--json"]).output().unwrap());
+    assert!(json.contains("\"attachments\":0"), "{json}");
+    let tracked = fx.git(&fx.a.join(".yman"), &["ls-files", "5.1.fix-login/f"]);
+    assert_eq!(tracked, "");
+    let log = fx.git(&fx.a.join(".yman"), &["log", "-1", "--format=%s"]);
+    assert_eq!(log, "task(1): detach a.png");
+    assert_eq!(fx.git(&fx.a, &["-C", ".yman", "status", "--porcelain"]), "");
+}
+
 /// Names a Windows checkout cannot hold are refused before anything is copied.
 #[test]
 fn attach_refuses_unportable_names() {

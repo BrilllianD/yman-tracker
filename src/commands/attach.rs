@@ -170,10 +170,21 @@ fn check_portable(name: &str) -> Result<()> {
 
 pub fn run_detach(ctx: &mut Context, a: DetachArgs) -> Result<()> {
     let mut t = task::find(&ctx.ydir, &a.id)?;
-    let Some(i) = t.meta.attachments.iter().position(|x| x.name == a.name) else {
+    // Names compare ignoring case, as in `attach`. An exact match still wins,
+    // so a task that holds both spellings from before `attach` case-folded
+    // can lose either one.
+    let atts = &t.meta.attachments;
+    let found = atts
+        .iter()
+        .position(|x| x.name == a.name)
+        .or_else(|| atts.iter().position(|x| fold(&x.name) == fold(&a.name)));
+    let Some(i) = found else {
         bail!("no attachment \"{}\" on task {}", a.name, t.id());
     };
-    let rel = format!("{}/{}/{}", t.rel(), task::FILES_DIR, a.name);
+    // Everything below uses the stored spelling, not the typed one: that is
+    // the file git tracks.
+    let name = t.meta.attachments[i].name.clone();
+    let rel = format!("{}/{}/{}", t.rel(), task::FILES_DIR, name);
     // A listed attachment whose file is already gone just loses its entry.
     if t.attachment_path(&t.meta.attachments[i]).exists() {
         ctx.wt.ok(&["rm", "-q", "--", &rel])?;
@@ -183,7 +194,7 @@ pub fn run_detach(ctx: &mut Context, a: DetachArgs) -> Result<()> {
     t.write_meta()?;
     ctx.wt.ok(&["add", "--", &t.rel()])?;
     ctx.wt
-        .commit(&format!("task({}): detach {}", t.id(), a.name))?;
-    println!("detached {}", a.name);
+        .commit(&format!("task({}): detach {}", t.id(), name))?;
+    println!("detached {name}");
     Ok(())
 }
