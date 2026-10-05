@@ -175,8 +175,7 @@ Never fatal, always stderr:
 | `note: added remote "origin" -> <url>` | `init --remote` created the remote |
 | `note: no "origin" remote; tasks stay local until you run: yman init --remote <url>` | `init` in a repo with no `origin` and no `--remote` |
 | `note: re-attached .yman HEAD to refs/yman/local` | `init` repaired a `.yman` HEAD that had lost its symbolic ref |
-| `note: .yman has uncommitted changes, refresh skipped` | refresh backed off |
-| `note: worktree has uncommitted changes` | `yman refresh` backed off for the same reason; printed after the note above |
+| `note: .yman has uncommitted changes, refresh skipped` | `yman refresh` backed off from a dirty `.yman` |
 | `note: pushed N task commit(s)` | `yman.autosync = push` published a change |
 | `note: local has unpushed commits; run: yman sync` | `yman refresh` found local ahead of or diverged from the remote |
 | `note: rewrote N reference(s) to renumbered ids` | a collision renumber moved ids other tasks related to |

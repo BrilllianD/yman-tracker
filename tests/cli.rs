@@ -1975,6 +1975,12 @@ fn refresh_skips_dirty() {
         "{}",
         stderr(&out)
     );
+    assert_eq!(
+        stderr(&out).matches("note:").count(),
+        1,
+        "one event, one note: {}",
+        stderr(&out)
+    );
     assert!(!fx.has_task(&fx.a, "2"));
     // The hand edit survives untouched.
     assert!(
