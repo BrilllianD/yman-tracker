@@ -12,7 +12,7 @@ env:
   # fail `-D warnings` on an unrelated commit. Bump policy: when local stable
   # moves past this version, bump it in a commit of its own (`ci: bump the
   # toolchain to X.Y.Z`) that also fixes whatever the new clippy flags; never
-  # fold a bump into a feature or fix. Edition 2024 needs at least 1.85.
+  # fold a bump into a feature or fix. The let-chains need at least 1.88.
   RUST_TOOLCHAIN: 1.98.1
   # Same version as pages.yml; keep the two in step.
   MDBOOK_VERSION: 0.5.4
