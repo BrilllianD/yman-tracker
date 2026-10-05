@@ -4,9 +4,12 @@
 //! the dependency list should pay.
 //!
 //! The writer is byte-compatible with the `serde_yaml` output this replaced,
-//! so upgrading yman never rewrites a task folder on its own. The reader is
-//! deliberately more forgiving than the writer: `m.yml` is a file people edit
-//! by hand and resolve merge conflicts in.
+//! so upgrading yman never rewrites a task folder on its own. The one
+//! deliberate difference: a value with Unicode whitespace at an edge (a
+//! trailing U+00A0) is quoted, because written plain it would not read back.
+//! The reader is more forgiving than the writer: `m.yml` is a file people
+//! edit by hand and resolve merge conflicts in, so it also takes comments
+//! after quoted scalars and the full libyaml escape set.
 
 use crate::task::{Attachment, Meta, Unknown, format_ts};
 use anyhow::{Result, bail};
@@ -148,7 +151,8 @@ fn plain_is_safe(s: &str) -> bool {
     if s.is_empty() || resolves_to_non_string(s) {
         return false;
     }
-    if s.starts_with([' ', '\t']) || s.ends_with([' ', '\t']) {
+    // The reader trims Unicode whitespace, not just space and tab.
+    if s.trim() != s {
         return false;
     }
     // A leading `---` or `...` reads as a document marker.
@@ -337,9 +341,15 @@ pub fn parse(text: &str) -> Result<Meta> {
 fn push_unknown(out: &mut Vec<Unknown>, key: String, block: &[&str]) {
     // `skip_block` also eats the blank and comment lines that follow the
     // value; they belong to nobody and are not preserved anywhere else.
+    // Except under `|+` / `>+`: there the empty lines are the value's own.
+    let keep = block
+        .first()
+        .and_then(|l| split_key(l, 0).ok())
+        .and_then(|(_, rest)| block_header(rest))
+        .is_some_and(|h| h.chomp == Some('+'));
     let end = block
         .iter()
-        .rposition(|l| !is_blank(l))
+        .rposition(|l| !is_blank(l) || (keep && l.trim().is_empty()))
         .map_or(0, |p| p + 1);
     let mut text = String::new();
     for line in &block[..end] {
@@ -666,22 +676,53 @@ fn skip_block(lines: &[&str], i: &mut usize) {
     }
 }
 
-/// One scalar: plain (comment stripped), single-quoted, or double-quoted.
+/// One scalar: plain (comment stripped), single-quoted, or double-quoted. A
+/// quoted one may be followed by a comment, so the closing quote is found by
+/// scanning, not by looking at the last character.
 fn read_scalar(raw: &str) -> Result<String> {
     let s = raw.trim();
-    if let Some(inner) = s.strip_prefix('\'') {
-        let Some(inner) = inner.strip_suffix('\'') else {
-            bail!("unterminated single-quoted string: {s}");
-        };
-        return Ok(inner.replace("''", "'"));
+    let (quote, kind) = match s.chars().next() {
+        Some('\'') => ('\'', "single"),
+        Some('"') => ('"', "double"),
+        _ => return Ok(strip_comment(s).trim_end().to_string()),
+    };
+    let body = &s[1..];
+    let Some(end) = closing_quote(body, quote) else {
+        bail!("unterminated {kind}-quoted string: {s}");
+    };
+    let after = &body[end + 1..];
+    let comment = after.starts_with([' ', '\t']) && after.trim_start().starts_with('#');
+    if !after.is_empty() && !comment {
+        bail!("text after the closing quote of {kind}-quoted string: {s}");
     }
-    if let Some(inner) = s.strip_prefix('"') {
-        let Some(inner) = inner.strip_suffix('"') else {
-            bail!("unterminated double-quoted string: {s}");
-        };
-        return unescape_double(inner);
+    let inner = &body[..end];
+    if quote == '\'' {
+        Ok(inner.replace("''", "'"))
+    } else {
+        unescape_double(inner)
     }
-    Ok(strip_comment(s).trim_end().to_string())
+}
+
+/// Byte offset in `body` of the quote that closes it: `''` is an escaped
+/// quote inside single quotes, `\` escapes the next character inside double.
+fn closing_quote(body: &str, quote: char) -> Option<usize> {
+    let b = body.as_bytes();
+    let q = quote as u8;
+    let mut i = 0;
+    while i < b.len() {
+        if quote == '"' && b[i] == b'\\' {
+            i += 2;
+        } else if b[i] == q {
+            if quote == '\'' && b.get(i + 1) == Some(&q) {
+                i += 2;
+            } else {
+                return Some(i);
+            }
+        } else {
+            i += 1;
+        }
+    }
+    None
 }
 
 /// A `#` opens a comment at the start of a scalar or after whitespace.
@@ -716,6 +757,17 @@ fn unescape_double(s: &str) -> Result<String> {
             '\\' => out.push('\\'),
             '/' => out.push('/'),
             ' ' => out.push(' '),
+            '\t' => out.push('\t'),
+            // The rest of the libyaml set; the writer emits none of them, a
+            // file from another tool may.
+            'a' => out.push('\u{07}'),
+            'b' => out.push('\u{08}'),
+            'v' => out.push('\u{0B}'),
+            'f' => out.push('\u{0C}'),
+            'N' => out.push('\u{85}'),
+            '_' => out.push('\u{A0}'),
+            'L' => out.push('\u{2028}'),
+            'P' => out.push('\u{2029}'),
             'x' | 'u' | 'U' => {
                 let width = match esc {
                     'x' => 2,
@@ -843,6 +895,8 @@ mod tests {
             " indented\nlines",
             "tab\there",
             "esc\u{1b}ape",
+            "Ivan\u{a0}",
+            "\u{2003}em",
         ] {
             let mut m = meta();
             // A blank `status` reads back as missing, so it cannot round trip
@@ -994,6 +1048,62 @@ estimate: |-\n  two\n  days\n\
 reviewers:\n- ana\n- bo\n"
         );
         assert_eq!(parse(&out).unwrap(), m);
+    }
+
+    #[test]
+    fn quoted_scalar_followed_by_comment() {
+        let text = "\
+status: 'todo'  # x
+assignee: \"Ivan # not a comment\" # but this is
+tags:
+  - 'it''s' # c
+  - \"a\\\"b\"\t# c
+created: 2026-09-16T10:00:00Z
+updated: 2026-09-16T10:00:00Z
+";
+        let m = parse(text).unwrap();
+        assert_eq!(m.status, "todo");
+        assert_eq!(m.assignee.as_deref(), Some("Ivan # not a comment"));
+        assert_eq!(m.tags, ["it's", "a\"b"]);
+        for bad in ["status: 'todo' x", "status: 'todo'#x", "status: 'todo"] {
+            let text =
+                format!("{bad}\ncreated: 2026-09-16T10:00:00Z\nupdated: 2026-09-16T10:00:00Z\n");
+            assert!(parse(&text).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn libyaml_escapes_are_read() {
+        let text = "\
+status: \"\\a\\b\\v\\f\\N\\_\\L\\P\\\t.\"
+created: 2026-09-16T10:00:00Z
+updated: 2026-09-16T10:00:00Z
+";
+        let m = parse(text).unwrap();
+        assert_eq!(
+            m.status,
+            "\u{07}\u{08}\u{0B}\u{0C}\u{85}\u{A0}\u{2028}\u{2029}\t."
+        );
+    }
+
+    #[test]
+    fn keep_block_keeps_trailing_blank_lines() {
+        let text = "\
+status: todo
+created: 2026-09-16T10:00:00Z
+updated: 2026-09-16T10:00:00Z
+notes: |+
+  kept
+
+# a comment belongs to nobody
+";
+        let m = parse(text).unwrap();
+        assert_eq!(m.unknown[0].text, "notes: |+\n  kept\n\n");
+        let again = parse(&render(&m)).unwrap();
+        assert_eq!(again, m);
+        // Without `+` the blank line is the file's, not the value's.
+        let m = parse(&text.replace("|+", "|")).unwrap();
+        assert_eq!(m.unknown[0].text, "notes: |\n  kept\n");
     }
 
     #[test]
