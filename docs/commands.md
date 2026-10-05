@@ -552,7 +552,9 @@ name needs `--force` — an `m.yml` entry, even one whose file is gone, or a fil
 under `f/`. With `--force` the entry is replaced in place, and a file whose
 name differs only in case is removed, so the task keeps one of each. Files over 5 MiB produce a warning, never a refusal. An
 attachment listed in `m.yml` whose file is already gone can still be detached —
-the entry is simply dropped. Each copied file is staged with `git add -f`, so a
+the entry is simply dropped. `detach` finds the entry ignoring case (an exact
+match wins if a task holds both spellings) and removes, reports and commits it
+under the name stored in `m.yml`, so `detach 3 A.png` drops an `a.png`. Each copied file is staged with `git add -f`, so a
 name matching `.yman/.gitignore` (`*.swp`, `*~`, `.#*`, `*.orig`) is committed
 like any other: naming a file to attach overrides the ignore rule.
 

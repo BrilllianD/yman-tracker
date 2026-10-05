@@ -48,6 +48,9 @@ under [Releasing](README.md#releasing) in the README.
   `pathspec … did not match any files` on a removed task's folder that `rm`
   left holding only an ignored file such as `*.swp`; there is nothing to drop
   there, and the sync goes through.
+- `yman detach` matches the attachment name ignoring case, as `attach` does:
+  `detach 3 A.png` removes an `a.png` (under its stored spelling) instead of
+  failing with `no attachment "A.png" on task 3`.
 - `yman init` whose first push fails no longer stops before `--hooks` and the
   summary: the tracker exists locally, so it finishes and warns
   `not published to origin (<why>); run: yman sync`.
