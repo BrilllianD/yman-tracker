@@ -95,8 +95,8 @@ caller asked for.
 
 Touches no git itself; only the lazy refresh of §1 may. Filters, then sorts by
 `(priority, status index, id)`, where the status index is the position in
-`config.statuses.list` and ids compare numerically when they are numbers, by
-numeric tail when they share a `prefix-`, lexically otherwise.
+`config.statuses.list`. Ids order as plain numbers first (numerically), then
+`prefix-N` ids by prefix and numeric tail, then everything else lexically.
 
 Default filtering hides tasks in any **terminal** status — `statuses.terminal`,
 or the done status when that key is unset; `-a` includes them, and naming one

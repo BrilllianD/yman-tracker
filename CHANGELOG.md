@@ -14,6 +14,11 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- Ids are sorted by a total order: plain numbers, then `prefix-N` by prefix
+  and number, then the rest lexically. The old pairwise rules could form a
+  cycle (`9 < 10 < 5-a < 9`), on which Rust's sort may panic. The one visible
+  change is that a `prefix-N` id such as `z-1` now sorts before a random id
+  such as `t-7f3a`.
 - `yman refresh` on a dirty `.yman` prints one note,
   `note: .yman has uncommitted changes, refresh skipped`, instead of following
   it with a second `note: worktree has uncommitted changes`.
