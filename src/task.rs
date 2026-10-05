@@ -496,33 +496,40 @@ impl Task {
     }
 }
 
-/// Sort ids the way a human reads them: numerically when they are numbers,
-/// by numeric tail when they share a `prefix-`, lexically otherwise.
+/// Sort ids the way a human reads them: plain numbers first, numerically;
+/// then `prefix-N` ids by prefix and numeric tail; then everything else,
+/// lexically. Ties within a class (`07` against `7`) fall back to the bytes.
+///
+/// This has to be a total order: `sort_by` may panic on one that is not, and
+/// mixing rules pairwise ("numbers numerically, same prefix by tail, else
+/// lexically") is not one — `9 < 10`, `10 < 5-a` and `5-a < 9` all held.
 pub fn cmp_id(a: &str, b: &str) -> Ordering {
-    let num = |s: &str| -> Option<u64> {
+    #[derive(PartialEq, Eq, PartialOrd, Ord)]
+    enum Key<'a> {
+        Num(u64),
+        Prefixed(&'a str, u64),
+        Other,
+    }
+    fn digits(s: &str) -> Option<u64> {
         if !s.is_empty() && s.bytes().all(|c| c.is_ascii_digit()) {
             s.parse().ok()
         } else {
             None
         }
-    };
-    if let (Some(x), Some(y)) = (num(a), num(b)) {
-        return x.cmp(&y);
     }
-    fn split(s: &str) -> Option<(&str, u64)> {
-        let i = s.rfind('-')?;
-        let tail = s[i + 1..].parse::<u64>().ok().filter(|_| {
-            let t = &s[i + 1..];
-            !t.is_empty() && t.bytes().all(|c| c.is_ascii_digit())
-        })?;
-        Some((&s[..i], tail))
+    fn key(s: &str) -> Key<'_> {
+        if let Some(n) = digits(s) {
+            return Key::Num(n);
+        }
+        match s.rfind('-') {
+            Some(i) => match digits(&s[i + 1..]) {
+                Some(n) => Key::Prefixed(&s[..i], n),
+                None => Key::Other,
+            },
+            None => Key::Other,
+        }
     }
-    if let (Some((pa, ta)), Some((pb, tb))) = (split(a), split(b))
-        && pa == pb
-    {
-        return ta.cmp(&tb);
-    }
-    a.cmp(b)
+    key(a).cmp(&key(b)).then_with(|| a.cmp(b))
 }
 
 #[cfg(test)]
@@ -682,6 +689,51 @@ mod tests {
         let mut ids = vec!["10", "2", "1", "t-b", "t-a", "ab-10", "ab-2"];
         ids.sort_by(|a, b| cmp_id(a, b));
         assert_eq!(ids, ["1", "2", "10", "ab-2", "ab-10", "t-a", "t-b"]);
+    }
+
+    #[test]
+    fn id_order_is_total() {
+        // Under the old pairwise rules these three formed a cycle.
+        for start in [["9", "10", "5-a"], ["5-a", "10", "9"], ["10", "5-a", "9"]] {
+            let mut ids = start.to_vec();
+            ids.sort_by(|a, b| cmp_id(a, b));
+            assert_eq!(ids, ["9", "10", "5-a"]);
+        }
+        let mut ids = vec![
+            "t-ab",
+            "a-10",
+            "7",
+            "07",
+            "z-1",
+            "5-a",
+            "a-2",
+            "10",
+            "9",
+            "a-b-1",
+            "99999999999999999999",
+        ];
+        ids.sort_by(|a, b| cmp_id(a, b));
+        assert_eq!(
+            ids,
+            [
+                "07",
+                "7",
+                "9",
+                "10",
+                "a-2",
+                "a-10",
+                "a-b-1",
+                "z-1",
+                "5-a",
+                "99999999999999999999",
+                "t-ab",
+            ]
+        );
+        for a in &ids {
+            for b in &ids {
+                assert_eq!(cmp_id(a, b), cmp_id(b, a).reverse(), "{a} {b}");
+            }
+        }
     }
 
     #[test]
