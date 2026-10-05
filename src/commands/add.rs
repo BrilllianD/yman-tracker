@@ -77,10 +77,7 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
     };
     let priority = a.priority.unwrap_or(ctx.config().priorities.default);
 
-    let assignee = a
-        .assignee
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
+    let assignee = a.assignee.and_then(super::assignee_arg);
 
     let spec = Spec {
         status,

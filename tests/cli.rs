@@ -3430,6 +3430,47 @@ fn set_assignee_links_and_related() {
     assert!(!shown.contains("related:"), "{shown}");
 }
 
+/// `set -a` trims like `add -a`, and a blank value means unassigned.
+#[test]
+fn set_assignee_is_trimmed_and_blank_clears() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let assignee = |fx: &Fx| {
+        let yml = fx.read(&fx.task_dir(&fx.a, "1").join("m.yml"));
+        yml.lines()
+            .find_map(|l| l.strip_prefix("assignee:"))
+            .map(|v| v.trim().to_string())
+            .filter(|v| v != "null")
+    };
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["set", "1", "-a", " bob "])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stdout(&out).contains("1: assignee - -> bob\n"),
+        "{}",
+        stdout(&out)
+    );
+    assert_eq!(assignee(&fx).as_deref(), Some("bob"));
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["set", "1", "-a", "  "])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stdout(&out).contains("1: assignee bob -> -"),
+        "{}",
+        stdout(&out)
+    );
+    assert_eq!(assignee(&fx), None);
+}
+
 /// Relating to an id nobody here has warns and commits anyway — the other
 /// clone that owns it may not have synced yet.
 #[test]
@@ -3650,13 +3691,14 @@ fn awkward_field_values_survive_a_rewrite() {
     fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
 
     // Values that a naive YAML writer would lose: a colon, a leading `#`, a
-    // quote, something that reads as a number, and a trailing space.
+    // quote and something that reads as a number. Edge whitespace cannot get
+    // here (`-a` is trimmed); `yml::round_trips_awkward_values` covers it.
     fx.yman(&fx.a)
         .args([
             "set",
             "1",
             "--assignee",
-            "O'Brien: lead ",
+            "O'Brien: lead",
             "--tag",
             "5",
             "--tag",
@@ -3670,7 +3712,7 @@ fn awkward_field_values_survive_a_rewrite() {
         .success();
 
     let json = stdout(&fx.yman(&fx.a).args(["ls", "--json"]).output().unwrap());
-    assert!(json.contains("O'Brien: lead "), "{json}");
+    assert!(json.contains("O'Brien: lead\""), "{json}");
 
     // Reading the folder back is what proves the file round-tripped: every
     // command loads `m.yml` before it does anything else.

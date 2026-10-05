@@ -397,7 +397,9 @@ a change, and removing one that was never there is quietly accepted. Both
 an invalid one — nothing yman wrote can look like that, so such a value is a
 typo rather than something waiting to be removed. `--title` is trimmed and
 refused exactly as `add` refuses a title — empty, or carrying a control
-character — before anything is written. When
+character — before anything is written. `-a/--assignee` is trimmed the same
+way `add` trims it, and a blank value clears the assignee like
+`--no-assignee`. When
 nothing at all changed, `set` prints `no changes` and commits nothing. `-m`
 always counts as a change; an empty message is the `empty comment` error.
 

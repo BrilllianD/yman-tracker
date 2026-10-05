@@ -57,6 +57,13 @@ pub fn dedupe(values: Vec<String>) -> Vec<String> {
     out
 }
 
+/// `-a` on `add` and `set`: surrounding whitespace is dropped, and a value
+/// that is blank after that means "unassigned", the same as leaving it out.
+pub fn assignee_arg(value: String) -> Option<String> {
+    let v = value.trim();
+    (!v.is_empty()).then(|| v.to_string())
+}
+
 /// Warn about every `--relate` target no folder here carries. Not a refusal:
 /// a concurrent `add` on another clone can legitimately race this, and the id
 /// becomes real the moment that clone's work arrives.
