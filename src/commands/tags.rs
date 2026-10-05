@@ -190,8 +190,8 @@ fn remove(ctx: &mut Context, a: TagRmArgs) -> Result<()> {
         if !std::io::stdin().is_terminal() {
             bail!("refusing to remove without -f");
         }
-        print!("remove tag \"{tag}\" from {}? [y/N] ", tasks(hits.len()));
-        std::io::stdout().flush()?;
+        eprint!("remove tag \"{tag}\" from {}? [y/N] ", tasks(hits.len()));
+        std::io::stderr().flush()?;
         let mut answer = String::new();
         std::io::stdin().lock().read_line(&mut answer)?;
         if !matches!(answer.trim(), "y" | "Y") {

@@ -107,7 +107,7 @@ fn fast_forward(ctx: &Context, quiet: bool) -> Result<RefreshReport> {
         .unwrap_or(0);
     ctx.wt.ok(&["merge", "-q", "--ff-only", REMOTE])?;
     if !quiet {
-        eprintln!("refreshed: {n} new commit(s)");
+        eprintln!("note: refreshed {n} new commit(s)");
     }
     Ok(RefreshReport {
         applied: n,

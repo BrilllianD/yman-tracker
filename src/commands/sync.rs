@@ -497,6 +497,7 @@ fn merge_remote(ctx: &Context) -> Result<()> {
         // not found`), and nothing else would tell the user.
         eprint!("{}", out.stderr);
         let files = unmerged_paths(ctx)?;
+        eprintln!("note: unmerged files:");
         let mut marked = String::new();
         for (f, stages) in &files {
             if file_has_markers(&ctx.ydir.join(f)) {

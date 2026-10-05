@@ -13,6 +13,11 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Changed
 
+- Every stderr line now carries its prefix or continues one: the `rm` and
+  `tags rm` prompts moved from stdout to stderr, `refreshed: N new commit(s)`
+  became `note: refreshed N new commit(s)`, the hook advice is a `note:` and
+  an unreadable hook a `warning:`, and `sync` introduces its list of
+  conflicting files with `note: unmerged files:`.
 - `yman add --sections` walks the task history for taken ids once per run
   instead of once per section.
 
