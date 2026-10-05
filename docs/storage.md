@@ -102,6 +102,7 @@ file answers. `tests/cli.rs` pins both numbers.
 | `COMMON/info/exclude` | `.yman/` | keeps the code worktree's `git status` clean |
 | `remote.origin.fetch` (appended) | `+refs/tasks/main:refs/yman/remote` | a plain `git fetch` carries task commits; only added when `origin` exists |
 | `yman.refresh` | `lazy` \| `manual` | see [commands.md §5](commands.md#5-refresh) |
+| `yman.autosync` | `off` \| `push` | only when `--autosync` is given; unset means `off`; see [commands.md §1](commands.md#1-what-runs-before-a-command-body) |
 | `yman.author` | prefix string | only meaningful for the `author` id scheme |
 | `merge.ymanmeta.name` | `yman m.yml field-wise merge` | shown by git when the driver runs |
 | `merge.ymanmeta.driver` | `'<yman>' merge-driver %O %A %B` — the binary's path single-quoted for `sh`, a `'` in it written `'\''` | see [Merging `m.yml`](#merging-myml) |
@@ -140,8 +141,8 @@ the URL without creating it would lead nowhere.
 ```
 ROOT/
   .git/
-    config                      # + fetch refspec, yman.refresh, yman.author,
-                                #   merge.ymanmeta.*
+    config                      # + fetch refspec, yman.refresh, yman.autosync,
+                                #   yman.author, merge.ymanmeta.*
     info/exclude                # + ".yman/"
     refs/yman/{local,remote}    # remote only once fetched; absent when local-only
     worktrees/-yman/            # git-managed; HEAD, index, MERGE_HEAD

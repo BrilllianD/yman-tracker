@@ -13,7 +13,8 @@ use clap::{ArgAction, ArgGroup, Args, Parser, Subcommand, ValueEnum, ValueHint};
 stdout is data; errors, warnings and notes go to stderr.
 Exit codes: 0 ok, 1 error, 2 usage, 3 sync merge unresolved, 4 no such task.
 start/done/move/cancel/reopen/prio take several ids and -m <comment>.
-Bodies without an editor: add --body-file <path|->, set --body <text>.
+Bodies without an editor: add -m <text> | --body-file <path|->,
+  set --body <text> | --body-file <path|->.
 Scripts and agents:  yman guide"
 )]
 pub struct Cli {
@@ -33,7 +34,7 @@ pub enum Cmd {
     Show(ShowArgs),
     /// Show a task and the tasks relating to it, with progress
     Plan(PlanArgs),
-    /// Open a task's t.md in $EDITOR
+    /// Open a task's t.md in $VISUAL or $EDITOR
     Edit(IdArgs),
     /// Change fields of a task
     Set(SetArgs),
@@ -179,7 +180,7 @@ pub struct AddArgs {
     /// Body read from a file, `-` for stdin
     #[arg(long = "body-file", value_name = "PATH", value_hint = ValueHint::FilePath, conflicts_with_all = ["message", "edit"])]
     pub body_file: Option<String>,
-    /// Open the new t.md in $EDITOR
+    /// Open the new t.md in $VISUAL or $EDITOR
     #[arg(short = 'e', long)]
     pub edit: bool,
     /// Assignee
@@ -405,7 +406,7 @@ pub struct CommentArgs {
     /// Comment text
     #[arg(short = 'm', long, value_name = "TEXT")]
     pub message: Option<String>,
-    /// Write the comment in $EDITOR
+    /// Write the comment in $VISUAL or $EDITOR
     #[arg(short = 'e', long)]
     pub edit: bool,
 }

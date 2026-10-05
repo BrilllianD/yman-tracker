@@ -234,7 +234,7 @@ Creates a task and commits it. `-t`, `--link`, `--relate` and `--waits-on`
 repeat; `--waits-on <id>` is `--relate <id>` plus `-s blocked`. Relating
 to an id this clone does not have warns on stderr and commits anyway — another
 clone may not have synced yet.
-`--body-file -` reads the body from stdin. `-e` opens `$EDITOR` on the new
+`--body-file -` reads the body from stdin. `-e` opens `$VISUAL` or `$EDITOR` on the new
 `t.md` first, starting from the `-m` body when both are given — whatever title you type there wins, and the folder is named after
 it. `--sections plan.md` creates one task per `# Title` section of a markdown
 file instead, each with the text up to the next heading as its body (a `#`
@@ -761,7 +761,11 @@ any local link or anchor that leads nowhere. It needs `mdbook` on `PATH`
 result after a build, though edits to the sources need the script run again.
 `.github/workflows/ci.yml` runs it as part of the gate, and
 `.github/workflows/pages.yml` builds it on every push and deploys it from
-`main`. Adding a page means adding it to `docs/SUMMARY.md`.
+`main`. Adding a page means adding it to `docs/SUMMARY.md`; the script fails
+when a `docs/*.md` is missing from it. `docs/SUMMARY.md` is mdBook's table of
+contents rather than a page: its links to `README.md`, `skill.md` and
+`CHANGELOG.md` name the copies the script makes under `target/book-src`, so
+they do not resolve when GitHub renders the file.
 
 ### Releasing
 

@@ -71,13 +71,13 @@ to the user's configuration.
 | `comment` | `task({id}): comment` |
 | `tags rename` | `yman: tags rename {old} -> {new} ({n} tasks)` |
 | `tags rm` | `yman: tags remove {tag} ({n} tasks)` |
-
-In both `tags` subjects `{n} tasks` is `1 task` when there is exactly one.
 | `sync` snapshot | `yman: snapshot local changes` |
 | `sync` renumber | `yman: renumber 2->3, 7->8 (sync collision)` |
 | `sync` merge | `yman: merge origin refs/tasks/main` |
 | `sync` rejoin | `yman: rejoin files left under a moved folder` |
 | `sync` drop | `yman: drop files left under a removed task` |
+
+In both `tags` subjects `{n} tasks` is `1 task` when there is exactly one.
 
 `{title}` has `"` replaced by `'`. `{pairs}` is space-joined, e.g.
 `status=todo->doing priority=5->2 title tags=+ui,-auth comment` — a changed
@@ -210,13 +210,14 @@ An unknown id is exit 4, as everywhere.
 
 Reports and never changes anything: the local ref and its short head, the
 remote ref with `ahead`/`behind` when it has been fetched, the refresh policy,
+the autosync setting (the text form names it only when it is not `off`),
 whether the hooks are installed, the number of uncommitted changes under
 `.yman`, an unresolved merge with its unmerged files, and the task counts per
 configured status.
 
 `--json` emits one object —
 `{local: {ref, head}, remote: {ref, fetched, head, ahead, behind, origin}, refresh,
-hooks, worktree: {dirty}, merge: {in_progress, unmerged}, tasks: {by_status,
+autosync, hooks, worktree: {dirty}, merge: {in_progress, unmerged}, tasks: {by_status,
 other, broken}}`. Before the first fetch `fetched` is `false`, `head` is `null`
 and both counters are `0`. `origin` is `false` for a local-only tracker, whose
 text form prints `remote: none (no "origin"; tasks are local only)` instead of
@@ -557,7 +558,7 @@ like any other: naming a file to attach overrides the ignore rule.
 
 ### `comment`
 
-Text comes from `-m`, or from `$EDITOR` with `-e`, or — when neither is given
+Text comes from `-m`, or from the editor (`$VISUAL`, else `$EDITOR`) with `-e`, or — when neither is given
 and stdin is not a terminal — from stdin, read until end of file. That last
 form waits for EOF: a caller whose stdin is an open pipe it never closes (a
 harness, a CI step) blocks, so a non-interactive caller passes `-m`, or gives

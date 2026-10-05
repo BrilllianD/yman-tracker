@@ -27,8 +27,8 @@ closed tasks need `-a` or `-s <closed status>`.
 
 `show <id>` prints a header (`related by:` = tasks relating to it), the body,
 then `attachments:` and `discussion:`; empty sections omitted, `-n <N>` keeps the last N.
-`tags` lists every tag in use with its task count, closed tasks included. `ls`,
-`show`, `status` and `tags` take `--json`, which omits nothing: `[]` and `null`.
+`tags` lists every tag in use with its task count, closed tasks included. `ls`, `plan`,
+`show`, `status`, `tags` take `--json`: empty is `[]`/`null`; `ls`/`plan` add `body` with `-l`.
 
 ## Writing
 

@@ -105,9 +105,10 @@ folder path and nothing else, so `cd "$(yman path 14)"` works), `log [<id>]`
 (`-n`, default 20; with an id it follows the task across renames), `tags` (every
 tag with its task count, closed tasks included) and `status`.
 
-`--json` exists on `ls`, `show`, `status` and `tags` only. There is no global
-`--json`, no `-C <dir>`, no `--verbose`. JSON omits nothing: empty lists are
-`[]`, an absent assignee is `null`.
+`--json` exists on `ls`, `plan`, `show`, `status` and `tags` only. There is no
+global `--json`, no `-C <dir>`, no `--verbose`. JSON keeps empty keys: empty
+lists are `[]`, an absent assignee is `null`. The one exception is `body`, which
+`ls` and `plan` include only with `-l`; `show` always has it.
 
 ## Writing
 

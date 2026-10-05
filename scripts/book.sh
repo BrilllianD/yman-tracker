@@ -21,6 +21,19 @@ rm -rf "$src" "$out"
 mkdir -p "$src"
 cp docs/*.md "$src/"
 
+# mdBook builds only what SUMMARY.md lists, so a page left out of it would
+# silently be missing from the site.
+missing=""
+for page in docs/*.md; do
+	name=${page#docs/}
+	[ "$name" = SUMMARY.md ] && continue
+	grep -qF -- "]($name)" docs/SUMMARY.md || missing="$missing $name"
+done
+if [ -n "$missing" ]; then
+	echo "book: not listed in docs/SUMMARY.md:$missing" >&2
+	exit 1
+fi
+
 # README links into docs/ become siblings; skills/ and LICENSE are not pages,
 # so they go to GitHub. The hand-written Contents list is dropped because the
 # sidebar replaces it.
@@ -66,7 +79,7 @@ find "$out" -name '*.html' ! -name print.html ! -name 404.html | while IFS= read
 			case "$link" in
 			*'#'*)
 				frag=${link#*#}
-				grep -q "id=\"$frag\"" "$target" ||
+				grep -qF -- "id=\"$frag\"" "$target" ||
 					echo "${page#"$out"/}: $link (no such anchor)" >> "$bad"
 				;;
 			esac

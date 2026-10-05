@@ -141,6 +141,7 @@ commit.
 | push rejected while finishing a merge | `origin moved while finishing the merge; run: yman sync` |
 | network step failed | `fetch failed` / `push failed` / `merge failed`, with git's stderr printed above; a push origin refused (any rejection but the race, [commands.md](commands.md#6-sync) step 8) also prints git's ` ! [remote rejected] refs/yman/local -> refs/tasks/main (<reason>)` line, and is not retried |
 | `init` fetch failed | `fetch failed (see above); use --offline to skip` |
+| `init` could not create `.yman` (any `git worktree add` failure but the second-checkout case above) | `git worktree add failed`, with git's stderr printed above |
 | `hooks install` met a hook it does not own | `<n> hook(s) not installed: <names>`, after `note: hook <name> exists; add this line to it:` and the line itself on stderr for each |
 | `hooks install` met a hook it cannot read (permission denied, not UTF-8, a dangling symlink) | the same `<n> hook(s) not installed: <names>`, after `warning: hook <name>: cannot read <path>: <why>; not replacing it` on stderr for each; `<why>` is `not valid UTF-8`, `dangling symlink` or the OS error |
 | `man --dir` cannot write | `cannot create <dir>: <why>` / `cannot write man pages to <dir>: <why>` |
