@@ -14,6 +14,11 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- `m.yml` round trips: a value with Unicode whitespace at an edge (U+00A0)
+  is quoted so it reads back intact; a comment after a quoted scalar
+  (`status: 'todo'  # x`) no longer fails as unterminated; the libyaml
+  escapes `\a \b \v \f \N \_ \L \P` are read; and an unknown `|+` block keeps
+  its trailing blank lines on rewrite.
 - `.yman/config.toml` refuses a blank, edge-whitespace or repeated
   `statuses.list` entry. A blank status used to let `add -s ''` commit a task
   whose `m.yml` read back as broken.

@@ -292,13 +292,16 @@ related:
   yman writes — or one added by hand — is not destroyed by an older binary.
   They are preserved, not interpreted: nothing reads them and none of them
   appear in `--json` output. Comments, and unknown keys *inside* an
-  `attachments` item, are still dropped.
+  `attachments` item, are still dropped. Trailing empty lines after an
+  unknown block are dropped too, except under a keep header (`|+`, `>+`),
+  where they are part of the value and kept.
 - `m.yml` is read and written by hand in `src/yml.rs`; there is no YAML
   crate. The writer emits exactly the shape above: block sequences at column
   zero, `[]` for an empty list, `null` for an absent `assignee`, and a scalar
   plain unless that would not read back as the same string. It is
   single-quoted when empty, when it would read back as a number, a boolean or
-  null, when it has leading or trailing whitespace, starts with `---` or
+  null, when it has leading or trailing whitespace (any Unicode whitespace,
+  such as U+00A0, since the reader trims all of it), starts with `---` or
   `...`, starts with a YAML indicator (`#,[]{}&*!|>'"%@` and the backtick, or
   `-`, `?`, `:` followed by a space or nothing), or contains `: `, ` #` or a
   trailing `:`. It is double-quoted when it holds an unprintable character. A
@@ -307,9 +310,11 @@ related:
   lose. The preserved unknown blocks follow, which is why a hand-edited file
   that interleaved one comes back with it moved to the end.
 - The reader is deliberately wider than the writer, because people edit this
-  file and resolve merge conflicts in it: comments, flow sequences
-  (`tags: [a, b]`), single- and double-quoted scalars, folded blocks (`>-`)
-  and sequences indented under their key are all accepted. A key repeated at
+  file and resolve merge conflicts in it: comments (after a quoted scalar
+  too, `status: 'todo'  # x`), flow sequences (`tags: [a, b]`), single- and
+  double-quoted scalars with the full libyaml escape set (`\a \b \v \f \N
+  \_ \L \P` included), folded blocks (`>-`) and sequences indented under
+  their key are all accepted. A key repeated at
   the top level or inside an `attachments` item keeps its **last** occurrence,
   which is the half of a conflict a person usually means to keep.
 - A flow sequence is split on every `,` before its items are unquoted, so a
