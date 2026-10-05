@@ -63,6 +63,23 @@ for case_dir in "$here"/cases/$filter/; do
         work="$out/$name-$run"
         mkdir -p "$work"
         bash "$here/fixture.sh" "$work" "$YMAN" >/dev/null
+        # A case that needs more than the shared fixture (a second clone, a
+        # version 2 config, a file to read) builds it in its own setup.sh.
+        if [ -f "$case_dir/setup.sh" ]; then
+            (
+                cd "$work/wk"
+                export GIT_CONFIG_GLOBAL="$work/gitconfig" GIT_CONFIG_NOSYSTEM=1
+                unset YMAN_ACTOR
+                bash "$case_dir/setup.sh" "$work" "$YMAN"
+            ) >/dev/null 2>&1 || { echo "setup failed for $name" >&2; exit 1; }
+        fi
+        # Tools beyond the shared allowlist, one per line in allowed-tools.
+        allowed=('Bash(yman:*)' 'Bash(ls:*)' 'Bash(YMAN_ACTOR=*)')
+        if [ -f "$case_dir/allowed-tools" ]; then
+            while IFS= read -r tool; do
+                [ -z "$tool" ] || allowed+=("$tool")
+            done < "$case_dir/allowed-tools"
+        fi
 
         # The binary must answer to `yman`, the name every prompt and the skill
         # itself use.
@@ -95,7 +112,7 @@ for case_dir in "$here"/cases/$filter/; do
             timeout "$timeout_s" claude -p "$(cat "$case_dir/prompt.md")" \
                 --output-format stream-json --verbose \
                 --permission-mode default \
-                --allowedTools 'Bash(yman:*)' 'Bash(ls:*)' 'Bash(YMAN_ACTOR=*)' \
+                --allowedTools "${allowed[@]}" \
                 ${model:+--model "$model"} \
                 < /dev/null > "$transcript"
         )
