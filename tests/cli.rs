@@ -3239,6 +3239,40 @@ fn add_with_an_unparsable_edit_leaves_no_task() {
     assert!(!ls.contains("Placeholder"), "{ls}");
 }
 
+/// An aborted `add -e` into a closed status also removes the archive
+/// directory it had to create. Git ignores an empty directory, so the tree
+/// read clean while the directory stayed on disk.
+#[test]
+fn add_with_a_failing_editor_removes_the_archive_dir_it_made() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v2_config(&fx.a);
+    let done = fx.a.join(".yman").join("done");
+    assert!(!done.exists());
+
+    let out = fx
+        .yman(&fx.a)
+        .env("EDITOR", "false")
+        .args(["add", "Placeholder", "-s", "done", "-e"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(!done.exists(), "{} left behind", done.display());
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["status", "--porcelain"]), "");
+
+    // A directory that was already there stays, empty or not.
+    std::fs::create_dir(&done).unwrap();
+    let out = fx
+        .yman(&fx.a)
+        .env("EDITOR", "false")
+        .args(["add", "Placeholder", "-s", "done", "-e"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(done.is_dir());
+    assert_eq!(std::fs::read_dir(&done).unwrap().count(), 0);
+}
+
 #[test]
 fn comment_from_editor_and_from_stdin() {
     let fx = Fx::new();
