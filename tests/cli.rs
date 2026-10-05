@@ -25,6 +25,7 @@ fn init_creates_worktree_and_config() {
     // The attribute is history; the driver that implements it is per-clone.
     let driver = fx.git(&fx.a, &["config", "--get", "merge.ymanmeta.driver"]);
     assert!(driver.contains("merge-driver %O %A %B"), "{driver}");
+    assert!(driver.starts_with('\''), "single-quoted for sh: {driver}");
 
     // HEAD points at the ref, and the ref is not a branch.
     assert_eq!(
@@ -2043,8 +2044,8 @@ fn init_race_adopts_remote_history() {
 /// The other clone's push creates refs/tasks/main between the server's
 /// advertisement and `init`'s own ref creation: receive-pack's create fails.
 /// Where git names it (`reference already exists`) `init` adopts the other
-/// history; where it only says `failed to update ref`, `init` fails with
-/// `push failed` and keeps its local tracker.
+/// history; where it only says `failed to update ref`, `init` succeeds with
+/// a `not published` warning and keeps its local tracker.
 #[test]
 fn init_race_ref_created_under_us_adopts() {
     let reason = server_reason_for_moved_ref(true);
@@ -2075,15 +2076,61 @@ fn init_race_ref_created_under_us_adopts() {
             fx.git(&fx.remote, &["rev-parse", "refs/race/b"])
         );
     } else {
-        assert_eq!(out.status.code(), Some(1), "{err}");
+        assert_eq!(out.status.code(), Some(0), "{err}");
         assert!(err.contains(&format!("({reason})")), "{err}");
-        assert!(err.contains("push failed"), "{err}");
+        assert!(
+            err.contains("warning: not published to origin (push failed); run: yman sync"),
+            "{err}"
+        );
     }
+}
+
+/// A fresh `init` whose push fails outright still installs hooks and prints
+/// its summary: the tracker exists locally, and `sync` publishes it later.
+#[test]
+fn init_push_failure_still_finishes() {
+    let fx = Fx::new();
+    fx.wrap_origin_program(&fx.a, "receive-pack", "exit 1");
+    let out = fx.yman(&fx.a).args(["init", "--hooks"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("initialized .yman"), "{text}");
+    assert!(text.contains("hooks:    installed"), "{text}");
+    assert!(
+        stderr(&out).contains("warning: not published to origin (push failed); run: yman sync"),
+        "{}",
+        stderr(&out)
+    );
+    fx.git(&fx.a, &["config", "--unset", "remote.origin.receivepack"]);
+    fx.yman(&fx.a).arg("sync").assert().success();
+    assert_eq!(
+        origin_tasks(&fx),
+        fx.git(&fx.a, &["rev-parse", "refs/yman/local"])
+    );
+}
+
+/// A broken local history is named as such, not blamed on origin.
+#[test]
+fn init_names_the_broken_history() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.write(&fx.a.join(".yman/config.toml"), "version = 9\n");
+    fx.git(&fx.a.join(".yman"), &["commit", "-qam", "break"]);
+    let out = fx.yman(&fx.a).arg("init").output().unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).contains(
+            "error: refs/yman/local is not a yman history (missing or invalid config.toml)"
+        ),
+        "{}",
+        stderr(&out)
+    );
 }
 
 /// `init`'s push is rejected, but by the time it refetches the ref is gone
 /// again: there is nothing to adopt, so it pushes again rather than resetting
-/// to a refs/yman/remote that does not exist, and gives up like sync does.
+/// to a refs/yman/remote that does not exist, and gives up after as many
+/// attempts as sync, keeping the local tracker and saying it is unpublished.
 #[test]
 fn init_race_with_vanishing_ref_does_not_reset() {
     let fx = Fx::new();
@@ -2107,12 +2154,17 @@ fn init_race_with_vanishing_ref_does_not_reset() {
     );
 
     let out = fx.yman(&fx.a).arg("init").output().unwrap();
-    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
     assert_eq!(fx.runs(&pushes), 3);
     let err = stderr(&out);
     assert!(
-        err.contains("origin keeps moving; retry yman sync"),
+        err.contains("warning: not published to origin (origin keeps moving); run: yman sync"),
         "{err}"
+    );
+    assert!(
+        stdout(&out).contains("initialized .yman"),
+        "{}",
+        stdout(&out)
     );
     assert!(!err.contains("reset"), "{err}");
 

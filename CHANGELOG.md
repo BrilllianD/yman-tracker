@@ -7,6 +7,10 @@ under [Releasing](README.md#releasing) in the README.
 
 ## [Unreleased]
 
+### Added
+
+- `Cargo.toml` declares `rust-version = "1.85"`, which edition 2024 needs.
+
 ### Changed
 
 - `yman add --sections` walks the task history for taken ids once per run
@@ -19,6 +23,15 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- `yman init` whose first push fails no longer stops before `--hooks` and the
+  summary: the tracker exists locally, so it finishes and warns
+  `not published to origin (<why>); run: yman sync`.
+- `yman init` names the history it found broken (`refs/yman/local` or
+  `refs/tasks/main on origin`) instead of always blaming origin.
+- The merge driver's path is single-quoted in git config, so a binary under a
+  path containing `"`, `$`, a backtick or backslashes still runs.
+- Repository discovery works with git older than 2.31, which echoes
+  `--path-format=absolute` back instead of honouring it.
 - `yman sync` pushes the commit `refs/yman/local` held when the push began,
   by sha, and records that commit as published. A commit made by another
   command during the push used to be marked published without reaching

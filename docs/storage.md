@@ -104,7 +104,7 @@ file answers. `tests/cli.rs` pins both numbers.
 | `yman.refresh` | `lazy` \| `manual` | see [commands.md §5](commands.md#5-refresh) |
 | `yman.author` | prefix string | only meaningful for the `author` id scheme |
 | `merge.ymanmeta.name` | `yman m.yml field-wise merge` | shown by git when the driver runs |
-| `merge.ymanmeta.driver` | `"<yman>" merge-driver %O %A %B` | see [Merging `m.yml`](#merging-myml) |
+| `merge.ymanmeta.driver` | `'<yman>' merge-driver %O %A %B` — the binary's path single-quoted for `sh`, a `'` in it written `'\''` | see [Merging `m.yml`](#merging-myml) |
 | `.yman/.gitattributes` | `**/d.md merge=union`, `**/m.yml merge=ymanmeta` | committed, so every clone inherits it |
 
 `remote.origin.push` is **never** set: that would hijack the user's plain

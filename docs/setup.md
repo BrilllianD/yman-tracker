@@ -7,6 +7,10 @@ semantics, [storage.md](storage.md) for the ref and on-disk contract,
 
 ## 1. Prerequisites
 
+Git 2.42 or newer; yman does not check the version, and the test suite runs
+against the git of CI's `ubuntu-latest` image. Building needs Rust 1.85
+(`rust-version` in `Cargo.toml`).
+
 `yman` runs `git` as a subprocess; without it, every command fails with
 `git not found in PATH` except `guide`, `completions` and `man`, which are
 answered before any git process runs. The current directory must be inside the project's git
@@ -57,6 +61,14 @@ two histories are unrelated and `sync` refuses with the re-init message in
 well, though a plain `git fetch` will not carry task commits until `yman init`
 has added the refspec.
 
+`--offline` means no network, so `init --offline` cannot see that origin may
+already hold a tracker. In a clone whose origin has `refs/tasks/main`, it
+creates a second, unrelated history, and the first `yman sync` refuses with
+the re-init message in [errors.md](errors.md). Recover the way that message
+says, `rm -rf .yman && git update-ref -d refs/yman/local && yman init`,
+before adding tasks; tasks already added to the offline history have to be
+re-added by hand. Use `--offline` only for a tracker that starts here.
+
 `init` is idempotent. Run against an existing `.yman` worktree it takes the
 repair path — re-adds the exclude entry and the fetch refspec, re-registers the
 merge driver, applies `--refresh`, `--autosync`, `--author` and `--hooks` if given — and
@@ -94,10 +106,11 @@ creating the tracker at the same time (the reasons are those of `sync`,
 [commands.md](commands.md#6-sync) step 8), `init` refetches and adopts the other
 history with `warning: remote already had tasks; adopted remote state`. Should
 the refetch find no `refs/tasks/main` after all, there is nothing to adopt: it
-pushes again, at most three attempts in all, then fails with
-`origin keeps moving; retry yman sync`, leaving the local tracker in place for
-a later `yman sync` to publish. Any other push failure fails `init` with
-`push failed`, also leaving the local tracker in place.
+pushes again, at most three attempts in all. Giving up after those, or any
+other push failure (git's stderr is printed first), does not fail `init`: the
+tracker exists locally, so `--hooks` and the summary still run, then
+`warning: not published to origin (<why>); run: yman sync` follows on stderr,
+`<why>` being `origin keeps moving` or `push failed`, and the exit code is 0.
 
 ## 4. There is no clone command
 
@@ -114,7 +127,8 @@ Because the second case reuses a history that already has an id scheme,
 `warning: id scheme is "<s>" (from config.toml); --id-scheme ignored`. A remote
 whose `refs/tasks/main` is not a yman history fails with
 `refs/tasks/main on origin is not a yman history (missing or invalid
-config.toml)`.
+config.toml)`; a kept or repaired local history with no loadable
+`config.toml` fails the same way, naming `refs/yman/local` instead.
 
 One `.yman` per clone. A second attempt — typically `init` run from a linked
 worktree of the project, where the toplevel differs — fails with
