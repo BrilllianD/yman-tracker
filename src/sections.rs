@@ -5,8 +5,10 @@
 //! heading inside a fenced code block (``` or ~~~) is body text, so a shell
 //! comment in an example does not split a task in two. Fences follow
 //! CommonMark: three or more of one character open one, and only a run of the
-//! same character, at least as long and with nothing after it, closes it. An
-//! unclosed fence is refused rather than swallowing every later heading.
+//! same character, at least as long and with nothing after it, closes it. The
+//! one deviation is that a fence line may be indented any amount (CommonMark
+//! makes four or more spaces indented code); that simplification is
+//! deliberate. An unclosed fence is refused rather than swallowing every later heading.
 //! `##` and deeper are body text too — a step's body can have its own
 //! structure.
 
@@ -57,12 +59,15 @@ pub fn parse(text: &str, source: &str) -> Result<Vec<(String, String)>> {
 }
 
 /// A fence line: its character, run length, and what follows the run (the
-/// info string on an opening fence; must be empty on a closing one).
+/// info string on an opening fence; must be empty on a closing one). A
+/// backtick run followed by an info string that itself holds a backtick is
+/// inline code, not a fence (CommonMark).
 fn fence_of(line: &str) -> Option<(char, usize, &str)> {
     let head = line.trim_start();
     let c = head.chars().next().filter(|c| matches!(c, '`' | '~'))?;
     let len = head.bytes().take_while(|&b| b == c as u8).count();
-    (len >= 3).then(|| (c, len, head[len..].trim()))
+    let info = head[len..].trim();
+    (len >= 3 && !(c == '`' && info.contains('`'))).then_some((c, len, info))
 }
 
 /// The body without blank lines at either end, as `t.md` stores it.
@@ -141,6 +146,15 @@ mod tests {
         assert_eq!(got.len(), 2, "{got:?}");
         assert_eq!(got[0].1, "```\n```sh\n# inside\n```");
         assert_eq!(got[1].0, "Two");
+    }
+
+    #[test]
+    fn a_backtick_in_a_backtick_info_string_is_not_a_fence() {
+        let got = titles("# A\n```x``` inline\n# B\n");
+        assert_eq!(got.len(), 2, "{got:?}");
+        assert_eq!(got[0].1, "```x``` inline");
+        let got = titles("# A\n~~~ a`b\n# inside\n~~~\n# B\n");
+        assert_eq!(got.len(), 2, "{got:?}");
     }
 
     #[test]
