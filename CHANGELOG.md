@@ -29,6 +29,9 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- A blank or `-` `assignee` in `m.yml` reads as unassigned (`ls --assignee -`
+  lists it, `--json` prints `null`), and `set -a -` / `add -a -` unassign
+  instead of storing a literal `-`.
 - `rm`, `set` and the status verbs no longer exit non-zero after their commit
   has landed when reading the tasks back for the "no longer waits" report
   fails; that is now a warning, so a script that retries on failure does not

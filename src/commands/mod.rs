@@ -58,10 +58,11 @@ pub fn dedupe(values: Vec<String>) -> Vec<String> {
 }
 
 /// `-a` on `add` and `set`: surrounding whitespace is dropped, and a value
-/// that is blank after that means "unassigned", the same as leaving it out.
+/// that is blank or `-` after that means "unassigned", the same as leaving
+/// it out.
 pub fn assignee_arg(value: String) -> Option<String> {
     let v = value.trim();
-    (!v.is_empty()).then(|| v.to_string())
+    (!crate::task::is_unassigned(v)).then(|| v.to_string())
 }
 
 /// `--relate` and `--waits-on` values: trimmed, deduplicated, and refused

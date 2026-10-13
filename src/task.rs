@@ -118,6 +118,12 @@ impl std::fmt::Display for FolderName {
     }
 }
 
+/// "Nobody": blank, or the `-` that `ls --assignee -` and `show` use for
+/// unassigned. A hand edit or an older `set -a -` must not read as a person.
+pub fn is_unassigned(value: &str) -> bool {
+    matches!(value.trim(), "" | "-")
+}
+
 /// A title as `add`, `set --title`, `add --sections`, `add -e` and `edit`
 /// accept it: trimmed, not empty, and free of control characters. A newline would split
 /// it into a title plus a body line in `t.md` and turn the commit subject

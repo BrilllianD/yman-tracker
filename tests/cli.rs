@@ -4125,6 +4125,75 @@ fn set_assignee_is_trimmed_and_blank_clears() {
         stdout(&out)
     );
     assert_eq!(assignee(&fx), None);
+
+    fx.yman(&fx.a)
+        .args(["set", "1", "-a", "bob"])
+        .assert()
+        .success();
+    let out = fx
+        .yman(&fx.a)
+        .args(["set", "1", "-a", "-"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stdout(&out).contains("1: assignee bob -> -"),
+        "{}",
+        stdout(&out)
+    );
+    assert_eq!(assignee(&fx), None);
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["add", "Other", "-a", "-"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let yml = fx.read(&fx.task_dir(&fx.a, "2").join("m.yml"));
+    assert!(yml.contains("assignee: null"), "{yml}");
+}
+
+/// A blank or `-` `assignee` in `m.yml`, from a hand edit or an older
+/// `set -a -`, reads as unassigned.
+#[test]
+fn a_blank_or_dash_assignee_on_disk_reads_as_unassigned() {
+    for raw in ["''", "'   '", "'-'", "-"] {
+        let fx = Fx::new();
+        fx.yman(&fx.a).arg("init").assert().success();
+        fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+        let path = fx.task_dir(&fx.a, "1").join("m.yml");
+        let yml = fx.read(&path);
+        assert!(yml.contains("assignee: null"), "{yml}");
+        std::fs::write(
+            &path,
+            yml.replace("assignee: null", &format!("assignee: {raw}")),
+        )
+        .unwrap();
+        fx.git(&fx.a.join(".yman"), &["commit", "-qam", "hand edit"]);
+
+        let out = fx
+            .yman(&fx.a)
+            .args(["ls", "--assignee", "-"])
+            .output()
+            .unwrap();
+        assert!(
+            stdout(&out).contains("Fix login"),
+            "{raw}: {}",
+            stdout(&out)
+        );
+        let out = fx.yman(&fx.a).args(["ls", "--json"]).output().unwrap();
+        assert!(
+            stdout(&out).contains("\"assignee\":null"),
+            "{raw}: {}",
+            stdout(&out)
+        );
+        let out = fx.yman(&fx.a).args(["show", "1"]).output().unwrap();
+        assert!(
+            stdout(&out).contains("assignee: -"),
+            "{raw}: {}",
+            stdout(&out)
+        );
+    }
 }
 
 /// `--relate` values are trimmed; a blank one or the task's own id is
