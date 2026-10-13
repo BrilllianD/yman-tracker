@@ -54,9 +54,13 @@ from the main repo and fires `post-checkout` inside it, so that one call gets
 the same override. A hook that writes files would otherwise leave `.yman`
 dirty, and refresh would back off until the next snapshot committed the junk.
 The main repo's runner keeps the user's hooks, so they — and [`yman hooks`](#hooks)
-— still fire for the user's own git commands. The override covers hook files
-only: hooks a newer git defines in configuration (`hook.<name>.command`) do
-not look in `core.hooksPath` and still run. GPG signing is deliberately left
+— still fire for the user's own git commands. Hooks a newer git
+(2.54+) defines in configuration (`hook.<name>.command`) do not look in
+`core.hooksPath`, so the same calls also pass `-c hook.<name>.enabled=false`
+for every such name, read once per command with `git config --get-regexp` and
+only when a `.yman` call is made. The `update-ref`, `fetch` and `push` yman
+runs in the main repo on its own refs get the same treatment, so a
+`reference-transaction` hook never sees `refs/yman/*` or `refs/tasks/main`. GPG signing is deliberately left
 to the user's configuration.
 
 | Command | Subject |
@@ -633,7 +637,11 @@ exit 0
 The target directory is `core.hooksPath` when set, as git resolves it with
 `rev-parse --git-path hooks` (`~/` expanded, a relative value relative to the
 toplevel), and the install warning names the resolved path; otherwise
-`COMMON/hooks`. An empty `core.hooksPath` counts as unset. A hook that exists
+`COMMON/hooks`. An empty
+`core.hooksPath` turns git's hooks off, so `install`, `remove` and `status`
+refuse with `core.hooksPath is empty, which turns git hooks off; unset it or
+point it at a directory`, and `yman status` reports hooks `not installed`; a
+whitespace-only value is a directory name like any other and is not trimmed. A hook that exists
 **without** the marker is never touched: the command prints the one line to
 add and exits non-zero after processing both hooks. A hook yman cannot read —
 permission denied, content that is not UTF-8, a dangling symlink — is refused

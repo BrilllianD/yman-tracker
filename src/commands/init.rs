@@ -62,7 +62,9 @@ pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
     let fresh = if ctx.main.rev_parse(LOCAL)?.is_some() {
         false
     } else if ctx.main.rev_parse(REMOTE)?.is_some() {
-        ctx.main.ok(&["update-ref", LOCAL, REMOTE])?;
+        ctx.main
+            .without_hooks()
+            .ok(&["update-ref", LOCAL, REMOTE])?;
         source = ORIGIN_HISTORY;
         false
     } else {
@@ -73,7 +75,9 @@ pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
             .trim()
             .to_string();
         let commit = ctx.main.out(&["commit-tree", &tree, "-m", "yman: init"])?;
-        ctx.main.ok(&["update-ref", LOCAL, commit.trim()])?;
+        ctx.main
+            .without_hooks()
+            .ok(&["update-ref", LOCAL, commit.trim()])?;
         true
     };
 
@@ -129,7 +133,9 @@ fn publish_fresh(ctx: &mut Context) -> Result<Option<anyhow::Error>> {
         fetch_tasks(ctx, "fetch failed (see above); use --offline to skip")?;
         if ctx.main.rev_parse(REMOTE)?.is_some() {
             ctx.wt.ok(&["reset", "-q", "--hard", REMOTE])?;
-            ctx.main.ok(&["update-ref", LOCAL, REMOTE])?;
+            ctx.main
+                .without_hooks()
+                .ok(&["update-ref", LOCAL, REMOTE])?;
             eprintln!("warning: remote already had tasks; adopted remote state");
             ctx.config = Some(load_history_config(ctx, ORIGIN_HISTORY)?);
             return Ok(None);
@@ -256,9 +262,14 @@ fn resolve_remote(ctx: &Context, requested: Option<&str>) -> Result<Option<Strin
 /// error; anything else is.
 fn fetch_tasks(ctx: &Context, failure_msg: &str) -> Result<()> {
     // `FETCH_HEAD` is the user's; see `sync::fetch`.
-    let out = ctx
-        .main
-        .run(&["fetch", "--no-write-fetch-head", "origin", FETCH_REFSPEC])?;
+    // The user's hooks, a `reference-transaction` one included, are not for
+    // yman's own refs.
+    let out = ctx.main.without_hooks().run(&[
+        "fetch",
+        "--no-write-fetch-head",
+        "origin",
+        FETCH_REFSPEC,
+    ])?;
     if out.ok() {
         return Ok(());
     }
@@ -284,6 +295,8 @@ fn add_worktree(ctx: &mut Context) -> Result<()> {
     let ydir = ctx.ydir.to_string_lossy().into_owned();
     // `worktree add` fires `post-checkout` with `.yman` as its working
     // directory, so this one main-repo call runs without the user's hooks.
+    // The user's hooks, a `reference-transaction` one included, are not for
+    // yman's own refs.
     let out = ctx
         .main
         .without_hooks()

@@ -31,6 +31,10 @@ pub struct Git {
     pub dir: PathBuf,
     /// Point `core.hooksPath` at [`NO_HOOKS`] for every call.
     no_hooks: bool,
+    /// Friendly names of the hooks git configuration defines
+    /// (`hook.<name>.command`), read once per runner on first use, and only by
+    /// a runner with hooks off.
+    config_hooks: std::sync::Arc<std::sync::OnceLock<Vec<String>>>,
 }
 
 /// The `core.hooksPath` that holds no hooks. Git looks a hook up as
@@ -76,6 +80,7 @@ impl Git {
         Git {
             dir: dir.into(),
             no_hooks: false,
+            config_hooks: Default::default(),
         }
     }
 
@@ -88,11 +93,53 @@ impl Git {
     /// skips forever and the next snapshot commits the junk. The `.yman`
     /// runner is built this way; the main one is not, so `yman hooks` and the
     /// user's own hooks keep working for the user's own git commands.
+    ///
+    /// `core.hooksPath` hides hook files only; hooks defined in configuration
+    /// (git 2.54+) do not look there, so each configured name is also switched
+    /// off with `hook.<name>.enabled=false`. The names are read once, lazily,
+    /// so a command that never uses this runner (`ls`, `show`, `tags` in the
+    /// steady state) spawns nothing extra.
     pub fn without_hooks(&self) -> Self {
         Git {
             dir: self.dir.clone(),
             no_hooks: true,
+            config_hooks: self.config_hooks.clone(),
         }
+    }
+
+    fn configured_hooks(&self) -> Vec<String> {
+        if let Some(names) = self.config_hooks.get() {
+            return names.clone();
+        }
+        // A plain runner, so reading the list does not ask for the list.
+        let out = Git::new(&self.dir).run(&[
+            "config",
+            "--name-only",
+            "--get-regexp",
+            r"^hook\..+\.command$",
+        ]);
+        let names: Vec<String> = match out {
+            Ok(o) if o.ok() => {
+                let mut names: Vec<String> = Vec::new();
+                for line in o.stdout.lines() {
+                    let name = line
+                        .strip_prefix("hook.")
+                        .and_then(|l| l.strip_suffix(".command"));
+                    if let Some(name) = name
+                        && !names.iter().any(|n| n == name)
+                    {
+                        names.push(name.to_string());
+                    }
+                }
+                names
+            }
+            // Exit 1: no such key, the usual case.
+            Ok(o) if o.status == 1 => Vec::new(),
+            // The real command that follows reports the actual problem.
+            _ => return Vec::new(),
+        };
+        let _ = self.config_hooks.set(names.clone());
+        names
     }
 
     fn command(&self, args: &[&str]) -> Command {
@@ -102,6 +149,9 @@ impl Git {
         cmd.args(["-c", "core.quotePath=false", "-c", "color.ui=never"]);
         if self.no_hooks {
             cmd.arg("-c").arg(format!("core.hooksPath={NO_HOOKS}"));
+            for name in self.configured_hooks() {
+                cmd.arg("-c").arg(format!("hook.{name}.enabled=false"));
+            }
         }
         cmd.args(args);
         for key in LEAKY_ENV {
@@ -273,5 +323,22 @@ mod tests {
         for var in listed.lines() {
             assert!(LEAKY_ENV.contains(&var), "LEAKY_ENV misses {var}");
         }
+    }
+
+    /// Hooks defined in configuration are listed by name, once.
+    #[test]
+    fn configured_hooks_are_switched_off() {
+        let dir = tempfile::tempdir().unwrap();
+        let git = Git::new(dir.path());
+        git.ok(&["init", "-q"]).unwrap();
+        git.ok(&["config", "hook.probe.command", "true"]).unwrap();
+        git.ok(&["config", "--add", "hook.probe.event", "post-commit"])
+            .unwrap();
+        assert_eq!(git.without_hooks().configured_hooks(), ["probe"]);
+
+        let empty = tempfile::tempdir().unwrap();
+        let git = Git::new(empty.path());
+        git.ok(&["init", "-q"]).unwrap();
+        assert!(git.without_hooks().configured_hooks().is_empty());
     }
 }
