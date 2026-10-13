@@ -14,6 +14,8 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Changed
 
+- `yman guide` and the skill say that `yman plan`'s rows are enough to pick
+  the next step, so agents stop running `show` on every listed step.
 - Titles and tags refuse the Unicode line and paragraph separators and the
   bidi override and isolate characters, which could make `ls` output
   misleading, with the existing control-character errors; a refused tag is

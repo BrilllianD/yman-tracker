@@ -404,7 +404,7 @@ text with `-m` (without it the comment is read from stdin until end of file,
 which blocks on a pipe left open), and set `YMAN_ACTOR` so
 the work is attributed to the agent. Big work is a plan: an epic task plus
 steps that `--relate` it, read from the epic with `yman plan <id>` (progress
-and open steps in one call) and created in one go with
+and open steps in one call, enough to pick the next step without a `show` per step) and created in one go with
 `add --sections plan.md --relate <id>`, so the epic is never edited; a step that waits
 sits in `blocked` and relates to what it waits on.
 
