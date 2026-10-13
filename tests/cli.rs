@@ -2382,6 +2382,42 @@ fn init_names_the_broken_history() {
 /// to a refs/yman/remote that does not exist, and gives up after as many
 /// attempts as sync, keeping the local tracker and saying it is unpublished.
 #[test]
+fn init_refetch_failure_still_finishes() {
+    let fx = Fx::new();
+    fx.yman(&fx.b)
+        .args(["init", "--offline"])
+        .assert()
+        .success();
+    fx.git(
+        &fx.b,
+        &["push", "-q", "origin", "refs/yman/local:refs/race/b"],
+    );
+    let pushes = fx.wrap_origin_program(
+        &fx.a,
+        "receive-pack",
+        r#"git --git-dir="$R" update-ref refs/tasks/main refs/race/b"#,
+    );
+    // The first fetch passes, the refetch after the lost race fails.
+    fx.wrap_origin_program(
+        &fx.a,
+        "upload-pack",
+        r#"[ -e "$MARK" ] && exit 1; touch "$MARK""#,
+    );
+
+    let out = fx.yman(&fx.a).args(["init", "--hooks"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(fx.runs(&pushes), 1);
+    let (so, err) = (stdout(&out), stderr(&out));
+    assert!(so.contains("initialized .yman"), "{so}");
+    assert!(so.contains("hooks:    installed"), "{so}");
+    assert!(
+        err.contains("warning: not published to origin (fetch failed); run: yman sync"),
+        "{err}"
+    );
+    fx.git(&fx.a, &["rev-parse", "refs/yman/local"]);
+}
+
+#[test]
 fn init_race_with_vanishing_ref_does_not_reset() {
     let fx = Fx::new();
     fx.yman(&fx.b)

@@ -106,11 +106,13 @@ creating the tracker at the same time (the reasons are those of `sync`,
 [commands.md](commands.md#6-sync) step 8), `init` refetches and adopts the other
 history with `warning: remote already had tasks; adopted remote state`. Should
 the refetch find no `refs/tasks/main` after all, there is nothing to adopt: it
-pushes again, at most three attempts in all. Giving up after those, or any
-other push failure (git's stderr is printed first), does not fail `init`: the
+pushes again, at most three attempts in all. Giving up after those, any
+other push failure, or a refetch after a lost race that fails (for the last
+two git's stderr is printed first), does not fail `init`: the
 tracker exists locally, so `--hooks` and the summary still run, then
 `warning: not published to origin (<why>); run: yman sync` follows on stderr,
-`<why>` being `origin keeps moving` or `push failed`, and the exit code is 0.
+`<why>` being `origin keeps moving`, `push failed` or `fetch failed`, and the
+exit code is 0.
 
 ## 4. There is no clone command
 
