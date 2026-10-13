@@ -37,6 +37,9 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- `add --sections` reads a line like ```` ```x``` inline ```` as text, as
+  CommonMark does, instead of opening a fence and refusing the file with
+  `unclosed code fence`.
 - `attach --force A.png` over `a.png` on a case-insensitive checkout (macOS,
   Windows) records `A.png` in git, matching `m.yml`, instead of leaving the
   index at `a.png` and every Linux clone with a dangling attachment.

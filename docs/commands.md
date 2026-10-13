@@ -351,8 +351,10 @@ file instead of one from a title; it excludes the title, `-m`, `--body-file`
 and `-e`, and every other flag applies to each task. A line that is `#` or
 starts with `# ` opens a section and is its title, trimmed; the body is
 everything up to the next such line, with blank lines at either end dropped.
-Inside a fenced block — opened by a line starting, after indentation, with
-three or more backticks or `~`, closed only by a run of the same character at
+Inside a fenced block — opened by a line starting, after any indentation, with
+three or more backticks or `~` (a backtick run whose info string holds a
+backtick is text, as in CommonMark; unlike CommonMark, four or more spaces of
+indentation do not make it indented code, a deliberate simplification), closed only by a run of the same character at
 least as long with nothing after it — a `# ` line is body text, and
 `##` and deeper headings are always body text. CRLF reads like LF. The whole
 file is read and parsed before the first id is minted, and these refuse it,
