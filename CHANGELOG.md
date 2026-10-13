@@ -29,6 +29,9 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- An `m.yml` value with a line of only Unicode whitespace (a U+00A0, say, from
+  `set --link`) is written double-quoted, so it no longer reads back empty or
+  chomped.
 - A blank or `-` `assignee` in `m.yml` reads as unassigned (`ls --assignee -`
   lists it, `--json` prints `null`), and `set -a -` / `add -a -` unassign
   instead of storing a literal `-`.

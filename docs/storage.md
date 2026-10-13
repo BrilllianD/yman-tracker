@@ -309,8 +309,9 @@ related:
   `-`, `?`, `:` followed by a space or nothing), or contains `: `, ` #` or a
   trailing `:`. It is double-quoted when it holds an unprintable character. A
   value containing newlines becomes a literal block (`|-`, `|`, `|+`), or a
-  double-quoted scalar when a line ends in a blank, which a block would
-  lose. The preserved unknown blocks follow, which is why a hand-edited file
+  double-quoted scalar when a line ends in a space or tab, or holds nothing
+  but whitespace (U+00A0 included), which a block would lose or read back
+  empty. The preserved unknown blocks follow, which is why a hand-edited file
   that interleaved one comes back with it moved to the end.
 - The reader is deliberately wider than the writer, because people edit this
   file and resolve merge conflicts in it: comments (after a quoted scalar
