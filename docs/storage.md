@@ -299,7 +299,8 @@ related:
   `attachments` item, are still dropped. Trailing empty lines after an
   unknown block are dropped too, except under a keep header (`|+`, `>+`),
   where the empty lines directly after the value are part of it and kept, up
-  to the first comment line.
+  to the first column-0 comment line.
+  An indented `#` line inside the block is content and kept.
 - `m.yml` is read and written by hand in `src/yml.rs`; there is no YAML
   crate. The writer emits exactly the shape above: block sequences at column
   zero, `[]` for an empty list, `null` for an absent `assignee`, and a scalar

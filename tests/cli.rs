@@ -2377,10 +2377,8 @@ fn init_names_the_broken_history() {
     );
 }
 
-/// `init`'s push is rejected, but by the time it refetches the ref is gone
-/// again: there is nothing to adopt, so it pushes again rather than resetting
-/// to a refs/yman/remote that does not exist, and gives up after as many
-/// attempts as sync, keeping the local tracker and saying it is unpublished.
+/// The refetch after a lost race fails: `init` still finishes, with a warning
+/// that it is unpublished, hooks and summary done, and exit 0.
 #[test]
 fn init_refetch_failure_still_finishes() {
     let fx = Fx::new();
@@ -2417,6 +2415,10 @@ fn init_refetch_failure_still_finishes() {
     fx.git(&fx.a, &["rev-parse", "refs/yman/local"]);
 }
 
+/// `init`'s push is rejected, but by the time it refetches the ref is gone
+/// again: there is nothing to adopt, so it pushes again rather than resetting
+/// to a refs/yman/remote that does not exist, and gives up after as many
+/// attempts as sync, keeping the local tracker and saying it is unpublished.
 #[test]
 fn init_race_with_vanishing_ref_does_not_reset() {
     let fx = Fx::new();
