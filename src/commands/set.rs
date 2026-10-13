@@ -17,7 +17,8 @@ struct Change {
 
 pub fn run(ctx: &mut Context, a: SetArgs) -> Result<()> {
     let closed = apply(ctx, a)?;
-    plan::report_closed(ctx, closed.as_slice())
+    plan::report_closed(ctx, closed.as_slice());
+    Ok(())
 }
 
 /// One `set`: validate, write, commit, print. Returns the id when this change
@@ -292,15 +293,17 @@ fn each(
         ) {
             Ok(done) => done,
             Err(e) => {
-                // Best effort: a report that cannot be read must not replace
-                // the error the user actually needs to see.
-                let _ = plan::report_closed(ctx, &closed);
+                // The report is owed for the closes already committed, and it
+                // can no longer fail, so the error returned is the one the
+                // user needs.
+                plan::report_closed(ctx, &closed);
                 return Err(e);
             }
         };
         closed.extend(done);
     }
-    plan::report_closed(ctx, &closed)
+    plan::report_closed(ctx, &closed);
+    Ok(())
 }
 
 pub fn run_start(ctx: &mut Context, ids: &[String], message: Option<String>) -> Result<()> {

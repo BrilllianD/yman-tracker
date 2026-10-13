@@ -196,6 +196,7 @@ Never fatal, always stderr:
 | `note: task <id> was closed to two different statuses; keep one of <relA>, <relB>` | a merge moved one task into two different closed-status directories |
 | `note: task folder is now <rel>` | a status change moved the folder into or out of a status directory |
 | `note: <id> no longer waits on anything open: yman move <id> <default status>` | a close (`done`, `cancel`, `move`/`set --status` into a terminal status), or `rm` of an open task not tagged `epic`, left a `blocked` task relating to it with nothing open to wait on; nothing is moved |
+| `warning: committed, but could not read the tasks it affects: <why>` | `rm`, `set` or a status verb committed, then could not read the tasks back for its report; exit 0 |
 
 ## Deliberate non-errors
 

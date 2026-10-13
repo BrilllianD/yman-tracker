@@ -29,6 +29,10 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- `rm`, `set` and the status verbs no longer exit non-zero after their commit
+  has landed when reading the tasks back for the "no longer waits" report
+  fails; that is now a warning, so a script that retries on failure does not
+  apply the change twice.
 - An aborted `yman add -e` into a closed status under an archive config also
   removes the status directory it created, and a copy failing part way
   through `yman attach` (a full disk) restores `f/` as it was, including files

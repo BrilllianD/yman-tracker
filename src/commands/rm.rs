@@ -47,7 +47,8 @@ pub fn run(ctx: &mut Context, a: RmArgs) -> Result<()> {
     // non-epic task was blocking anyone, the rule a close applies.
     let blocked_others = !ctx.config().is_terminal(&t.meta.status) && !plan::is_epic(&t);
     let waiters: &[String] = if blocked_others { &waiters } else { &[] };
-    plan::report_removed(ctx, waiters)
+    plan::report_removed(ctx, waiters);
+    Ok(())
 }
 
 /// Drop every `related:` entry naming `id`, staged for the caller's commit.

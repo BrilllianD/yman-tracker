@@ -40,6 +40,19 @@ pub fn tasks(ydir: &Path) -> Result<Vec<Task>> {
         .collect())
 }
 
+/// Every task, for a report printed after the change was committed. A
+/// failure here is a warning and `None`: the change is in, and an error
+/// exit would tell a script that retries on failure that it was not.
+fn tasks_after_commit(ydir: &Path) -> Option<Vec<Task>> {
+    match tasks(ydir) {
+        Ok(t) => Some(t),
+        Err(err) => {
+            eprintln!("warning: committed, but could not read the tasks it affects: {err:#}");
+            None
+        }
+    }
+}
+
 /// A container rather than a blocker: relating to it does not mean waiting.
 pub fn is_epic(t: &Task) -> bool {
     t.meta.tags.iter().any(|tag| tags::fold(tag) == "epic")
@@ -81,12 +94,15 @@ pub fn waits_on(t: &Task, tasks: &[Task], cfg: &Config) -> Vec<String> {
 /// Nothing is moved — whether the work can really start is the reader's call.
 /// Closing an epic unblocks nothing: its steps relate to it as a container.
 /// Called once after a whole multi-id verb, so `done 32 33` judges a task
-/// waiting on both after both are closed.
-pub fn report_closed(ctx: &Context, closed: &[String]) -> Result<()> {
+/// waiting on both after both are closed. A failure to read the tasks back is
+/// a warning, never the exit code.
+pub fn report_closed(ctx: &Context, closed: &[String]) {
     if closed.is_empty() {
-        return Ok(());
+        return;
     }
-    let tasks = tasks(&ctx.ydir)?;
+    let Some(tasks) = tasks_after_commit(&ctx.ydir) else {
+        return;
+    };
     let cfg = ctx.config();
     let mut free: Vec<&str> = Vec::new();
     for id in closed {
@@ -115,7 +131,6 @@ pub fn report_closed(ctx: &Context, closed: &[String]) -> Result<()> {
         }
     }
     note_free(cfg, free);
-    Ok(())
 }
 
 /// What removing a task freed, on stderr: the same note a close prints, for
@@ -123,12 +138,15 @@ pub fn report_closed(ctx: &Context, closed: &[String]) -> Result<()> {
 /// open. `waiters` are the tasks whose `related` lost the removed id; the
 /// caller passes none when the removed task was already closed (it blocked
 /// nobody) or an epic (a container, not a blocker), as a close would.
-/// Nothing is moved.
-pub fn report_removed(ctx: &Context, waiters: &[String]) -> Result<()> {
+/// Nothing is moved. A failure to read the tasks back is a warning, never the
+/// exit code.
+pub fn report_removed(ctx: &Context, waiters: &[String]) {
     if waiters.is_empty() {
-        return Ok(());
+        return;
     }
-    let tasks = tasks(&ctx.ydir)?;
+    let Some(tasks) = tasks_after_commit(&ctx.ydir) else {
+        return;
+    };
     let cfg = ctx.config();
     let free: Vec<&str> = tasks
         .iter()
@@ -136,7 +154,6 @@ pub fn report_removed(ctx: &Context, waiters: &[String]) -> Result<()> {
         .map(|t| t.id())
         .collect();
     note_free(cfg, free);
-    Ok(())
 }
 
 /// Blocked, and waiting on nothing open any more.
@@ -160,6 +177,11 @@ mod tests {
     use crate::config::Scheme;
     use crate::task::{FolderName, Meta};
     use std::path::PathBuf;
+
+    #[test]
+    fn tasks_after_commit_warns_instead_of_failing() {
+        assert!(tasks_after_commit(Path::new("/nonexistent/yman-plan-test")).is_none());
+    }
 
     fn cfg() -> Config {
         let mut cfg = Config::new(Scheme::Seq);
