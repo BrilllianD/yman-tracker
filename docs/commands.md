@@ -473,7 +473,9 @@ status into a terminal one, yman reads every task once more and reports on
 stderr, after the last id of the call (so `done 32 33` judges a task waiting
 on both after both closed) — or, when an id fails, after the last one that
 completed (`done 32 99` reports what closing 32 freed, then fails on 99).
-Exit status and stdout are unaffected.
+Exit status and stdout are unaffected. If the tasks cannot be read back,
+`warning: committed, but could not read the tasks it affects: <why>` replaces the
+report and the exit code stays 0: the change is already committed.
 
 - A closed task tagged `epic` that open tasks still relate to gets
   `warning: <id> closed with open tasks relating to it: <ids>` (id order).
@@ -535,7 +537,9 @@ closing it would: after `removed <id>`, a task in status `blocked` that lost
 the reference and now relates to nothing open except epics gets
 `note: <id> no longer waits on anything open: yman move <id> <default status>`
 (see "What a close changed" under `set`). Nothing is moved. Removing a closed
-task or an epic frees nothing, as closing one does not.
+task or an epic frees nothing, as closing one does not. As with a close, if the
+tasks cannot be read back the same warning replaces the note and the exit code
+stays 0.
 
 ### `attach` / `detach`
 
