@@ -27,8 +27,8 @@ if any case failed.
 | `close-task` | `yman done` closes the task locally and looks finished; the skill says to sync before the status change and again after it, so origin must carry the close |
 | `delete-task` | `yman rm` without `-f` refuses off a terminal |
 | `unassigned-query` | reading every task, or dumping `ls --json` into a pipeline, when `ls --assignee -` answers it |
-| `plan-epic` | walking an epic's steps with `ls --related` and a `show` each, when `yman plan <id>` answers in one call; and naming the better-priority step that is blocked |
-| `waits-on` | `set --relate` plus `set --status blocked`, two commits, where `set --waits-on` is one |
+| `plan-epic` | walking an epic's steps with `ls --related` and a `show` each, when `yman plan <id>` answers in one call; and naming the better-priority step that is blocked; the answer must name step 6 and must not name the blocked step 7 |
+| `waits-on` | `set --relate` plus `set --status blocked` (or `move … blocked`), two commits, where `set --waits-on` is one |
 | `add-sections` | one `yman add` per section of a markdown file, retyping it, where `add --sections <file>` makes them all |
 | `task-list` | the skill's task-list procedure: `ls -l`, a markdown table, `show` for at most three candidates |
 | `exit-3-recovery` | a sync merge stopped on a conflict: `yman git merge --abort` or deleting `.yman` instead of fixing the file and running `yman sync --continue` |
