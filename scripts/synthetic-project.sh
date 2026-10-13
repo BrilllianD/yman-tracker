@@ -73,13 +73,16 @@ real_git=$(command -v git) || fail "git is not on PATH"
 if [ -e "$out" ]; then
 	if [ "$force" -eq 1 ]; then
 		# `rm -rf` on a path from the command line: only ever inside target/,
-		# so `--force .` cannot take the checkout with it.
-		abs=$(CDPATH= cd -- "$out" && pwd -P)
+		# so `--force .` cannot take the checkout with it. The path is resolved
+		# physically with `cd -P`, so a symlink plus `..` cannot make the
+		# checked path and the removed path differ.
+		abs=$(CDPATH= cd -P -- "$out" && pwd -P)
 		case $abs/ in
 			"$(CDPATH= cd -- "$root" && pwd -P)/target/"?*) ;;
 			*) fail "--force only replaces a directory under $root/target, not $abs";;
 		esac
-		rm -rf "$out"
+		rm -rf -- "$abs"
+		out=$abs
 	elif [ -n "$(ls -A "$out" 2>/dev/null || true)" ]; then
 		fail "$out is not empty; pass --force to replace it"
 	fi
