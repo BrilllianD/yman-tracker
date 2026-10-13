@@ -112,11 +112,32 @@ pub fn run(ctx: &mut Context, a: AttachArgs) -> Result<()> {
         placed.undo();
         return Err(e);
     }
+    // Old spellings `--force` replaced; same-case replacements are in `names`.
+    let dropped: Vec<String> = placed
+        .aside
+        .iter()
+        .filter_map(|(_, original)| original.file_name())
+        .map(|n| n.to_string_lossy().into_owned())
+        .filter(|n| !names.contains(n))
+        .collect();
     placed.keep();
     for (_, name, dest, _) in &plan {
         println!("attached {name} -> {}", ctx.display_path(dest));
     }
     let rel = t.rel();
+    // On a case-insensitive checkout `git add` would update the index entry
+    // under its old spelling, so the entry goes first and the add records the
+    // name `m.yml` holds.
+    for old in &dropped {
+        ctx.wt.ok(&[
+            "rm",
+            "--cached",
+            "-q",
+            "--ignore-unmatch",
+            "--",
+            &format!("{rel}/{}/{old}", task::FILES_DIR),
+        ])?;
+    }
     ctx.wt.ok(&["add", "--", &rel])?;
     // `.yman/.gitignore` carries the editor-junk patterns `init` writes, and a
     // plain `git add <dir>` skips an ignored path without saying so: the entry

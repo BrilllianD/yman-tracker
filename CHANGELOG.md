@@ -37,6 +37,9 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- `attach --force A.png` over `a.png` on a case-insensitive checkout (macOS,
+  Windows) records `A.png` in git, matching `m.yml`, instead of leaving the
+  index at `a.png` and every Linux clone with a dangling attachment.
 - `attach` refuses Windows reserved device names (`CON`, `NUL`, `COM1`,
   `LPT1`… with or without an extension, any case), which Git for Windows
   cannot check out, with the existing `is not portable` error.
