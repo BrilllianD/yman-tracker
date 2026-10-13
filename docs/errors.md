@@ -15,11 +15,14 @@ This split is a contract, not a style choice: `cd $(yman path 14)` and
 there is no colour anywhere.
 
 The `rm` and `tags rm` confirmation prompts are on stderr too, since they
-are not data. A stderr line that starts with two spaces continues the
-prefixed line above it: the command to add under
-`note: hook <name> exists; add this line to it:`, and each file under the
-`note: unmerged files:` that `sync` prints when a merge stops. Git's own
-output, passed through on a failure, is the one other unprefixed text.
+are not data. Every stderr line yman writes starts with `error: `,
+`warning: `, `note: `, or two spaces when it continues the line above: the
+command to add under `note: hook <name> exists; add this line to it:`, each
+file under the `note: unmerged files:` that `sync` prints when a merge stops,
+git's stderr quoted inside a message (`git <sub> failed: …`,
+`warning: refresh failed: …`) and the `  ! [remote rejected] …` line `sync`
+prints for a refused push. Git's own output, printed verbatim above a failure,
+is the one exception.
 
 ## Exit codes
 
@@ -134,11 +137,11 @@ commit.
 | author prefix not a legal id prefix | `author prefix "<p>" from <source> must be letters, digits, "_" or "-"` — `<source>` is `yman.author`, `$YMAN_AUTHOR` or `user.name initials` |
 | git identity missing | `git identity missing; run: git config --global user.name "…" && git config --global user.email "…"` |
 | git binary absent | `git not found in PATH` |
-| any other git failure | `git <subcommand> failed: <trimmed stderr>` |
+| any other git failure | `git <subcommand> failed: <stderr>`, each further line of git's stderr indented by two spaces, empty lines dropped |
 | push lost the race to a moving origin three times (`sync`) | `origin keeps moving; retry yman sync` |
 | a sync renumber failed part-way | `renumber aborted; .yman restored: <why>` — `.yman` is back at the commit before the renumber |
 | push rejected while finishing a merge | `origin moved while finishing the merge; run: yman sync` |
-| network step failed | `fetch failed` / `push failed` / `merge failed`, with git's stderr printed above; a push origin refused (any rejection but the race, [commands.md](commands.md#6-sync) step 8) also prints git's ` ! [remote rejected] refs/yman/local -> refs/tasks/main (<reason>)` line, and is not retried |
+| network step failed | `fetch failed` / `push failed` / `merge failed`, with git's stderr printed above; a push origin refused (any rejection but the race, [commands.md](commands.md#6-sync) step 8) also prints git's `  ! [remote rejected] refs/yman/local -> refs/tasks/main (<reason>)` line, and is not retried |
 | `init` fetch failed | `fetch failed (see above); use --offline to skip` |
 | `init` could not create `.yman` (any `git worktree add` failure but the second-checkout case above) | `git worktree add failed`, with git's stderr printed above |
 | `hooks install`, `remove` or `status` with `core.hooksPath` set to the empty string | `core.hooksPath is empty, which turns git hooks off; unset it or point it at a directory` |

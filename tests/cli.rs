@@ -2205,7 +2205,7 @@ fn push_declined_by_hook_is_not_retried() {
     assert!(err.contains("policy: tasks are read-only here"), "{err}");
     assert!(
         err.contains(
-            "\n ! [remote rejected] refs/yman/local -> refs/tasks/main (pre-receive hook declined)\n"
+            "\n  ! [remote rejected] refs/yman/local -> refs/tasks/main (pre-receive hook declined)\n"
         ),
         "{err}"
     );
@@ -8196,6 +8196,14 @@ fn a_failing_lazy_refresh_warns_and_the_command_runs() {
         err.starts_with("warning: refresh failed: git merge failed: "),
         "{err}"
     );
+    for line in err.lines() {
+        assert!(
+            ["warning: ", "error: ", "note: ", "  "]
+                .iter()
+                .any(|p| line.starts_with(p)),
+            "unprefixed stderr line {line:?} in {err}"
+        );
+    }
     let text = stdout(&out);
     assert!(text.contains("A one") && !text.contains("B two"), "{text}");
 

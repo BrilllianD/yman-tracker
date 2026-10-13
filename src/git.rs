@@ -290,7 +290,8 @@ impl Git {
     }
 }
 
-/// `git <subcommand> failed: <trimmed stderr>`
+/// `git <subcommand> failed: <stderr>`, continuation lines indented two
+/// spaces so they read as part of the message (docs/errors.md, Streams).
 fn git_failure(args: &[&str], out: &Output) -> anyhow::Error {
     let sub = args
         .iter()
@@ -304,12 +305,32 @@ fn git_failure(args: &[&str], out: &Output) -> anyhow::Error {
     if detail.is_empty() {
         detail = format!("exit status {}", out.status);
     }
+    let detail = detail
+        .lines()
+        .map(str::trim_end)
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n  ");
     anyhow!("git {sub} failed: {detail}")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Continuation lines of git's stderr are indented, blank ones dropped.
+    #[test]
+    fn git_failure_indents_continuation_lines() {
+        let out = Output {
+            status: 128,
+            stdout: String::new(),
+            stderr: "fatal: Unable to create 'x/index.lock': File exists.\n\nAnother git process seems to be running.\n".into(),
+        };
+        assert_eq!(
+            git_failure(&["merge", "-q"], &out).to_string(),
+            "git merge failed: fatal: Unable to create 'x/index.lock': File exists.\n  Another git process seems to be running."
+        );
+    }
 
     /// Every variable git itself calls repository-local is stripped.
     #[test]
