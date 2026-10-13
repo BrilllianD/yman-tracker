@@ -105,7 +105,8 @@ with `-s` includes it too. `-t` requires **all** the tags given, compared
 lowercase on both sides — the tag yman writes is lowercase anyway, and one
 written into `m.yml` by hand is still found. An invalid tag at `-t` is the same
 error `add` gives.
-`--assignee WHO` keeps one assignee (`-` keeps the unassigned), `-p N` one
+`--assignee WHO` keeps one assignee (`-` keeps the unassigned, which includes
+an `m.yml` value that is blank or `-`), `-p N` one
 priority, `--related ID` the tasks whose own `related` list carries that id
 (exactly as `--relate` wrote it; an id nothing relates to is an empty listing,
 not a warning), and `-q TEXT` the tasks whose title or body contains the text,
@@ -320,7 +321,9 @@ characters`, `<t>` being the trimmed title with those characters escaped
 (`\n`, `\t`, `\u{1b}`). A newline would otherwise leave `t.md` with a one-line
 title and the rest as body, and split the commit subject. `set --title` and
 every `--sections` heading apply the same rule with the same message.
-`-a/--assignee` is trimmed; blank means unassigned. `--relate` and
+`-a/--assignee` is trimmed; blank or `-` means unassigned (`-` is the
+sentinel `ls --assignee -` uses, so nobody can be assigned under that name).
+`--relate` and
 `--waits-on` values are trimmed and a blank one is refused (`related id must
 not be empty`); `set` also refuses the task's own id. `--relate` to an id no
 folder here carries warns exactly as `set --relate` does, before the id is
@@ -408,7 +411,7 @@ an invalid one — nothing yman wrote can look like that, so such a value is a
 typo rather than something waiting to be removed. `--title` is trimmed and
 refused exactly as `add` refuses a title — empty, or carrying a control
 character — before anything is written. `-a/--assignee` is trimmed the same
-way `add` trims it, and a blank value clears the assignee like
+way `add` trims it, and a blank or `-` value clears the assignee like
 `--no-assignee`. When
 nothing at all changed, `set` prints `no changes` and commits nothing. `-m`
 always counts as a change; an empty message is the `empty comment` error.

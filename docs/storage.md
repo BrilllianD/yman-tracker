@@ -319,7 +319,9 @@ related:
   \_ \L \P` included), folded blocks (`>-`) and sequences indented under
   their key are all accepted. A key repeated at
   the top level or inside an `attachments` item keeps its **last** occurrence,
-  which is the half of a conflict a person usually means to keep.
+  which is the half of a conflict a person usually means to keep. An
+  `assignee` that is blank or `-` reads as absent, so a hand edit to `''` and
+  the `-` an older `set -a -` stored both mean unassigned.
 - A flow sequence is split on every `,` before its items are unquoted, so a
   quoted item cannot contain a comma: `tags: ['a,b']` is rejected with
   `unterminated single-quoted string: 'a` (and `["a,b"]` with its

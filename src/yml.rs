@@ -295,7 +295,10 @@ pub fn parse(text: &str) -> Result<Meta> {
         i += 1;
         match key.as_str() {
             "status" => status = Some(scalar_value(rest, &lines, &mut i)?),
-            "assignee" => assignee = opt_scalar_value(rest, &lines, &mut i)?,
+            "assignee" => {
+                assignee = opt_scalar_value(rest, &lines, &mut i)?
+                    .filter(|a| !crate::task::is_unassigned(a))
+            }
             "created" => {
                 created = Some(timestamp(&scalar_value(rest, &lines, &mut i)?, "created")?)
             }
@@ -907,7 +910,8 @@ mod tests {
                 m.status = value.to_string();
             }
             m.tags = vec![value.to_string()];
-            m.assignee = Some(value.to_string());
+            // A blank assignee reads back as unassigned by design.
+            m.assignee = (!crate::task::is_unassigned(value)).then(|| value.to_string());
             m.attachments[0].name = value.to_string();
             m.links = vec![value.to_string()];
             let text = render(&m);
