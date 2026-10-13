@@ -142,6 +142,7 @@ commit.
 | network step failed | `fetch failed` / `push failed` / `merge failed`, with git's stderr printed above; a push origin refused (any rejection but the race, [commands.md](commands.md#6-sync) step 8) also prints git's ` ! [remote rejected] refs/yman/local -> refs/tasks/main (<reason>)` line, and is not retried |
 | `init` fetch failed | `fetch failed (see above); use --offline to skip` |
 | `init` could not create `.yman` (any `git worktree add` failure but the second-checkout case above) | `git worktree add failed`, with git's stderr printed above |
+| `hooks install`, `remove` or `status` with `core.hooksPath` set to the empty string | `core.hooksPath is empty, which turns git hooks off; unset it or point it at a directory` |
 | `hooks install` met a hook it does not own | `<n> hook(s) not installed: <names>`, after `note: hook <name> exists; add this line to it:` and the line itself on stderr for each |
 | `hooks install` met a hook it cannot read (permission denied, not UTF-8, a dangling symlink) | the same `<n> hook(s) not installed: <names>`, after `warning: hook <name>: cannot read <path>: <why>; not replacing it` on stderr for each; `<why>` is `not valid UTF-8`, `dangling symlink` or the OS error |
 | `man --dir` cannot write | `cannot create <dir>: <why>` / `cannot write man pages to <dir>: <why>` |
@@ -174,7 +175,7 @@ Never fatal, always stderr:
 | `warning: not published to origin (<why>); run: yman sync` | a fresh `init` created the tracker but its push failed (`push failed`, after git's stderr) or lost the race three times (`origin keeps moving`); hooks and the summary still follow, exit 0 |
 | `warning: refs/tasks/main disappeared from origin; will recreate it` | the ref was deleted server-side |
 | `warning: <name> is N MiB; git is not great at large binaries` | attaching a file over 5 MiB |
-| `warning: installing into core.hooksPath=<p>` | hooks redirected away from `.git/hooks`; `<p>` is the directory as git resolves it (`~/` expanded, a relative value joined onto the toplevel) |
+| `warning: installing into core.hooksPath=<p>` | hooks redirected away from `.git/hooks` (a whitespace-only value included, untrimmed); `<p>` is the directory as git resolves it (`~/` expanded, a relative value joined onto the toplevel) |
 | `warning: cannot read <path>: <why>` | `hooks status` or `hooks remove` met a hook it cannot read; it reports the hook as `unreadable` and leaves it alone |
 | `warning: refresh failed: <why>` | the lazy refresh before a command failed; the command still runs |
 | `warning: origin has new task commits; run: yman sync` | `yman.autosync = push` and the push after a change was rejected; nothing is merged, the change stays committed |

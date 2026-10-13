@@ -40,22 +40,34 @@ impl HookState {
 
 /// Where hooks live for this repo, and whether `core.hooksPath` moved them.
 ///
-/// When `core.hooksPath` is set, git itself resolves it — `~/` expansion and
-/// a relative value meaning relative to the toplevel — through
-/// `rev-parse --git-path hooks`. Its answer may be relative to the directory
-/// git ran in, which is the main runner's, so it is joined onto that. The
-/// main runner, not the `.yman` one: that one points `core.hooksPath` at
-/// `/dev/null`. Unset or empty, the answer is `COMMON/hooks` without asking;
-/// an empty value would make git print `./`, the toplevel.
-pub fn hooks_dir(ctx: &Context) -> Result<(PathBuf, bool)> {
-    match ctx.get_cfg("core.hooksPath")? {
-        Some(p) if !p.is_empty() => {
-            let raw = ctx.main.out(&["rev-parse", "--git-path", "hooks"])?;
-            Ok((ctx.main.dir.join(raw), true))
-        }
-        _ => Ok((ctx.common.join("hooks"), false)),
+/// Unset means `COMMON/hooks`. Empty means git runs no hooks at all, so there
+/// is nowhere to install: `None`. Any other value, a whitespace-only one
+/// included, is a path git resolves itself — `~/` expansion and a relative
+/// value meaning relative to the toplevel — through `rev-parse --git-path
+/// hooks`. Its answer may be relative to the directory git ran in, which is
+/// the main runner's, so it is joined onto that. The main runner, not the
+/// `.yman` one: that one points `core.hooksPath` at `/dev/null`. The raw
+/// value is read untrimmed, since whitespace can be part of the path.
+pub fn hooks_dir(ctx: &Context) -> Result<Option<(PathBuf, bool)>> {
+    let cfg = ctx.main.run(&["config", "--get", "core.hooksPath"])?;
+    if !cfg.ok() {
+        return Ok(Some((ctx.common.join("hooks"), false)));
     }
+    if cfg
+        .stdout
+        .strip_suffix('\n')
+        .unwrap_or(&cfg.stdout)
+        .is_empty()
+    {
+        return Ok(None);
+    }
+    let out = ctx.main.ok(&["rev-parse", "--git-path", "hooks"])?;
+    let raw = out.stdout.strip_suffix('\n').unwrap_or(&out.stdout);
+    Ok(Some((ctx.main.dir.join(raw), true)))
 }
+
+const EMPTY_HOOKS_PATH: &str =
+    "core.hooksPath is empty, which turns git hooks off; unset it or point it at a directory";
 
 pub fn state(dir: &Path, name: &str) -> HookState {
     let path = dir.join(name);
@@ -78,7 +90,9 @@ pub fn state(dir: &Path, name: &str) -> HookState {
 /// Write both hooks. Foreign and unreadable hooks are reported and left
 /// alone; the command still processes the other hook before failing.
 pub fn install(ctx: &Context) -> Result<()> {
-    let (dir, custom) = hooks_dir(ctx)?;
+    let Some((dir, custom)) = hooks_dir(ctx)? else {
+        bail!(EMPTY_HOOKS_PATH)
+    };
     if custom {
         eprintln!("warning: installing into core.hooksPath={}", dir.display());
     }
@@ -135,7 +149,9 @@ fn warn_unreadable(path: &Path, why: &str) {
 
 /// Delete only the hooks carrying our marker.
 pub fn remove(ctx: &Context) -> Result<()> {
-    let (dir, _) = hooks_dir(ctx)?;
+    let Some((dir, _)) = hooks_dir(ctx)? else {
+        bail!(EMPTY_HOOKS_PATH)
+    };
     for name in HOOKS {
         match state(&dir, name) {
             HookState::Installed => {
@@ -154,7 +170,9 @@ pub fn remove(ctx: &Context) -> Result<()> {
 }
 
 pub fn report(ctx: &Context) -> Result<()> {
-    let (dir, _) = hooks_dir(ctx)?;
+    let Some((dir, _)) = hooks_dir(ctx)? else {
+        bail!(EMPTY_HOOKS_PATH)
+    };
     for name in HOOKS {
         let st = state(&dir, name);
         if let HookState::Unreadable(why) = &st {
@@ -167,7 +185,9 @@ pub fn report(ctx: &Context) -> Result<()> {
 
 /// Are both hooks ours? Used for the one-word summary in `init` and `status`.
 pub fn all_installed(ctx: &Context) -> Result<bool> {
-    let (dir, _) = hooks_dir(ctx)?;
+    let Some((dir, _)) = hooks_dir(ctx)? else {
+        return Ok(false);
+    };
     Ok(HOOKS.iter().all(|n| state(&dir, n) == HookState::Installed))
 }
 

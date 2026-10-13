@@ -39,13 +39,19 @@ pub fn push(ctx: &Context) -> Result<PushResult> {
         bail!("nothing to push: {LOCAL} does not exist");
     };
     let refspec = format!("{sha}:{REMOTE_REF}");
-    let out = ctx
-        .main
-        .run(&["push", "--porcelain", "--no-verify", "origin", &refspec])?;
+    // Git also moves `refs/yman/remote` here, through `remote.origin.fetch`;
+    // the user's `reference-transaction` hook is not for that.
+    let out = ctx.main.without_hooks().run(&[
+        "push",
+        "--porcelain",
+        "--no-verify",
+        "origin",
+        &refspec,
+    ])?;
     let status = ref_status(&out.stdout);
     if out.ok() {
         // Mirror what origin now has, so `status` and `refresh` agree.
-        ctx.main.ok(&["update-ref", REMOTE, &sha])?;
+        ctx.main.without_hooks().ok(&["update-ref", REMOTE, &sha])?;
         return Ok(match status {
             Some(('=', _)) => PushResult::UpToDate(sha),
             _ => PushResult::Ok(sha),
@@ -464,15 +470,20 @@ fn snapshot_dirty(ctx: &Context) -> Result<()> {
 fn fetch(ctx: &Context, had_remote: bool) -> Result<()> {
     // `--no-write-fetch-head`: `FETCH_HEAD` in the main repository is the
     // user's, left by their own last fetch.
-    let out = ctx
-        .main
-        .run(&["fetch", "--no-write-fetch-head", "origin", FETCH_REFSPEC])?;
+    // The user's hooks, a `reference-transaction` one included, are not for
+    // yman's own refs.
+    let out = ctx.main.without_hooks().run(&[
+        "fetch",
+        "--no-write-fetch-head",
+        "origin",
+        FETCH_REFSPEC,
+    ])?;
     if out.ok() {
         return Ok(());
     }
     if out.stderr.contains("couldn't find remote ref") {
         if had_remote {
-            ctx.main.ok(&["update-ref", "-d", REMOTE])?;
+            ctx.main.without_hooks().ok(&["update-ref", "-d", REMOTE])?;
             eprintln!("warning: {REMOTE_REF} disappeared from origin; will recreate it");
         }
         return Ok(());

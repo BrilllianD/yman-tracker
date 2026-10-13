@@ -29,6 +29,13 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- Hooks defined in git configuration (`hook.<name>.command`, git 2.54+) no
+  longer fire for yman's commits, merges and checkouts in `.yman`, and yman's
+  own `update-ref`, `fetch` and `push` no longer run the user's
+  `reference-transaction` hook. `yman hooks` refuses an empty
+  `core.hooksPath`, which turns git's hooks off, instead of installing into
+  `.git/hooks` and reporting `installed`, and no longer trims a
+  whitespace-only one.
 - A comment line after an unknown `|+` block in `m.yml` is dropped like every
   other comment, instead of surviving when a blank line followed it.
 - An `m.yml` value with a line of only Unicode whitespace (a U+00A0, say, from

@@ -8584,3 +8584,101 @@ fn man_dir_reports_what_it_cannot_write() {
         stderr(&out)
     );
 }
+
+#[cfg(unix)]
+#[test]
+fn configured_hooks_never_fire_for_yman() {
+    let fx = Fx::new();
+    let log = fx.tmp.path().join("hook.log");
+    fx.git(
+        &fx.a,
+        &[
+            "config",
+            "hook.yman-probe.command",
+            &format!("echo fired >> '{}'", log.display()),
+        ],
+    );
+    for event in [
+        "post-commit",
+        "post-merge",
+        "post-checkout",
+        "reference-transaction",
+    ] {
+        fx.git(&fx.a, &["config", "--add", "hook.yman-probe.event", event]);
+    }
+    fx.git(&fx.a, &["commit", "--allow-empty", "-qm", "probe"]);
+    if !log.exists() {
+        eprintln!("skipped: this git has no config-defined hooks");
+        return;
+    }
+    std::fs::remove_file(&log).unwrap();
+
+    for args in [
+        vec!["init"],
+        vec!["add", "One"],
+        vec!["sync"],
+        vec!["done", "1"],
+        vec!["sync"],
+    ] {
+        let out = fx.yman(&fx.a).args(&args).output().unwrap();
+        assert!(out.status.success(), "{args:?}: {}", stderr(&out));
+    }
+    assert!(
+        !log.exists(),
+        "a configured hook fired for yman: {}",
+        fx.read(&log)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn reference_transaction_hook_never_sees_yman_refs() {
+    use std::os::unix::fs::PermissionsExt;
+    let fx = Fx::new();
+    let log = fx.tmp.path().join("ref.log");
+    let hook = fx.a.join(".git/hooks/reference-transaction");
+    fx.write(&hook, &format!("#!/bin/sh\ncat >> '{}'\n", log.display()));
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    for args in [vec!["init"], vec!["add", "One"], vec!["sync"]] {
+        let out = fx.yman(&fx.a).args(&args).output().unwrap();
+        assert!(out.status.success(), "{args:?}: {}", stderr(&out));
+    }
+    if let Ok(text) = std::fs::read_to_string(&log) {
+        for line in text.lines() {
+            assert!(
+                !line.contains("refs/yman/") && !line.contains("refs/tasks/"),
+                "hook saw {line}"
+            );
+        }
+    }
+}
+
+#[test]
+fn hooks_install_refuses_an_empty_hooks_path_and_honours_a_blank_one() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.git(&fx.a, &["config", "core.hooksPath", ""]);
+    for sub in ["install", "status", "remove"] {
+        let out = fx.yman(&fx.a).args(["hooks", sub]).output().unwrap();
+        assert_eq!(out.status.code(), Some(1), "{sub}");
+        assert_eq!(
+            stderr(&out),
+            "error: core.hooksPath is empty, which turns git hooks off; unset it or point it at a directory\n",
+            "{sub}"
+        );
+    }
+    assert!(!fx.a.join(".git/hooks/post-merge").exists());
+    let out = fx.yman(&fx.a).arg("status").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stdout(&out).contains("not installed"), "{}", stdout(&out));
+
+    fx.git(&fx.a, &["config", "core.hooksPath", "  "]);
+    let out = fx.yman(&fx.a).args(["hooks", "install"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("warning: installing into core.hooksPath="),
+        "{}",
+        stderr(&out)
+    );
+    assert!(fx.a.join("  ").join("post-merge").exists());
+}
