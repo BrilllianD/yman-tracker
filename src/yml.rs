@@ -102,7 +102,8 @@ fn emit(s: &str, indent: usize) -> String {
 const STEP: usize = 2;
 
 /// `|-`, `|` or `|+` plus the indented body. `None` when a literal block would
-/// not round-trip: leading indentation and trailing blanks on a line are lost.
+/// not round-trip: leading indentation and trailing blanks on a line are lost,
+/// and a line of only Unicode whitespace reads back empty.
 fn literal_block(s: &str, indent: usize) -> Option<String> {
     let trailing = s.len() - s.trim_end_matches('\n').len();
     let body = &s[..s.len() - trailing];
@@ -112,8 +113,12 @@ fn literal_block(s: &str, indent: usize) -> Option<String> {
         return Some(format!("|{STEP}+{}", "\n".repeat(trailing)));
     }
     for line in body.split('\n') {
-        // A trailing blank on a line does not survive a block scalar.
-        if line.ends_with([' ', '\t']) || line.chars().any(is_unprintable) {
+        // A trailing blank on a line does not survive a block scalar, and a
+        // non-empty line of only Unicode whitespace would read back as empty.
+        if line.ends_with([' ', '\t'])
+            || (!line.is_empty() && reads_blank(line))
+            || line.chars().any(is_unprintable)
+        {
             return None;
         }
     }
@@ -354,7 +359,7 @@ fn push_unknown(out: &mut Vec<Unknown>, key: String, block: &[&str]) {
         .is_some_and(|h| h.chomp == Some('+'));
     let end = block
         .iter()
-        .rposition(|l| !is_blank(l) || (keep && l.trim().is_empty()))
+        .rposition(|l| !is_blank(l) || (keep && reads_blank(l)))
         .map_or(0, |p| p + 1);
     let mut text = String::new();
     for line in &block[..end] {
@@ -365,6 +370,13 @@ fn push_unknown(out: &mut Vec<Unknown>, key: String, block: &[&str]) {
     // rather than pushing also keeps the file from growing on every rewrite.
     out.retain(|u| u.key != key);
     out.push(Unknown { key, text });
+}
+
+/// An empty line as `read_block` sees it: nothing but whitespace, Unicode
+/// whitespace included (`str::trim`). The writer must never put a
+/// non-empty line like that into a block, or it would not read back.
+fn reads_blank(line: &str) -> bool {
+    line.trim().is_empty()
 }
 
 fn is_blank(line: &str) -> bool {
@@ -462,7 +474,7 @@ fn read_block(header: BlockHeader, lines: &[&str], i: &mut usize, parent: usize)
     let mut raw: Vec<&str> = Vec::new();
     while *i < lines.len() {
         let line = lines[*i];
-        if line.trim().is_empty() {
+        if reads_blank(line) {
             raw.push("");
             *i += 1;
             continue;
@@ -479,13 +491,13 @@ fn read_block(header: BlockHeader, lines: &[&str], i: &mut usize, parent: usize)
         Some(n) => parent + n,
         None => raw
             .iter()
-            .filter(|l| !l.trim().is_empty())
+            .filter(|l| !reads_blank(l))
             .map(|l| indent_of(l))
             .min()
             .unwrap_or(0),
     };
     let mut blanks = 0;
-    while raw.last().is_some_and(|l| l.trim().is_empty()) {
+    while raw.last().is_some_and(|l| reads_blank(l)) {
         raw.pop();
         blanks += 1;
     }
@@ -873,6 +885,15 @@ mod tests {
     }
 
     #[test]
+    fn a_whitespace_only_line_is_not_written_as_a_block() {
+        assert_eq!(literal_block("a\n\u{a0}", 2), None);
+        assert!(literal_block("a\n\nb", 2).is_some());
+        let mut m = meta();
+        m.links = vec!["a\n\u{a0}".into()];
+        assert_eq!(parse(&render(&m)).unwrap().links, m.links);
+    }
+
+    #[test]
     fn round_trips_awkward_values() {
         for value in [
             "5",
@@ -902,6 +923,9 @@ mod tests {
             "esc\u{1b}ape",
             "Ivan\u{a0}",
             "\u{2003}em",
+            "a\n\u{a0}",
+            "\u{3000}\nb",
+            "a\n\u{a0}\nb",
         ] {
             let mut m = meta();
             // A blank `status` reads back as missing, so it cannot round trip
