@@ -57,7 +57,7 @@ sync with: carry on without it.
    `show` in step 4, or list the unassigned ones with `yman ls --assignee -`.
    Skip a `blocked` task and one whose body or relations say it waits on
    another open task. An epic (tag `epic`) is closed last: offer its open
-   steps, `yman plan <id> -n 3`, instead.
+   steps, `yman plan <id> -n 3`, instead — its rows are enough; no `show` per step.
 4. Read only the top one to three candidates with `yman show <id> -n 0`, for
    their "Where", "Done when" and relations. Do not `show` every task.
 5. Finish with a short recommendation: which id to take, why, and roughly how
@@ -165,7 +165,11 @@ yman show 30 -n 0              # the goal and its body
 `plan` prints the epic, `status: <s>   steps: <N>   todo 2, doing 1, ...`
 (every step, closed included), then one row per open step:
 `P ID STATUS TITLE`, plus `waits on <ids>` on a `blocked` step. `--json` has
-`counts` and `steps[].waits_on`.
+`counts` and `steps[].waits_on`. That output is the whole answer to "what is
+next in this plan": each open step's id, priority, status, title and what it
+waits on are already there, so do not `show` the steps it lists. `show` a step
+only when its body is needed for the work itself, and `plan <id> -l` prints the
+bodies too.
 
 - Order steps with priority. A step that must wait gets
   `--waits-on <id>` (on `add` or `set`, repeatable): it relates to the step it

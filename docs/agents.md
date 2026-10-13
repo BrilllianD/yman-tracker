@@ -44,10 +44,10 @@ take several ids, one commit each, and `-m <text>` to comment in the same commit
 An epic is an ordinary task (tag `epic`); its steps are `add ... --relate <epic>`,
 or all at once `add --sections <file|-> --relate <epic>`: one per `# Title`, body below.
 `plan <epic>` prints it, a count per status and the open steps sorted like `ls`
-(`-a` all, `-n 3` what is next, `-l`, `--json`). Order with priority. A step
-that waits gets `--waits-on <blocker>` on `add` or `set`: relate plus status
-`blocked` (needs it in `statuses.list`); `plan` shows `waits on <ids>`. Closing
-the last blocker prints `note: <id> no longer waits on anything open: yman
+(`-a` all, `-n 3` what is next, `-l`, `--json`); that picks the next step, no `show` needed.
+Order with priority. A step that waits gets `--waits-on <blocker>` on `add` or `set`:
+relate plus status `blocked` (needs it in `statuses.list`); `plan` shows `waits on <ids>`.
+Closing the last blocker prints `note: <id> no longer waits on anything open: yman
 move <id> todo` on stderr; run it. Close the epic last, when `plan` lists none
 (closing it earlier warns with the open ids).
 
