@@ -65,12 +65,13 @@ pub fn push(ctx: &Context) -> Result<PushResult> {
     eprint!("{}", out.stderr);
     if let Some(('!', summary)) = status {
         // In porcelain mode git's reason goes to stdout; put it back where
-        // the user looks, in the shape git's own report has.
+        // the user looks, in the shape git's own report has, indented like any
+        // continuation line.
         let line = match summary.split_once(" (") {
             Some((kind, reason)) => format!("{kind} {LOCAL} -> {REMOTE_REF} ({reason}"),
             None => format!("{summary} {LOCAL} -> {REMOTE_REF}"),
         };
-        eprintln!(" ! {line}");
+        eprintln!("  ! {line}");
     }
     bail!("push failed")
 }

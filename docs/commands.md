@@ -701,7 +701,7 @@ exit 1.
    the ambiguous `failed to update ref` and `failed to lock`, which can mean a
    moved ref but also a server-side fault — is a refusal: it is not retried,
    and fails with `push failed` after git's stderr and its
-   ` ! [remote rejected] refs/yman/local -> refs/tasks/main (<reason>)` line.
+   `  ! [remote rejected] refs/yman/local -> refs/tasks/main (<reason>)` line.
 9. Report `synced  pulled N, pushed N, renumbered N   refs/yman/local @ <sha>`.
 
 After a successful push, `REMOTE` is set to the commit that was pushed, so

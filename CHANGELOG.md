@@ -14,6 +14,11 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Changed
 
+- Git's multi-line stderr quoted in `git <sub> failed: …` (and so in
+  `warning: refresh failed: …`) has its continuation lines indented by two
+  spaces and blank lines dropped, and `sync`'s push-refusal line is indented
+  two spaces, so every stderr line yman writes carries a prefix or continues
+  one.
 - Every stderr line now carries its prefix or continues one: the `rm` and
   `tags rm` prompts moved from stdout to stderr, `refreshed: N new commit(s)`
   became `note: refreshed N new commit(s)`, the hook advice is a `note:` and
