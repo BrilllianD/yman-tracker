@@ -319,10 +319,13 @@ editor opens, before `--body-file` reads stdin and before an id is minted, so a
 typo costs neither an id nor a half-written folder. `-t UI -t ui` is one tag.
 The title is trimmed and refused, at the same point, when it is empty
 (`title must not be empty`) or still contains a control character — a newline,
-a carriage return, a tab, an escape, anything `char::is_control` matches — with
+a carriage return, a tab, an escape, anything `char::is_control` matches, and
+also the Unicode line and paragraph separators U+2028 and U+2029 and the bidi
+controls U+202A-U+202E and U+2066-U+2069 — with
 `invalid title "<t>"; titles must not contain line breaks or other control
 characters`, `<t>` being the trimmed title with those characters escaped
-(`\n`, `\t`, `\u{1b}`). A newline would otherwise leave `t.md` with a one-line
+(`\n`, `\t`, `\u{1b}`, `\u{202e}`). Tags apply the same rule and show a refused
+tag escaped the same way. A newline would otherwise leave `t.md` with a one-line
 title and the rest as body, and split the commit subject. `set --title` and
 every `--sections` heading apply the same rule with the same message.
 `-a/--assignee` is trimmed; blank or `-` means unassigned (`-` is the

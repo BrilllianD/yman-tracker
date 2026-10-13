@@ -6249,7 +6249,7 @@ fn add_refuses_a_tag_that_is_empty_or_carries_a_separator() {
     assert_eq!(out.status.code(), Some(1));
     assert_eq!(stderr(&out).trim_end(), "error: tag must not be empty");
 
-    for bad in ["a,b", "needs review"] {
+    for bad in ["a,b", "needs review", "a\u{2069}b"] {
         let out = fx
             .yman(&fx.a)
             .args(["add", "Fix login", "-t", bad])
@@ -6259,8 +6259,9 @@ fn add_refuses_a_tag_that_is_empty_or_carries_a_separator() {
         assert_eq!(
             stderr(&out).trim_end(),
             format!(
-                "error: invalid tag \"{bad}\"; tags must not contain whitespace, \
-                 commas or control characters"
+                "error: invalid tag \"{}\"; tags must not contain whitespace, \
+                 commas or control characters",
+                bad.escape_debug()
             )
         );
     }
@@ -7519,6 +7520,7 @@ fn add_refuses_a_title_with_a_control_character() {
         ("a\tb", r#""a\tb""#),
         ("a\u{1b}[31mb", r#""a\u{1b}[31mb""#),
         ("a\u{7f}b", r#""a\u{7f}b""#),
+        ("a\u{202e}b", r#""a\u{202e}b""#),
     ] {
         let out = fx.yman(&fx.a).args(["add", bad]).output().unwrap();
         assert_eq!(out.status.code(), Some(1), "{bad:?}");

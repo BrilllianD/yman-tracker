@@ -23,10 +23,11 @@ pub fn normalize(raw: &str) -> Result<String> {
         bail!("tag must not be empty");
     }
     if t.chars()
-        .any(|c| c.is_whitespace() || c.is_control() || c == ',')
+        .any(|c| c.is_whitespace() || task::is_unsafe_char(c) || c == ',')
     {
         bail!(
-            "invalid tag \"{t}\"; tags must not contain whitespace, commas or control characters"
+            "invalid tag \"{}\"; tags must not contain whitespace, commas or control characters",
+            t.escape_debug()
         );
     }
     Ok(t.to_lowercase())
@@ -119,13 +120,30 @@ mod tests {
 
     #[test]
     fn normalize_refuses_separators_and_control_characters() {
-        for raw in ["a,b", "needs review", "a\tb", "a\u{1}b"] {
+        for raw in [
+            "a,b",
+            "needs review",
+            "a\tb",
+            "a\u{1}b",
+            "a\u{202e}b",
+            "a\u{2066}b",
+        ] {
             let err = normalize(raw).unwrap_err().to_string();
             assert!(err.starts_with("invalid tag "), "for {raw:?}, got {err:?}");
             assert!(
                 err.ends_with("; tags must not contain whitespace, commas or control characters")
             );
+            assert!(
+                !err.contains('\u{202e}') && !err.contains('\u{2066}'),
+                "{err:?}"
+            );
         }
+    }
+
+    #[test]
+    fn normalize_shows_a_refused_tag_escaped() {
+        let err = normalize("a\u{202e}b").unwrap_err().to_string();
+        assert!(err.contains("\\u{202e}"), "{err:?}");
     }
 
     #[test]

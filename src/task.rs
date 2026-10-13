@@ -124,19 +124,27 @@ pub fn is_unassigned(value: &str) -> bool {
     matches!(value.trim(), "" | "-")
 }
 
+/// What a title or a tag must not carry: control characters, the Unicode
+/// line and paragraph separators, and the bidi embedding, override and
+/// isolate controls, which make `ls` output lie about what it shows.
+pub fn is_unsafe_char(c: char) -> bool {
+    c.is_control()
+        || matches!(c, '\u{2028}' | '\u{2029}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+}
+
 /// A title as `add`, `set --title`, `add --sections`, `add -e` and `edit`
-/// accept it: trimmed, not empty, and free of control characters. A newline would split
-/// it into a title plus a body line in `t.md` and turn the commit subject
-/// into several lines; a tab or an escape sequence has no business in a
-/// one-line heading either, so `char::is_control` is the whole rule. The
-/// refusal shows the title through `{:?}` so the offending byte is visible
-/// and the terminal is not fed the raw sequence.
+/// accept it: trimmed, not empty, and free of `is_unsafe_char` characters. A
+/// newline would split it into a title plus a body line in `t.md` and turn
+/// the commit subject into several lines; a tab, an escape sequence or a bidi
+/// override has no business in a one-line heading either. The refusal shows
+/// the title through `{:?}` so the offending character is visible and the
+/// terminal is not fed the raw sequence.
 pub fn clean_title(raw: &str) -> Result<String> {
     let title = raw.trim();
     if title.is_empty() {
         bail!("title must not be empty");
     }
-    if title.contains(char::is_control) {
+    if title.contains(is_unsafe_char) {
         bail!(
             "invalid title {title:?}; titles must not contain line breaks or other control characters"
         );
@@ -680,6 +688,8 @@ mod tests {
             ("a\tb", r#""a\tb""#),
             ("a\u{7f}b", r#""a\u{7f}b""#),
             ("a\u{85}b", r#""a\u{85}b""#),
+            ("a\u{2028}b", r#""a\u{2028}b""#),
+            ("a\u{202e}b", r#""a\u{202e}b""#),
         ] {
             assert_eq!(
                 clean_title(raw).unwrap_err().to_string(),

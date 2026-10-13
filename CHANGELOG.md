@@ -14,6 +14,10 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Changed
 
+- Titles and tags refuse the Unicode line and paragraph separators and the
+  bidi override and isolate characters, which could make `ls` output
+  misleading, with the existing control-character errors; a refused tag is
+  shown escaped.
 - Git's multi-line stderr quoted in `git <sub> failed: …` (and so in
   `warning: refresh failed: …`) has its continuation lines indented by two
   spaces and blank lines dropped, and `sync`'s push-refusal line is indented
