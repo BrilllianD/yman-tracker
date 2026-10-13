@@ -37,6 +37,9 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- `attach` refuses Windows reserved device names (`CON`, `NUL`, `COM1`,
+  `LPT1`… with or without an extension, any case), which Git for Windows
+  cannot check out, with the existing `is not portable` error.
 - Hooks defined in git configuration (`hook.<name>.command`, git 2.54+) no
   longer fire for yman's commits, merges and checkouts in `.yman`, and yman's
   own `update-ref`, `fetch` and `push` no longer run the user's

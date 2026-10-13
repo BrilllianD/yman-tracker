@@ -108,7 +108,7 @@ commit.
 | `--name` with several files | `--name only works with a single file` |
 | attachment source unusable | `cannot attach <path>: <why>` / `… not a regular file` |
 | attachment name with a separator, or `.` / `..` | `attachment name "<name>" must not contain a path separator` |
-| attachment name a Windows checkout cannot hold | `attachment name "<name>" is not portable: <why>` — `<why>` is `contains '<c>'` (one of `:*?"<>\|`), `contains a control character`, `ends with '.'`, `ends with a space` or `it is empty`; `<name>` has control characters escaped |
+| attachment name a Windows checkout cannot hold | `attachment name "<name>" is not portable: <why>` — `<why>` is `contains '<c>'` (one of `:*?"<>\|`), `contains a control character`, `ends with '.'`, `ends with a space`, `it is a reserved device name` or `it is empty`; `<name>` has control characters escaped |
 | `add` onto an existing folder | `folder already exists: <dir>` |
 | empty comment (`comment`, or `-m` on `set` and the verbs) | `empty comment` |
 | `--body-file` cannot be read | `cannot read <path>: <why>` — `<why>` is the OS error text |

@@ -553,7 +553,9 @@ stays 0.
 Each source must be an existing, readable regular file. `--name` applies to a
 single file only, and must not contain a path separator. Every name, given or
 taken from the source, must also be portable: no `:` `*` `?` `"` `<` `>` `|`
-or control character, no trailing `.` or space, not empty — the names a
+or control character, no trailing `.` or space, not empty, not a reserved
+device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`, any
+case, with or without an extension) — the names a
 Windows checkout cannot hold. Names compare ignoring case throughout, since
 `a.png` and `A.png` are one file on macOS and Windows. Two sources that would
 land under the same name are refused with `attachment "<name>" given more than
