@@ -2,3 +2,7 @@
 
 Also from the pre-push review: the push-refusal line ` ! [remote rejected] …` in `src/commands/sync.rs` (around line 67) is written by yman itself in git's format, with a one-space indent and no prefix. `docs/commands.md` documents it, but `docs/errors.md` only exempts git's own passed-through output, so it falls under this task.
 
+## 2026-10-13T17:33:47Z — Bronnikov Aleksandr
+
+cbfd290: fix: indent git's multi-line stderr under yman's prefix
+
