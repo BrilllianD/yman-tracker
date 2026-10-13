@@ -27,10 +27,24 @@ pub fn normalize(raw: &str) -> Result<String> {
     {
         bail!(
             "invalid tag \"{}\"; tags must not contain whitespace, commas or control characters",
-            t.escape_debug()
+            show(t)
         );
     }
     Ok(t.to_lowercase())
+}
+
+/// The tag as typed, except that control and unsafe characters print as
+/// `\u{..}` so the message cannot be spoofed or garbled.
+fn show(t: &str) -> String {
+    t.chars()
+        .map(|c| {
+            if c.is_control() || task::is_unsafe_char(c) {
+                c.escape_unicode().to_string()
+            } else {
+                c.to_string()
+            }
+        })
+        .collect()
 }
 
 /// Several tags at once. First occurrence wins, order kept — the rule `add`
@@ -144,6 +158,12 @@ mod tests {
     fn normalize_shows_a_refused_tag_escaped() {
         let err = normalize("a\u{202e}b").unwrap_err().to_string();
         assert!(err.contains("\\u{202e}"), "{err:?}");
+    }
+
+    #[test]
+    fn normalize_shows_a_refused_tag_unescaped_when_plain() {
+        let err = normalize("it's,x").unwrap_err().to_string();
+        assert!(err.contains("it's,x"), "{err:?}");
     }
 
     #[test]

@@ -349,7 +349,7 @@ pub fn parse(text: &str) -> Result<Meta> {
 
 /// Keep the lines an unknown key owns, so `render` can replay them.
 fn push_unknown(out: &mut Vec<Unknown>, key: String, block: &[&str]) {
-    // `skip_block` also eats the blank and comment lines that follow the
+    // `skip_block` also eats the blank and column-0 comment lines that follow the
     // value; they belong to nobody and are not preserved anywhere else.
     // Except under `|+` / `>+`: there the empty lines are the value's own.
     let keep = block
@@ -357,9 +357,11 @@ fn push_unknown(out: &mut Vec<Unknown>, key: String, block: &[&str]) {
         .and_then(|l| split_key(l, 0).ok())
         .and_then(|(_, rest)| block_header(rest))
         .is_some_and(|h| h.chomp == Some('+'));
+    // Only a column-0 `#` line is a comment; an indented one inside a block
+    // scalar is content.
     let mut end = block
         .iter()
-        .rposition(|l| !is_blank(l))
+        .rposition(|l| !reads_blank(l) && !l.starts_with('#'))
         .map_or(0, |p| p + 1);
     // Under `|+` / `>+` the empty lines right after the body are the value's
     // own; the first comment line ends them, and what follows belongs to nobody.
@@ -1158,6 +1160,22 @@ notes: |+
         let text = "status: todo\ncreated: 2026-09-16T10:00:00Z\nupdated: 2026-09-16T10:00:00Z\nnotes: |+\n  k\n\n# c\n\n";
         let m = parse(text).unwrap();
         assert_eq!(m.unknown[0].text, "notes: |+\n  k\n\n");
+        assert_eq!(parse(&render(&m)).unwrap(), m);
+    }
+
+    #[test]
+    fn keep_block_keeps_an_indented_hash_line() {
+        let text = "status: todo\ncreated: 2026-09-16T10:00:00Z\nupdated: 2026-09-16T10:00:00Z\nnotes: |+\n  k\n  # x\n\n";
+        let m = parse(text).unwrap();
+        assert_eq!(m.unknown[0].text, "notes: |+\n  k\n  # x\n\n");
+        assert_eq!(parse(&render(&m)).unwrap(), m);
+    }
+
+    #[test]
+    fn plain_block_keeps_an_indented_hash_line() {
+        let text = "status: todo\ncreated: 2026-09-16T10:00:00Z\nupdated: 2026-09-16T10:00:00Z\nnotes: |\n  k\n  # x\n";
+        let m = parse(text).unwrap();
+        assert_eq!(m.unknown[0].text, "notes: |\n  k\n  # x\n");
         assert_eq!(parse(&render(&m)).unwrap(), m);
     }
 
