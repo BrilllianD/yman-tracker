@@ -34,10 +34,11 @@ pub fn run(ctx: &mut Context, a: AttachArgs) -> Result<()> {
         }
         let name = match &a.name {
             Some(n) => n.clone(),
-            None => match src.file_name() {
-                Some(n) => n.to_string_lossy().into_owned(),
-                None => bail!("cannot attach {}: no file name", src.display()),
-            },
+            None => src
+                .file_name()
+                .expect("is_file above: only a root or a path ending in `..` has no file name, and both are directories")
+                .to_string_lossy()
+                .into_owned(),
         };
         if name.contains('/') || name.contains('\\') || name == "." || name == ".." {
             bail!("attachment name \"{name}\" must not contain a path separator");
