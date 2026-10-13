@@ -297,7 +297,8 @@ related:
   appear in `--json` output. Comments, and unknown keys *inside* an
   `attachments` item, are still dropped. Trailing empty lines after an
   unknown block are dropped too, except under a keep header (`|+`, `>+`),
-  where they are part of the value and kept.
+  where the empty lines directly after the value are part of it and kept, up
+  to the first comment line.
 - `m.yml` is read and written by hand in `src/yml.rs`; there is no YAML
   crate. The writer emits exactly the shape above: block sequences at column
   zero, `[]` for an empty list, `null` for an absent `assignee`, and a scalar

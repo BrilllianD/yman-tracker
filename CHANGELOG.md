@@ -29,6 +29,8 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- A comment line after an unknown `|+` block in `m.yml` is dropped like every
+  other comment, instead of surviving when a blank line followed it.
 - An `m.yml` value with a line of only Unicode whitespace (a U+00A0, say, from
   `set --link`) is written double-quoted, so it no longer reads back empty or
   chomped.
