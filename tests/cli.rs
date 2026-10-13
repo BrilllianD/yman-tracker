@@ -6666,12 +6666,16 @@ fn retitle_and_first_comment_merge() {
 /// An attachment added against the old folder is `f/<name>`, one level down,
 /// and git leaves it behind under the old name even when told to follow
 /// directory renames — the merge succeeds with the task split in two. Sync
-/// moves it into the folder that carries the task, retitled or closed.
+/// moves it into the folder that carries the task, retitled or closed. The
+/// close case runs on a version 2 config so `done` really moves the folder.
 #[test]
 fn moved_folder_and_attachment_merge() {
     for verb in ["retitle", "close"] {
         let fx = Fx::new();
         fx.yman(&fx.a).arg("init").assert().success();
+        if verb == "close" {
+            fx.v2_config(&fx.a);
+        }
         fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
         fx.yman(&fx.a).arg("sync").assert().success();
         fx.yman(&fx.b).arg("init").assert().success();
@@ -6690,16 +6694,32 @@ fn moved_folder_and_attachment_merge() {
         fx.yman(&fx.a).arg("sync").assert().success();
         let out = fx.yman(&fx.b).arg("sync").output().unwrap();
         assert!(out.status.success(), "{verb}: {}", stderr(&out));
-        // A version 1 close keeps the folder where it is: nothing to move.
         let note = match verb {
             "retitle" => "note: moved 1 file(s) left under 5.1.fix-login into 5.1.repair-login\n",
-            _ => "",
+            _ => "note: moved 1 file(s) left under 5.1.fix-login into done/5.1.fix-login\n",
+        };
+        let rel = match verb {
+            "retitle" => "5.1.repair-login",
+            _ => "done/5.1.fix-login",
         };
         assert_eq!(stderr(&out), note, "{verb}");
         fx.yman(&fx.a).arg("sync").assert().success();
 
         for clone in [&fx.a, &fx.b] {
             assert_eq!(fx.task_dirs(clone).len(), 1, "{verb}");
+            assert_eq!(fx.task_rel(clone, "1"), rel, "{verb}");
+            assert!(!clone.join(".yman/5.1.fix-login").exists(), "{verb}");
+            if verb == "close" {
+                assert_eq!(fx.status(clone, "1"), "done");
+            }
+            assert_eq!(
+                fx.git(
+                    clone,
+                    &["-C", ".yman", "ls-files", "--", &format!("{rel}/f")]
+                ),
+                format!("{rel}/f/trace.txt"),
+                "{verb}"
+            );
             let dir = fx.task_dir(clone, "1");
             assert_eq!(fx.read(&dir.join("f").join("trace.txt")), "trace\n");
             let shown = stdout(&fx.yman(clone).args(["show", "1"]).output().unwrap());
