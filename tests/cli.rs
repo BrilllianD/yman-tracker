@@ -510,6 +510,27 @@ fn attach_force_matches_entries_and_case() {
     assert_eq!(tracked, "5.1.fix-login/f/A.PNG");
 }
 
+/// A case-only `--force` rename must reach the index: on a case-insensitive
+/// checkout `git add` would keep the old spelling, so the old path is removed
+/// from the index first. The `rm` in the spawn log pins that mechanism.
+#[cfg(unix)]
+#[test]
+fn attach_force_case_change_reaches_the_index() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.git(&fx.a, &["config", "core.ignorecase", "true"]);
+    let src = fx.tmp.path().join("a.png");
+    fx.write(&src, "one");
+    let src = src.to_str().unwrap();
+    fx.yman(&fx.a).args(["attach", "1", src]).assert().success();
+    let log = fx.git_spawn_log(&fx.a, &["attach", "1", src, "--name", "A.png", "--force"]);
+    assert!(log.iter().any(|s| s == "rm"), "{log:?}");
+    let tracked = fx.git(&fx.a.join(".yman"), &["ls-files", "5.1.fix-login/f"]);
+    assert_eq!(tracked, "5.1.fix-login/f/A.png");
+    assert_eq!(fx.git(&fx.a, &["-C", ".yman", "status", "--porcelain"]), "");
+}
+
 /// `detach` compares names ignoring case, as `attach` does, and removes the
 /// file under the spelling it was stored with, not the one typed.
 #[test]

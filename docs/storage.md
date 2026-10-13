@@ -227,7 +227,8 @@ behave differently off Linux and is not checked:
   cannot collide, because `slugify` lowercases. Attachment names and `author`
   prefixes are not lowercased, though. `attach` compares names ignoring case,
   so it never creates `A.png` beside `a.png`, and `attach --force a.png` over
-  an existing `A.png` replaces both the file and the entry. A hand edit or a
+  an existing `A.png` replaces the file, the entry and the index path (the old
+  spelling is dropped from the index first, so a case-only change reaches every clone). A hand edit or a
   merge can still bring two such files together. Two prefixes that differ only in case (`IV` and `iv`) mint
   ids that name distinct folders on Linux and can fold into one elsewhere.
 - **Unicode normalization.** HFS+ stores names in NFD; APFS, the macOS default
