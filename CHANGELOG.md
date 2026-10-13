@@ -37,6 +37,9 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- A fresh `yman init` whose push lost the race and whose refetch then failed no
+  longer exits 1 with the tracker half set up: it installs hooks, prints the
+  summary and warns `not published to origin (fetch failed); run: yman sync`.
 - `add --sections` reads a line like ```` ```x``` inline ```` as text, as
   CommonMark does, instead of opening a fence and refusing the file with
   `unclosed code fence`.

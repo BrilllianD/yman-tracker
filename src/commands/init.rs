@@ -122,7 +122,8 @@ pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
 /// again), there is nothing to adopt and nothing to reset to, so push again —
 /// with the same attempt cap and message as `sync`. The local tracker stands
 /// either way; `yman sync` publishes it later. A push that fails, or keeps
-/// losing the race, comes back as `Ok(Some(why))` for the caller to report.
+/// losing the race, comes back as `Ok(Some(why))` for the caller to report; so
+/// does a refetch that fails, since the local tracker already exists.
 fn publish_fresh(ctx: &mut Context) -> Result<Option<anyhow::Error>> {
     for _ in 0..PUSH_ATTEMPTS {
         match push(ctx) {
@@ -130,7 +131,9 @@ fn publish_fresh(ctx: &mut Context) -> Result<Option<anyhow::Error>> {
             Ok(_) => return Ok(None),
             Err(e) => return Ok(Some(e)),
         }
-        fetch_tasks(ctx, "fetch failed (see above); use --offline to skip")?;
+        if let Err(e) = fetch_tasks(ctx, "fetch failed") {
+            return Ok(Some(e));
+        }
         if ctx.main.rev_parse(REMOTE)?.is_some() {
             ctx.wt.ok(&["reset", "-q", "--hard", REMOTE])?;
             ctx.main
