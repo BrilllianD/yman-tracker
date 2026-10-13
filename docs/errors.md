@@ -91,7 +91,6 @@ commit.
 | the done status is not terminal | `invalid .yman/config.toml: statuses.done "<s>" is not in statuses.terminal` |
 | the cancel status is not terminal | `invalid .yman/config.toml: statuses.cancel "<s>" is not in statuses.terminal` |
 | `default` or the start status is terminal | `invalid .yman/config.toml: statuses.terminal must not contain statuses.default "<s>"` / `… must not contain the start status "<s>"` |
-| every status is terminal | `invalid .yman/config.toml: statuses.terminal marks every status terminal; at least one must stay open` |
 | empty title | `title must not be empty` |
 | title with a line break or another control character (`add`, `set --title`, each `add --sections` heading, the title left by `add -e` or `edit`; tab included) | `invalid title "<t>"; titles must not contain line breaks or other control characters` — `<t>` is the trimmed title with control characters escaped (`\n`, `\t`, `\u{1b}`); under `add -e` it arrives as `t.md invalid after edit: invalid title …; task not added`, under `edit` as `t.md invalid after edit: invalid title …; fix the file then run: yman edit <id>` |
 | empty tag | `tag must not be empty` |
@@ -104,7 +103,7 @@ commit.
 | attachment name already used, ignoring case (an `m.yml` entry or a file under `f/`) | `attachment "<name>" already exists on task <id>; use --force` |
 | two sources with the same attachment name | `attachment "<name>" given more than once` |
 | `--name` with several files | `--name only works with a single file` |
-| attachment source unusable | `cannot attach <path>: <why>` / `… not a regular file` / `… no file name` |
+| attachment source unusable | `cannot attach <path>: <why>` / `… not a regular file` |
 | attachment name with a separator, or `.` / `..` | `attachment name "<name>" must not contain a path separator` |
 | attachment name a Windows checkout cannot hold | `attachment name "<name>" is not portable: <why>` — `<why>` is `contains '<c>'` (one of `:*?"<>\|`), `contains a control character`, `ends with '.'`, `ends with a space` or `it is empty`; `<name>` has control characters escaped |
 | `add` onto an existing folder | `folder already exists: <dir>` |

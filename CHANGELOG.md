@@ -24,6 +24,9 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Removed
 
+- The `cannot attach <path>: no file name` and `statuses.terminal marks every
+  status terminal` errors, which could never fire: the `not a regular file`
+  check and the rule that `statuses.default` is not terminal refuse first.
 - The `no editor configured; set $EDITOR` error, which could never fire: the
   editor resolver always falls back to `vi` or refuses earlier.
 

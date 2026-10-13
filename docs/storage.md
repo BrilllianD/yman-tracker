@@ -489,7 +489,6 @@ Validated on every load; each failure is reported as
 | `statuses.terminal` contains the done status, and the cancel status when set |
 | `statuses.done` is named whenever `statuses.terminal` lists more than one status |
 | `statuses.terminal` excludes `statuses.default` and the start status (`version = 2` only) |
-| at least one status stays open (`version = 2` only) |
 | `priorities.default <= 9` |
 | `slug.max_bytes` in `1..=240` |
 | `ids.random_len` in `2..=16` |
@@ -522,10 +521,11 @@ task folder, since all of those contain a `.`. Two terminal statuses differing
 only in ASCII case are rejected because they are one directory on macOS and
 Windows.
 
-Three rules — `terminal` excluding `default` and the start status, and keeping
-one status open — apply only at `version = 2`. A version 1 list of
-`["todo", "done"]` derives `start == done == the terminal status` and works
-fine; enforcing the rules against it would reject a config that ships today.
+Two rules — `terminal` excluding `default` and excluding the start status —
+apply only at `version = 2`; excluding `default` already keeps one status
+open. A version 1 list of `["todo", "done"]` derives
+`start == done == the terminal status` and works fine; enforcing the rules
+against it would reject a config that ships today.
 
 ### Opting in to version 2
 

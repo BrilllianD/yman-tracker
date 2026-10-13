@@ -358,12 +358,8 @@ impl Config {
                     self.start_status()
                 );
             }
-            if self.statuses.list.iter().all(|s| self.is_terminal(s)) {
-                bail!(
-                    "invalid .yman/config.toml: statuses.terminal marks every status terminal; \
-                     at least one must stay open"
-                );
-            }
+            // No "every status is terminal" check: `default` is listed and not
+            // terminal (above), so one status always stays open.
         }
         Ok(())
     }

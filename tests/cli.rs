@@ -7837,10 +7837,6 @@ fn a_missing_git_identity_is_named() {
 
 /// `--name` stores one file under another name, and is refused with several
 /// files, with a name that is a path, and for a source that is not a file.
-///
-/// `cannot attach <path>: no file name` is not exercised: `Path::file_name`
-/// is `None` only for a root or a path ending in `..`, and both are
-/// directories, which the `not a regular file` check refuses first.
 #[test]
 fn attach_name_stores_one_file_under_another_name() {
     let fx = Fx::new();

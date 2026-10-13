@@ -16,8 +16,11 @@ pub fn run(a: CompletionsArgs) -> Result<()> {
         .version(env!("CARGO_PKG_VERSION"))
         .disable_help_subcommand(true)
         .subcommands(full.get_subcommands().filter(|s| !s.is_hide_set()).cloned());
-    // Generated into a buffer: `generate` panics on a closed pipe, and a
-    // plain write turns that into an ordinary error.
+    // Generated into a buffer and written once. On unix a closed pipe kills
+    // the process with SIGPIPE before anything can panic (see
+    // `restore_sigpipe` in `src/main.rs`); elsewhere `generate` would panic
+    // writing to a closed stdout, and the plain write turns that into an
+    // ordinary error.
     let mut buf = Vec::new();
     clap_complete::generate(a.shell, &mut cmd, "yman", &mut buf);
     std::io::stdout().write_all(&buf)?;

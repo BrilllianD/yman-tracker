@@ -182,20 +182,20 @@ mod tests {
     use super::*;
     use crate::task::now;
 
-    fn tmpfile(tag: &str) -> std::path::PathBuf {
-        let path = std::env::temp_dir().join(format!("yman-d-{}-{tag}.md", std::process::id()));
-        let _ = std::fs::remove_file(&path);
-        path
+    /// A `d.md` path in a fresh directory that is removed when the guard drops.
+    fn tmpfile() -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("d.md");
+        (dir, path)
     }
 
     #[test]
     fn append_then_parse_round_trip() {
-        let tmp = tmpfile("round-trip");
+        let (_dir, tmp) = tmpfile();
         let ts = now();
         append_entry(&tmp, ts, "Ivan", "first\nline two").unwrap();
         append_entry(&tmp, ts, "Anna", "second  ").unwrap();
         let text = std::fs::read_to_string(&tmp).unwrap();
-        std::fs::remove_file(&tmp).unwrap();
 
         assert!(text.ends_with("\n\n"));
         let entries = parse(&text);
@@ -234,13 +234,12 @@ mod tests {
 
     #[test]
     fn a_heading_in_a_comment_does_not_split_the_entry() {
-        let tmp = tmpfile("heading");
+        let (_dir, tmp) = tmpfile();
         let ts = now();
         // Both a plain heading and a line shaped exactly like our own header.
         let body = "before\n## Heading\n## 2026-09-16T10:10:00Z — Mallory\nafter";
         append_entry(&tmp, ts, "Ivan", body).unwrap();
         let text = std::fs::read_to_string(&tmp).unwrap();
-        std::fs::remove_file(&tmp).unwrap();
 
         // On disk both lines are indented by one space, so nothing downstream
         // of us can mistake them for a header either.
@@ -264,11 +263,10 @@ mod tests {
 
     #[test]
     fn an_already_indented_heading_round_trips() {
-        let tmp = tmpfile("indented");
+        let (_dir, tmp) = tmpfile();
         let ts = now();
         append_entry(&tmp, ts, "Ivan", " # spaced").unwrap();
         let entries = parse(&std::fs::read_to_string(&tmp).unwrap());
-        std::fs::remove_file(&tmp).unwrap();
         assert_eq!(entries.len(), 1);
         let Entry::Comment { text, .. } = &entries[0] else {
             panic!("expected a comment, got {:?}", entries[0]);
@@ -281,12 +279,11 @@ mod tests {
     #[test]
     fn a_hand_edited_tail_gets_its_separator_back() {
         for tail in ["no trailing newline", "one newline\n", "two newlines\n\n"] {
-            let tmp = tmpfile("tail");
+            let (_dir, tmp) = tmpfile();
             std::fs::write(&tmp, format!("## 2026-09-16T10:10:00Z — Ivan\n\n{tail}")).unwrap();
             let ts = now();
             append_entry(&tmp, ts, "Anna", "second").unwrap();
             let text = std::fs::read_to_string(&tmp).unwrap();
-            std::fs::remove_file(&tmp).unwrap();
 
             assert!(
                 text.contains(&format!("\n\n## {} — Anna\n", format_ts(&ts))),
