@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# The trap: `set 1 --relate 2` followed by `set 1 --status blocked`, two
-# commits and a status nobody reading `plan` can trace, when `--waits-on 2`
-# does both in one.
+# The trap: `set 1 --relate 2` followed by `set 1 --status blocked` or
+# `move 1 blocked`, two commits and a status nobody reading `plan` can trace,
+# when `--waits-on 2` does both in one.
 set -u
 source "$(dirname "$0")/../../lib.sh"
 
@@ -14,6 +14,7 @@ esac
 
 require_command 'yman[[:space:]]+(set|add)[^|]*--waits-on[[:space:]]+2' 'did not use `--waits-on 2`'
 forbid_command 'yman[[:space:]]+set[^|]*--status[[:space:]]+blocked' 'set the status by hand instead of through --waits-on'
+forbid_command 'yman[[:space:]]+move[[:space:]][^|;&]*[[:space:]]blocked([[:space:];&|]|$)' 'moved the task to blocked instead of using --waits-on'
 
 calls=$(yman_work_call_count)
 [ "$calls" -le 3 ] || fail "$calls yman calls besides sync for one dependency"
