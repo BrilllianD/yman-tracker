@@ -557,6 +557,9 @@ fn attach_refuses_unportable_names() {
         ("trail ", "ends with a space"),
         ("tab\there", "contains a control character"),
         ("", "it is empty"),
+        ("nul.txt", "it is a reserved device name"),
+        ("CON", "it is a reserved device name"),
+        ("Lpt9.log", "it is a reserved device name"),
     ] {
         let out = fx
             .yman(&fx.a)

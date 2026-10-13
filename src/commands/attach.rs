@@ -261,7 +261,8 @@ fn same_name_files(fdir: &Path, name: &str) -> Result<Vec<String>> {
 }
 
 /// Names a Windows checkout cannot hold: the characters NTFS reserves,
-/// control characters, and a trailing dot or space, which Windows strips.
+/// control characters, a trailing dot or space, which Windows strips, and
+/// reserved device names.
 fn check_portable(name: &str) -> Result<()> {
     let why = if name.is_empty() {
         Some("it is empty".to_string())
@@ -273,6 +274,8 @@ fn check_portable(name: &str) -> Result<()> {
         Some("ends with '.'".to_string())
     } else if name.ends_with(' ') {
         Some("ends with a space".to_string())
+    } else if is_reserved_device(name) {
+        Some("it is a reserved device name".to_string())
     } else {
         None
     };
@@ -282,6 +285,21 @@ fn check_portable(name: &str) -> Result<()> {
             name.escape_debug()
         ),
         None => Ok(()),
+    }
+}
+
+/// `CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`, in any case and
+/// with any extension: Windows maps them to devices, so a checkout cannot
+/// create the file.
+fn is_reserved_device(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or(name).to_ascii_uppercase();
+    match stem.as_str() {
+        "CON" | "PRN" | "AUX" | "NUL" => true,
+        s => {
+            s.len() == 4
+                && (s.starts_with("COM") || s.starts_with("LPT"))
+                && matches!(s.as_bytes()[3], b'1'..=b'9')
+        }
     }
 }
 
@@ -320,6 +338,16 @@ pub fn run_detach(ctx: &mut Context, a: DetachArgs) -> Result<()> {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
+
+    #[test]
+    fn reserved_device_names() {
+        for name in ["nul", "NUL.txt", "com1", "LPT9.a.b", "aux."] {
+            assert!(check_portable(name).is_err(), "{name}");
+        }
+        for name in ["console.txt", "com10", "lpt0", "nul_x.txt", "com"] {
+            assert!(check_portable(name).is_ok(), "{name}");
+        }
+    }
 
     /// Every file under `dir`, name to bytes.
     fn snapshot(dir: &Path) -> BTreeMap<String, Vec<u8>> {
