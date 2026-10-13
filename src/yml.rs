@@ -357,10 +357,17 @@ fn push_unknown(out: &mut Vec<Unknown>, key: String, block: &[&str]) {
         .and_then(|l| split_key(l, 0).ok())
         .and_then(|(_, rest)| block_header(rest))
         .is_some_and(|h| h.chomp == Some('+'));
-    let end = block
+    let mut end = block
         .iter()
-        .rposition(|l| !is_blank(l) || (keep && reads_blank(l)))
+        .rposition(|l| !is_blank(l))
         .map_or(0, |p| p + 1);
+    // Under `|+` / `>+` the empty lines right after the body are the value's
+    // own; the first comment line ends them, and what follows belongs to nobody.
+    if keep {
+        while block.get(end).is_some_and(|l| reads_blank(l)) {
+            end += 1;
+        }
+    }
     let mut text = String::new();
     for line in &block[..end] {
         text.push_str(line);
@@ -1144,6 +1151,14 @@ notes: |+
         // Without `+` the blank line is the file's, not the value's.
         let m = parse(&text.replace("|+", "|")).unwrap();
         assert_eq!(m.unknown[0].text, "notes: |\n  kept\n");
+    }
+
+    #[test]
+    fn keep_block_drops_a_comment_before_a_trailing_blank() {
+        let text = "status: todo\ncreated: 2026-09-16T10:00:00Z\nupdated: 2026-09-16T10:00:00Z\nnotes: |+\n  k\n\n# c\n\n";
+        let m = parse(text).unwrap();
+        assert_eq!(m.unknown[0].text, "notes: |+\n  k\n\n");
+        assert_eq!(parse(&render(&m)).unwrap(), m);
     }
 
     #[test]
