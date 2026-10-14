@@ -7,6 +7,12 @@ under [Releasing](README.md#releasing) in the README.
 
 ## [Unreleased]
 
+### Added
+
+- `skills/yman-task/`, a second agent skill: `/yman-task <text>` files the
+  user's own words as tasks tagged `user-request` and `needs-agent`, quoting
+  the original, so the agent that picks one up re-checks it before working.
+
 ## [0.7.0] - 2026-10-13
 
 ### Added
