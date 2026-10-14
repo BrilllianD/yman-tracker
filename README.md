@@ -423,6 +423,12 @@ cp -r "$src" .claude/skills/        # this project
 cp -r "$src" ~/.claude/skills/      # every project
 ```
 
+[skills/yman-task/](skills/yman-task/) sits next to it and installs the same
+way: `/yman-task <text>` files the user's own words as tasks tagged
+`user-request` and `needs-agent`, with the original quoted, and leaves them
+unassigned so the next agent re-checks each claim against the code before
+claiming it.
+
 Setting a tracker up from scratch is [docs/setup.md](docs/setup.md).
 
 ---
@@ -742,6 +748,7 @@ Layout:
 | `scripts/synthetic-project.sh` | builds a large repository and measures what commands cost on it |
 | `scripts/book.sh`, `book.toml`, `docs/SUMMARY.md` | the documentation site |
 | `skills/yman/` | the agent skill, and the evals that keep it honest |
+| `skills/yman-task/` | the skill that files the user's words as unverified tasks |
 | `docs/` | the normative specification |
 
 `docs/` holds the normative, as-built specification — [storage.md](docs/storage.md)
