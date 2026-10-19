@@ -149,6 +149,7 @@ commit.
 | `hooks install` met a hook it does not own | `<n> hook(s) not installed: <names>`, after `note: hook <name> exists; add this line to it:` and the line itself on stderr for each |
 | `hooks install` met a hook it cannot read (permission denied, not UTF-8, a dangling symlink) | the same `<n> hook(s) not installed: <names>`, after `warning: hook <name>: cannot read <path>: <why>; not replacing it` on stderr for each; `<why>` is `not valid UTF-8`, `dangling symlink` or the OS error |
 | `man --dir` cannot write | `cannot create <dir>: <why>` / `cannot write man pages to <dir>: <why>` |
+| `state` or `state set` cannot access `.yman/state.md` | `cannot read <path>: <why>` / `cannot write <path>: <why>`, with the full path of the file |
 | `m.yml` merge driver could not fall back | `git merge-file failed`, with git's stderr printed above — reaches the user through git's own merge output |
 
 ### Exit-code-3 messages

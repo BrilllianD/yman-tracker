@@ -8,12 +8,13 @@ source "$(dirname "$0")/../../lib.sh"
 ydir="$WORK/.yman"
 [ -f "$ydir/state.md" ] || fail ".yman/state.md does not exist"
 state=$(cat "$ydir/state.md" 2>/dev/null)
-case $state in
-    *next*) ;;
-    *) fail "state does not mention the next step: $state" ;;
+lower=$(printf '%s' "$state" | tr '[:upper:]' '[:lower:]')
+case $lower in
+    *validat*) ;;
+    *) fail "state does not name the next step (validating the redirect parameter): $state" ;;
 esac
-case $state in
-    *progress*) ;;
+case $lower in
+    *"in progress"*) ;;
     *) fail "state does not say what is in progress: $state" ;;
 esac
 

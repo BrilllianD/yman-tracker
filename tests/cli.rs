@@ -5799,7 +5799,7 @@ fn guide_needs_no_repository() {
         std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/docs/agents.md")).unwrap();
     assert_eq!(stdout(&out), expected);
     assert_eq!(stderr(&out), "");
-    assert!(expected.lines().count() <= 75, "agents.md must stay short");
+    assert!(expected.lines().count() <= 74, "agents.md must stay short");
 }
 
 /// The subcommands a `--help` page lists under `Commands:`, without `help`.
@@ -8817,11 +8817,13 @@ fn state_set_body_file_stdin_overwrites() {
     let out = fx.yman(&fx.a).arg("state").output().unwrap();
     assert_eq!(stdout(&out), "from a file\n");
 
-    // The same text again is a no-op, not a failure.
+    // The same text again is a no-op, not a failure, and adds no commit.
+    let head = fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]);
     fx.yman(&fx.a)
         .args(["state", "set", "-m", "from a file"])
         .assert()
         .success();
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["rev-parse", "HEAD"]), head);
 }
 
 #[test]
@@ -8887,6 +8889,10 @@ fn state_conflict_keeps_exit_3() {
     // Reading still works; writing is refused until the merge is resolved.
     let out = fx.yman(&fx.b).arg("state").output().unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(
+        stdout(&out),
+        std::fs::read_to_string(fx.b.join(".yman/state.md")).unwrap()
+    );
     let out = fx
         .yman(&fx.b)
         .args(["state", "set", "-m", "nope"])

@@ -8,7 +8,7 @@
     yman set <id> --status doing -a <me> -m "on it"   # claim: status, assignee, note, one commit
     yman done <id> -m "what changed" && yman sync     # close, explain, publish
     yman add "Title" -m "body" -a <me> --relate <id>  # follow-up, linked to its parent
-    yman state set --body-file -                      # stdin: rewrite the state when it changed
+    yman state set --body-file - <<'EOF'              # rewrite (or -m <text>): short, never by hand
     `yman sync` before a status change (re-`show`; stop if taken) and after (unless `autosync: push`).
     Never `edit` or `-e` (opens an editor); change a body with `yman set <id> --body "..."`.
     `rm` and `tags rm` need `-f` off a terminal, or refuse: `refusing to remove without -f`.
@@ -29,8 +29,8 @@ closed tasks need `-a` or `-s <closed status>`.
 
 `show <id>` prints a header (`related by:` = tasks relating to it), the body,
 then `attachments:` and `discussion:`; empty sections omitted, `-n <N>` keeps the last N.
-`state` prints the project state summary; `tags` lists every tag in use with its task count, closed tasks included.
-`ls`, `plan`, `show`, `status`, `tags` take `--json`: empty is `[]`/`null`; `ls`/`plan` add `body` with `-l`.
+`tags` lists every tag in use with its task count, closed tasks included. `ls`, `plan`,
+`show`, `status`, `tags` take `--json`: empty is `[]`/`null`; `ls`/`plan` add `body` with `-l`.
 
 ## Writing
 
@@ -40,7 +40,6 @@ take several ids, one commit each, and `-m <text>` to comment in the same commit
 `--no-assignee` `--tag/--untag` `--link/--unlink` `--relate/--unrelate` `--body <text>`
 `--body-file <path|->` `-m <text>`. Every mutation is its own commit; nothing to save.
 `comment <id> -m <text>` adds a note; without `-m` it reads stdin to EOF, so pass `-m`.
-`state set -m <text>` or `--body-file <path|->` replaces the project state: short (in progress, next, blockers), never by hand.
 
 ## Plans
 

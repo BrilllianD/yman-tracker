@@ -19,7 +19,8 @@ pub fn run(ctx: &mut Context, a: StateArgs) -> Result<()> {
 }
 
 fn show(ctx: &Context) -> Result<()> {
-    match std::fs::read_to_string(ctx.ydir.join(STATE_FILE)) {
+    let path = ctx.ydir.join(STATE_FILE);
+    match std::fs::read_to_string(&path) {
         Ok(text) => {
             print!("{text}");
             Ok(())
@@ -28,7 +29,7 @@ fn show(ctx: &Context) -> Result<()> {
             eprintln!("note: no project state yet; write one with yman state set -m <text>");
             Ok(())
         }
-        Err(e) => bail!("cannot read {STATE_FILE}: {e}"),
+        Err(e) => bail!("cannot read {}: {e}", path.display()),
     }
 }
 
@@ -42,7 +43,9 @@ fn set(ctx: &mut Context, a: StateSetArgs) -> Result<()> {
     if text.is_empty() {
         bail!("empty state");
     }
-    std::fs::write(ctx.ydir.join(STATE_FILE), format!("{text}\n"))?;
+    let path = ctx.ydir.join(STATE_FILE);
+    std::fs::write(&path, format!("{text}\n"))
+        .map_err(|e| anyhow::anyhow!("cannot write {}: {e}", path.display()))?;
     ctx.wt.ok(&["add", "--", STATE_FILE])?;
     ctx.wt.commit("yman: state")?;
     println!("state updated");
