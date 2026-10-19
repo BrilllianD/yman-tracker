@@ -7,6 +7,8 @@ history lives in `refs/yman/local`, a ref outside `refs/heads/`, checked out as
 a linked worktree at `.yman/`. Read `docs/storage.md` before changing anything
 that touches refs, the worktree, or the on-disk layout.
 
+Knowledge base: ~/mem/projects/yman/README.md (search: qmd search "<terms>" -c mem -n 8). Read it before non-trivial work; record decisions there.
+
 ## Commands
 
 ```sh
