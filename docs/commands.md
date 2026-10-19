@@ -32,7 +32,7 @@ Normative, as-built. Companion documents: [storage.md](storage.md),
 
 Mutating commands, for the purposes of step 2: `add`, `edit`, `set`, `start`,
 `done`, `move`, `cancel`, `reopen`, `prio`, `rm`, `attach`, `detach`, `comment`,
-`tags rename` and `tags rm`. Bare `yman tags` is a listing and is not
+`tags rename`, `tags rm` and `state set`. Bare `yman tags` is a listing and is not
 mutating. `sync` is excluded because it handles `MERGE_HEAD` itself. The
 same list decides when step 4 runs.
 
@@ -75,6 +75,7 @@ to the user's configuration.
 | `comment` | `task({id}): comment` |
 | `tags rename` | `yman: tags rename {old} -> {new} ({n} tasks)` |
 | `tags rm` | `yman: tags remove {tag} ({n} tasks)` |
+| `state set` | `yman: state` |
 | `sync` snapshot | `yman: snapshot local changes` |
 | `sync` renumber | `yman: renumber 2->3, 7->8 (sync collision)` |
 | `sync` merge | `yman: merge origin refs/tasks/main` |
@@ -229,6 +230,15 @@ text form prints `remote: none (no "origin"; tasks are local only)` instead of
 `not fetched yet`. The per-status counts are nested under `by_status`
 so a status named `other` or `broken` cannot collide with the two totals beside
 it.
+
+### `state`
+
+Prints `.yman/state.md` verbatim: the project state summary an agent wrote with
+[`state set`](#state-set). Touches no git. With no summary yet, stdout is empty,
+the exit code is 0 and stderr carries
+`note: no project state yet; write one with yman state set -m <text>`. Bare
+`state` is not mutating, so it still works while a sync merge is unresolved.
+There is no `--json`.
 
 ### `tags`
 
@@ -529,6 +539,15 @@ nobody chose. No match is `no changes` and no commit, as in `set`. A folder
 that does not load cannot be rewritten either, so it is reported on stderr with
 the same `warning: skipped …` the listing prints rather than silently left out
 of the count.
+
+### `state set`
+
+`state set -m <text>` or `state set --body-file <path|->` (`-` reads stdin to
+end of file); exactly one of the two, else a usage error, exit 2. The text is
+trimmed and written, plus a final newline, over `.yman/state.md` — the whole
+file is replaced — and committed as `yman: state`. Blank text is
+`empty state`. The same text again stages nothing and is not an error. Prints
+`state updated`. Mutating: refused with exit 3 while a sync merge is unresolved.
 
 ### `rm`
 

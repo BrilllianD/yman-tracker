@@ -1,6 +1,6 @@
 ---
 name: yman
-description: Drive the `yman` git-native task tracker from a non-interactive shell - list, claim, update, close, comment on, relate and publish (sync) tasks without ever opening an editor. Use whenever the repository has a `.yman/` directory or `yman` is on PATH, whenever the user mentions a task, ticket, backlog or issue in such a repository, and whenever a prompt contains a `yman` command. Covers the agent-safe subset, the exit codes, and how to recover from an unresolved sync merge (exit 3).
+description: Drive the `yman` git-native task tracker from a non-interactive shell - list, claim, update, close, comment on, relate and publish (sync) tasks, and read and rewrite the project state summary, without ever opening an editor. Use whenever the repository has a `.yman/` directory or `yman` is on PATH, whenever the user mentions a task, ticket, backlog or issue in such a repository, and whenever a prompt contains a `yman` command. Covers the agent-safe subset, the exit codes, and how to recover from an unresolved sync merge (exit 3).
 ---
 
 # yman for agents
@@ -12,6 +12,7 @@ commands run from anywhere inside the project's git repository.
 ## Hot path
 
 ```sh
+yman state                                        # session start: the project state summary
 yman ls -n 10 --assignee -                        # pick: unassigned, best priority first
 yman sync                                         # before any status change: take in other clones' work
 yman show <id> -n 3                               # read: header, body, last 3 comments (current after the sync)
@@ -19,6 +20,9 @@ yman set <id> --status doing -a <me> -m "on it"   # claim: status, assignee, not
 yman done <id> -m "what changed"                  # close and explain in one call
 yman add "Title" -m "body" -a <me> --relate <id>  # follow-up, linked to its parent
 yman sync                                         # publish: after the claim, and after the close
+yman state set --body-file - <<'EOF'             # when the situation changed: rewrite the summary
+# In progress / Next / Blockers
+EOF
 ```
 
 ## Syncing around status changes
@@ -102,10 +106,11 @@ whose `related` carries this id, closed ones included, `related_by` in
 `--json`; an attachment whose file was deleted outside yman is listed marked
 `(missing)`, `"missing":true` in `--json`), `path <id>` (prints the absolute
 folder path and nothing else, so `cd "$(yman path 14)"` works), `log [<id>]`
-(`-n`, default 20; with an id it follows the task across renames), `tags` (every
-tag with its task count, closed tasks included) and `status`.
+(`-n`, default 20; with an id it follows the task across renames), `state` (the
+project state summary, below), `tags` (every tag with its task count, closed
+tasks included) and `status`.
 
-`--json` exists on `ls`, `plan`, `show`, `status` and `tags` only. There is no
+`--json` exists on `ls`, `plan`, `show`, `status` and `tags` only (`state` has none). There is no
 global `--json`, no `-C <dir>`, no `--verbose`. JSON keeps empty keys: empty
 lists are `[]`, an absent assignee is `null`. The one exception is `body`, which
 `ls` and `plan` include only with `-l`; `show` always has it.
@@ -137,6 +142,11 @@ Reading stdin is only safe when it has a definite end, as in
 overwrite; over 5 MiB warns but never refuses) and `detach <id> <name>` handle
 files. `tags rename <old> <new>` and `tags rm <tag> -f` rewrite every task
 carrying a tag in one commit.
+
+`state set -m <text>` or `state set --body-file <path|->` (exactly one of the two,
+or the parser exits 2) replaces the whole project state summary in one commit,
+`yman: state`. Like `comment`, `--body-file -` reads stdin **until end of file**:
+use it with a heredoc or a file, never an open pipe. Blank text is `empty state`.
 
 Prefer one verb carrying `-m` over a verb followed by a separate `comment`: half
 the calls, half the commits.
@@ -188,6 +198,20 @@ bodies too.
 - The link is always `--relate`: a renumber rewrites `related` and never the
   prose, so an id in a body is a hint for people, not a relation.
 
+## Project state
+
+`.yman/state.md` is one short markdown file: where the project stands, for the
+next session, which may be another agent. Read it with `yman state` at the start
+(empty, with a note on stderr, when nobody wrote one). Keep it to what a
+newcomer needs: what is in progress, what is next, what is blocked. It is not a
+log; `yman log` has the history.
+
+Rewrite it with `yman state set --body-file -` when the situation changed, for
+example after closing a task or finding a blocker; each write replaces the whole
+file, so carry over what still holds. It travels with `yman sync` like any task.
+Two clones that rewrite it at once conflict like any file: exit 3, remove the
+markers in `.yman/state.md`, `yman sync --continue`.
+
 ## Never do this
 
 | Do not | Why | Instead |
@@ -198,6 +222,7 @@ bodies too.
 | `yman comment <id>` without `-m` | reads stdin until EOF; an open pipe hangs | `yman comment <id> -m "<text>"` |
 | `yman rm <id>` without `-f` | prompts on a terminal | `yman rm <id> -f` |
 | `yman tags rm <tag>` without `-f` | prompts on a terminal | `yman tags rm <tag> -f` |
+| editing `.yman/state.md` and committing it by hand | skips the trim, the single `yman: state` commit and the merge-pending check | `yman state set --body-file -` |
 
 Off a terminal, a removal without `-f` fails fast with
 `refusing to remove without -f`, and an editor path with neither `$VISUAL` nor

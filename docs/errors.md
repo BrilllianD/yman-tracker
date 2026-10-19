@@ -110,6 +110,7 @@ commit.
 | attachment name with a separator, or `.` / `..` | `attachment name "<name>" must not contain a path separator` |
 | attachment name a Windows checkout cannot hold | `attachment name "<name>" is not portable: <why>` — `<why>` is `contains '<c>'` (one of `:*?"<>\|`), `contains a control character`, `ends with '.'`, `ends with a space`, `it is a reserved device name` or `it is empty`; `<name>` has control characters escaped |
 | `add` onto an existing folder | `folder already exists: <dir>` |
+| empty summary text (`state set`) | `empty state` |
 | empty comment (`comment`, or `-m` on `set` and the verbs) | `empty comment` |
 | `--body-file` cannot be read | `cannot read <path>: <why>` — `<why>` is the OS error text |
 | `cancel` with no cancel status | `no cancel status configured; set statuses.cancel in .yman/config.toml` |
@@ -186,6 +187,7 @@ Never fatal, always stderr:
 | `warning: <id> closed with open tasks relating to it: <ids>` | a close (as for the note below) of a task tagged `epic` while tasks relating to it are still open; the close is committed |
 | `warning: skipped N unreadable task folder(s): <rels>` | `tags`, `tags rename`, `tags rm` and `rm` walking every task |
 | `warning: <path> not moved; <dest> already exists` | `sync` rejoining a split folder found the same file on both sides |
+| `note: no project state yet; write one with yman state set -m <text>` | bare `state` found no `.yman/state.md` |
 | `note: added remote "origin" -> <url>` | `init --remote` created the remote |
 | `note: no "origin" remote; tasks stay local until you run: yman init --remote <url>` | `init` in a repo with no `origin` and no `--remote` |
 | `note: re-attached .yman HEAD to refs/yman/local` | `init` repaired a `.yman` HEAD that had lost its symbolic ref |

@@ -9,6 +9,10 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Added
 
+- `yman state` prints a project state summary, `.yman/state.md`, and
+  `yman state set -m <text> | --body-file <path|->` rewrites it in one commit,
+  so an agent can leave the next session a short account of where things
+  stand. It syncs like any file; the yman skill and `yman guide` cover it.
 - `skills/yman-task/`, a second agent skill: `/yman-task <text>` files the
   user's own words as tasks tagged `user-request` and `needs-agent`, quoting
   the original, so the agent that picks one up re-checks it before working.
