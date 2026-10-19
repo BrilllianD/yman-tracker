@@ -827,6 +827,7 @@ mod tests {
     fn status_dir_grammar_excludes_reserved_and_task_names() {
         for n in [
             "config.toml",
+            "state.md",
             ".git",
             ".gitignore",
             ".gitattributes",

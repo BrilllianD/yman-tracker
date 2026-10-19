@@ -18,6 +18,7 @@ pub mod refresh;
 pub mod rm;
 pub mod set;
 pub mod show;
+pub mod state;
 pub mod status;
 pub mod sync;
 pub mod tags;
@@ -148,6 +149,7 @@ pub fn dispatch(ctx: &mut Context, cmd: Cmd) -> Result<()> {
         Cmd::Log(a) => log::run(ctx, a),
         Cmd::Status(a) => status::run(ctx, a),
         Cmd::Tags(a) => tags::run(ctx, a),
+        Cmd::State(a) => state::run(ctx, a),
         Cmd::Guide => guide::run(),
         Cmd::Completions(a) => completions::run(a),
         Cmd::Man(a) => completions::run_man(a),

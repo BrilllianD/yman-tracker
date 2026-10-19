@@ -110,6 +110,7 @@ commit.
 | attachment name with a separator, or `.` / `..` | `attachment name "<name>" must not contain a path separator` |
 | attachment name a Windows checkout cannot hold | `attachment name "<name>" is not portable: <why>` — `<why>` is `contains '<c>'` (one of `:*?"<>\|`), `contains a control character`, `ends with '.'`, `ends with a space`, `it is a reserved device name` or `it is empty`; `<name>` has control characters escaped |
 | `add` onto an existing folder | `folder already exists: <dir>` |
+| empty summary text (`state set`) | `empty state` |
 | empty comment (`comment`, or `-m` on `set` and the verbs) | `empty comment` |
 | `--body-file` cannot be read | `cannot read <path>: <why>` — `<why>` is the OS error text |
 | `cancel` with no cancel status | `no cancel status configured; set statuses.cancel in .yman/config.toml` |
@@ -148,6 +149,7 @@ commit.
 | `hooks install` met a hook it does not own | `<n> hook(s) not installed: <names>`, after `note: hook <name> exists; add this line to it:` and the line itself on stderr for each |
 | `hooks install` met a hook it cannot read (permission denied, not UTF-8, a dangling symlink) | the same `<n> hook(s) not installed: <names>`, after `warning: hook <name>: cannot read <path>: <why>; not replacing it` on stderr for each; `<why>` is `not valid UTF-8`, `dangling symlink` or the OS error |
 | `man --dir` cannot write | `cannot create <dir>: <why>` / `cannot write man pages to <dir>: <why>` |
+| `state` or `state set` cannot access `.yman/state.md` | `cannot read <path>: <why>` / `cannot write <path>: <why>`, with the full path of the file |
 | `m.yml` merge driver could not fall back | `git merge-file failed`, with git's stderr printed above — reaches the user through git's own merge output |
 
 ### Exit-code-3 messages
@@ -186,6 +188,7 @@ Never fatal, always stderr:
 | `warning: <id> closed with open tasks relating to it: <ids>` | a close (as for the note below) of a task tagged `epic` while tasks relating to it are still open; the close is committed |
 | `warning: skipped N unreadable task folder(s): <rels>` | `tags`, `tags rename`, `tags rm` and `rm` walking every task |
 | `warning: <path> not moved; <dest> already exists` | `sync` rejoining a split folder found the same file on both sides |
+| `note: no project state yet; write one with yman state set -m <text>` | bare `state` found no `.yman/state.md` |
 | `note: added remote "origin" -> <url>` | `init --remote` created the remote |
 | `note: no "origin" remote; tasks stay local until you run: yman init --remote <url>` | `init` in a repo with no `origin` and no `--remote` |
 | `note: re-attached .yman HEAD to refs/yman/local` | `init` repaired a `.yman` HEAD that had lost its symbolic ref |

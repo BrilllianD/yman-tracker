@@ -153,6 +153,7 @@ ROOT/
     .gitignore                  # *.swp  *~  .#*  *.orig
     .gitattributes              # **/d.md merge=union, **/m.yml merge=ymanmeta
     config.toml
+    state.md                    # only once `yman state set` wrote it
     2.14.fix-login/
       t.md
       m.yml
@@ -179,7 +180,7 @@ dependency.
 - **The folder name is the source of truth** for priority and id. `m.yml` does
   not repeat them, and changing either is a `git mv` so history follows.
 - Entries in `.yman/` that are not directories, or whose names do not match, are
-  ignored entirely (`config.toml`, `.git`, dotfiles) — except that a directory
+  ignored entirely (`config.toml`, `state.md`, `.git`, dotfiles) — except that a directory
   whose name is a legal status name is descended into, because closed tasks live
   one level down (below).
 - A directory that matches but fails to load is a **broken task**: `ls` prints it
@@ -446,6 +447,17 @@ The removal wins, the same rule `m.yml` follows ("removed on one side goes"),
 and ids are never reused, so sync drops the folder with a note rather than
 raising a conflict nobody could resolve into a loadable task — see
 [commands.md](commands.md#dropping-a-removed-tasks-new-files).
+
+### `state.md`
+
+An optional free-form markdown file at the top of `.yman/`: a short summary
+of the project's situation (in progress, next, blockers) that an agent
+rewrites for the next session. `yman state set` replaces the whole file and
+commits it as `yman: state`; history is `yman log`. It is ignored by task
+discovery, since it matches neither the folder grammar nor the status-name
+grammar. It travels with `sync` like any file, and two clones that rewrite it
+concurrently meet in a plain text merge: exit 3, resolve the markers in the
+file, then `yman sync --continue`.
 
 ## 7. `config.toml`
 

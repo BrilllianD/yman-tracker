@@ -401,7 +401,9 @@ skim bodies with `ls -l -n`, read with `show -n`, close with `done <id> -m`,
 run `yman sync` before a status change and after it (the after is automatic
 under `yman.autosync = push`), never open an editor, always give `comment` its
 text with `-m` (without it the comment is read from stdin until end of file,
-which blocks on a pipe left open), and set `YMAN_ACTOR` so
+which blocks on a pipe left open), read `yman state` at session start and
+rewrite it with `yman state set --body-file - <<'EOF'` when the situation changed (short:
+in progress, next, blockers; never edit `.yman/state.md` by hand), and set `YMAN_ACTOR` so
 the work is attributed to the agent. Big work is a plan: an epic task plus
 steps that `--relate` it, read from the epic with `yman plan <id>` (progress
 and open steps in one call, enough to pick the next step without a `show` per step) and created in one go with

@@ -62,6 +62,8 @@ pub enum Cmd {
     Path(IdArgs),
     /// List the tags in use
     Tags(TagsArgs),
+    /// Print or rewrite the project state summary
+    State(StateArgs),
     /// Show the task history log
     Log(LogArgs),
     /// Report the state of .yman and its remote
@@ -444,6 +446,31 @@ pub enum HooksAction {
 }
 
 #[derive(Args, Debug)]
+#[command(args_conflicts_with_subcommands = true)]
+pub struct StateArgs {
+    /// Without a subcommand, print the project state summary
+    #[command(subcommand)]
+    pub action: Option<StateAction>,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum StateAction {
+    /// Replace the project state summary
+    Set(StateSetArgs),
+}
+
+#[derive(Args, Debug)]
+#[command(group(ArgGroup::new("text").required(true).multiple(false)))]
+pub struct StateSetArgs {
+    /// The new summary
+    #[arg(short = 'm', long, value_name = "TEXT", group = "text")]
+    pub message: Option<String>,
+    /// Read the new summary from a file, or `-` for stdin
+    #[arg(long, value_name = "PATH", group = "text")]
+    pub body_file: Option<String>,
+}
+
+#[derive(Args, Debug)]
 // `--json` only shapes the listing; after `rename` or `rm` it would be
 // silently ignored, so it is refused there.
 #[command(args_conflicts_with_subcommands = true)]
@@ -541,6 +568,7 @@ impl Cmd {
             // listing, and stays readable during an unresolved merge like
             // `ls`, while its subcommands rewrite every task carrying a tag.
             Cmd::Tags(a) => a.action.is_some(),
+            Cmd::State(a) => a.action.is_some(),
             _ => matches!(
                 self,
                 Cmd::Add(_)

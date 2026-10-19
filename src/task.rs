@@ -575,6 +575,7 @@ mod tests {
     fn folder_name_rejects_junk() {
         for name in [
             "config.toml",
+            "state.md",
             ".git",
             "14.fix-login",
             "2..slug",

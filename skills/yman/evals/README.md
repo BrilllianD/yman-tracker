@@ -31,6 +31,7 @@ if any case failed.
 | `waits-on` | `set --relate` plus `set --status blocked` (or `move … blocked`), two commits, where `set --waits-on` is one |
 | `add-sections` | one `yman add` per section of a markdown file, retyping it, where `add --sections <file>` makes them all |
 | `task-list` | the skill's task-list procedure: `ls -l`, a markdown table, `show` for at most three candidates |
+| `state-summary` | writing `.yman/state.md` and committing it with git, where `yman state set` is one command and one `yman: state` commit |
 | `exit-3-recovery` | a sync merge stopped on a conflict: `yman git merge --abort` or deleting `.yman` instead of fixing the file and running `yman sync --continue` |
 
 Each case is a directory holding `prompt.md` (what the agent is asked) and
