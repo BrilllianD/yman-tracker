@@ -7,6 +7,8 @@ under [Releasing](README.md#releasing) in the README.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-19
+
 ### Added
 
 - `yman state` prints a project state summary, `.yman/state.md`, and
@@ -457,7 +459,8 @@ First tagged release.
 - Refs are read from disk instead of by spawning `git`.
 - A task is looked up from folder names alone.
 
-[Unreleased]: https://github.com/BrilllianD/yman-tracker/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/BrilllianD/yman-tracker/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/BrilllianD/yman-tracker/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/BrilllianD/yman-tracker/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/BrilllianD/yman-tracker/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/BrilllianD/yman-tracker/compare/v0.5.1...v0.6.0
