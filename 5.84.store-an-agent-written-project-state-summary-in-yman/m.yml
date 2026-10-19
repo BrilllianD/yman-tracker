@@ -1,7 +1,6 @@
 status: todo
 tags:
 - user-request
-- needs-agent
 - feature
 - agents
 assignee: null
