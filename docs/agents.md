@@ -2,7 +2,7 @@
 
 ## Paste into the project's CLAUDE.md
 
-    yman state                                        # session start: the project state summary
+    yman state                                        # session start: in progress, next, blockers
     yman ls -n 10 --assignee -                        # pick: unassigned, best priority first
     yman show <id> -n 3                               # read: header, body, last 3 comments
     yman set <id> --status doing -a <me> -m "on it"   # claim: status, assignee, note, one commit
