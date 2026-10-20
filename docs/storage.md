@@ -473,17 +473,16 @@ random_len = 4        # hex chars, random scheme only
 [statuses]
 list = ["todo", "doing", "done", "cancelled"]
 default = "todo"
-# version 2 only, all optional:
-start = "doing"             # yman start;  default list[1]
-done = "done"               # yman done;   default list.last()
-cancel = "cancelled"        # yman cancel; no default
-terminal = ["done", "cancelled"]  # closed statuses, hidden by ls
+start = "doing"        # default: second entry in list
+done = "done"         # default: last entry in list
+cancel = "cancelled"       # no default; `yman cancel` needs it
+terminal = ["done", "cancelled"]  # closed; archived under .yman/<status>/
 
 [priorities]
 default = 5           # 0..=9
 
 [slug]
-max_bytes = 200       # hard cap 240
+max_bytes = 200         # hard cap 240
 ```
 
 Validated on every load; each failure is reported as

@@ -449,23 +449,23 @@ random_len = 4        # hex chars, random scheme only
 [statuses]
 list = ["todo", "doing", "done", "cancelled"]
 default = "todo"
-start = "doing"
-done = "done"
-cancel = "cancelled"
-terminal = ["done", "cancelled"]
+start = "doing"        # default: second entry in list
+done = "done"         # default: last entry in list
+cancel = "cancelled"       # no default; `yman cancel` needs it
+terminal = ["done", "cancelled"]  # closed; archived under .yman/<status>/
 
 [priorities]
 default = 5           # 0..=9
 
 [slug]
-max_bytes = 200       # hard cap 240
+max_bytes = 200         # hard cap 240
 ```
 
 This is what `yman init` writes. `statuses.list` is yours to change. Without
 the role keys (a `version = 1` config, as older trackers have) the order is
 meaningful: `yman start` moves a task to the second entry, `yman done` to the
-last, and `yman ls` hides the last one by default. A status that is no longer in the list never breaks a
-task; it is reported, not rejected.
+last, and `yman ls` hides the last one by default. A status that is no longer
+in the list never breaks a task; it is reported, not rejected.
 
 Those last three are *derived from position*, which means inserting a status
 quietly changes what `yman start` does. At `version = 2` you name them

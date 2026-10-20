@@ -5081,6 +5081,11 @@ fn cancel_works_on_a_fresh_tracker() {
     );
     let all = stdout(&fx.yman(&fx.a).args(["ls", "--all"]).output().unwrap());
     assert!(all.contains("cancelled"), "{all}");
+    assert!(
+        all.lines()
+            .any(|l| l.contains("cancelled") && l.contains('x')),
+        "{all}"
+    );
     let shown = stdout(&fx.yman(&fx.a).args(["show", "1"]).output().unwrap());
     assert!(shown.contains("status: cancelled"), "{shown}");
     assert!(shown.contains("why"), "{shown}");
@@ -8401,6 +8406,27 @@ fn conflicted(fx: &Fx) {
     assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
 }
 
+/// B holds a sync merge stopped on a conflict on a version 2 tracker, the
+/// shape every new tracker has: A closed task 1, which moved its folder to
+/// `done/`, while B started it, which edited `m.yml` where it stood.
+fn conflicted_v2(fx: &Fx) {
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    fx.yman(&fx.a).args(["done", "1"]).assert().success();
+    assert_eq!(fx.task_rel(&fx.a, "1"), "done/5.1.fix-login");
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).args(["start", "1"]).assert().success();
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("note: unmerged files:\n  done/5.1.fix-login/m.yml\n"),
+        "{}",
+        stderr(&out)
+    );
+}
+
 /// Settle `conflicted` B's `m.yml` by keeping B's side, `done`.
 fn resolve_to_done(fx: &Fx) {
     fx.git(
@@ -8414,6 +8440,72 @@ fn resolve_to_done(fx: &Fx) {
             "5.1.fix-login/m.yml",
         ],
     );
+}
+
+/// On a version 2 tracker the conflict is in the archived folder; keeping B's
+/// `doing` and continuing leaves the folder under `done/`, and the next
+/// `set --status` puts it where its status says.
+#[test]
+fn v2_conflict_continue_then_set_relocates_the_folder() {
+    let fx = Fx::new();
+    conflicted_v2(&fx);
+    let mpath = fx.b.join(".yman/done/5.1.fix-login/m.yml");
+    let marked = fx.read(&mpath);
+    assert!(marked.contains("<<<<<<<"), "{marked}");
+    fx.git(
+        &fx.b,
+        &[
+            "-C",
+            ".yman",
+            "checkout",
+            "--theirs",
+            "--",
+            "done/5.1.fix-login/m.yml",
+        ],
+    );
+    let ours = fx.read(&mpath);
+    let resolved: String = ours.replace("status: done", "status: doing");
+    fx.write(&mpath, &resolved);
+
+    let out = fx
+        .yman(&fx.b)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(fx.status(&fx.b, "1"), "doing");
+    assert_eq!(fx.task_rel(&fx.b, "1"), "done/5.1.fix-login");
+
+    let out = fx
+        .yman(&fx.b)
+        .args(["set", "1", "--status", "doing"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(fx.task_rel(&fx.b, "1"), "5.1.fix-login");
+    assert_eq!(fx.status(&fx.b, "1"), "doing");
+    assert!(!fx.b.join(".yman/done/5.1.fix-login").exists());
+
+    fx.yman(&fx.a).arg("sync").assert().success();
+    assert_eq!(fx.status(&fx.a, "1"), "doing");
+}
+
+/// `--abort` on a version 2 conflict puts the pre-merge tree back: B's task
+/// is still open, in its own folder, with no markers.
+#[test]
+fn v2_conflict_abort_restores_the_pre_merge_tree() {
+    let fx = Fx::new();
+    conflicted_v2(&fx);
+    let out = fx.yman(&fx.b).args(["sync", "--abort"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out).trim_end(), "merge aborted");
+    assert_eq!(fx.task_rel(&fx.b, "1"), "5.1.fix-login");
+    assert_eq!(fx.status(&fx.b, "1"), "doing");
+    assert!(
+        !fx.read(&fx.b.join(".yman/5.1.fix-login/m.yml"))
+            .contains("<<<<<<<")
+    );
+    assert!(!fx.b.join(".yman/done").exists());
 }
 
 /// A plain `sync` while its own merge is unresolved is exit 3, and names
