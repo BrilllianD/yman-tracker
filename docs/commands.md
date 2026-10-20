@@ -477,7 +477,7 @@ The remaining verbs are `set --status` with the status looked up for you:
 | Command | Status | When it refuses |
 |---|---|---|
 | `move <id>... <status>` | the one you name | unknown status, as for `set` |
-| `cancel <id>...` | `statuses.cancel` | the key is unset |
+| `cancel <id>...` | `statuses.cancel` (`cancelled` in the config `init` writes) | the key is unset, which includes every version 1 config |
 | `reopen <id>...` | `statuses.default` | the task is not in a terminal status |
 
 Every verb, and `prio <id>... <0-9>`, takes several ids and `-m <text>` like

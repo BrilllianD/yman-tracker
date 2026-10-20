@@ -100,18 +100,25 @@ impl Config {
     /// The config written by `yman init`.
     pub fn new(scheme: Scheme) -> Config {
         Config {
-            version: 1,
+            version: 2,
             ids: IdsCfg {
                 scheme,
                 random_len: default_random_len(),
             },
             statuses: StatusesCfg {
-                list: vec!["todo".into(), "doing".into(), "done".into()],
+                list: vec![
+                    "todo".into(),
+                    "doing".into(),
+                    "done".into(),
+                    "cancelled".into(),
+                ],
                 default: "todo".into(),
-                start: None,
-                done: None,
-                cancel: None,
-                terminal: None,
+                start: Some("doing".into()),
+                // Explicit: with two terminal statuses the last list entry
+                // would be "cancelled".
+                done: Some("done".into()),
+                cancel: Some("cancelled".into()),
+                terminal: Some(vec!["done".into(), "cancelled".into()]),
             },
             priorities: PrioCfg::default(),
             slug: SlugCfg::default(),
@@ -482,12 +489,29 @@ fn first_line(s: &str) -> String {
 mod tests {
     use super::*;
 
+    /// A version 1 config: what older trackers hold, since `Config::new` is v2.
     fn base() -> String {
-        Config::new(Scheme::Seq).render()
+        let mut cfg = Config::new(Scheme::Seq);
+        cfg.version = 1;
+        cfg.statuses.list.pop();
+        cfg.statuses.start = None;
+        cfg.statuses.done = None;
+        cfg.statuses.cancel = None;
+        cfg.statuses.terminal = None;
+        cfg.render()
     }
 
     #[test]
     fn round_trip_default() {
+        let cfg = Config::parse(&Config::new(Scheme::Seq).render()).unwrap();
+        assert_eq!(cfg.version, 2);
+        assert_eq!(cfg.cancel_status(), Some("cancelled"));
+        assert!(cfg.is_terminal("cancelled"));
+        assert_eq!(cfg.done_status(), "done");
+    }
+
+    #[test]
+    fn round_trip_v1() {
         let cfg = Config::parse(&base()).unwrap();
         assert_eq!(cfg.version, 1);
         assert_eq!(cfg.ids.scheme, Scheme::Seq);

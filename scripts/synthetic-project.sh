@@ -207,8 +207,8 @@ for c in $clones; do
 done
 
 yq a init
-# There is no CLI for the config by design (docs/storage.md §7): raising the
-# version and naming the status roles is a hand edit, committed like any other.
+# There is no CLI for the config by design (docs/storage.md §7): widening the
+# status list to five is a hand edit, committed like any other.
 cat > "$out/a/.yman/config.toml" <<'CFG'
 version = 2
 

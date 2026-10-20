@@ -192,7 +192,7 @@ fn add_ls_show() {
     assert!(!out.status.success());
     assert_eq!(
         stderr(&out).trim(),
-        "error: unknown status \"nope\"; allowed: todo, doing, done"
+        "error: unknown status \"nope\"; allowed: todo, doing, done, cancelled"
     );
 
     // Every task commit lands on refs/yman/local and nowhere else.
@@ -1194,6 +1194,7 @@ fn author_collision_renumber() {
 fn conflict_and_continue() {
     let fx = Fx::new();
     fx.yman(&fx.a).arg("init").assert().success();
+    fx.v1_config(&fx.a);
     fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
     fx.yman(&fx.a).arg("sync").assert().success();
     fx.yman(&fx.b).arg("init").assert().success();
@@ -1399,6 +1400,7 @@ fn sync_leaves_fetch_head_alone() {
 fn continue_ignores_symlinks_and_counts_pulled() {
     let fx = Fx::new();
     fx.yman(&fx.a).arg("init").assert().success();
+    fx.v1_config(&fx.a);
     fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
     fx.yman(&fx.a).arg("sync").assert().success();
     fx.yman(&fx.b).arg("init").assert().success();
@@ -1749,6 +1751,7 @@ fn a_stale_merge_driver_is_reported_and_not_taken_as_resolved() {
 fn conflict_abort() {
     let fx = Fx::new();
     fx.yman(&fx.a).arg("init").assert().success();
+    fx.v1_config(&fx.a);
     fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
     fx.yman(&fx.a).arg("sync").assert().success();
     fx.yman(&fx.b).arg("init").assert().success();
@@ -2868,6 +2871,7 @@ fn status_reports_ahead_behind() {
 fn status_reports_merge_in_progress() {
     let fx = Fx::new();
     fx.yman(&fx.a).arg("init").assert().success();
+    fx.v1_config(&fx.a);
     fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
     fx.yman(&fx.a).arg("sync").assert().success();
     fx.yman(&fx.b).arg("init").assert().success();
@@ -4484,7 +4488,7 @@ fn set_rejects_an_unknown_status_and_an_empty_title() {
     assert!(!out.status.success());
     assert_eq!(
         stderr(&out).trim(),
-        "error: unknown status \"wip\"; allowed: todo, doing, done"
+        "error: unknown status \"wip\"; allowed: todo, doing, done, cancelled"
     );
 
     let out = fx
@@ -4947,6 +4951,7 @@ fn adding_into_a_closed_status_lands_in_the_archive() {
 fn version_one_keeps_every_task_flat() {
     let fx = Fx::new();
     fx.yman(&fx.a).arg("init").assert().success();
+    fx.v1_config(&fx.a);
     fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
     let out = fx.yman(&fx.a).args(["done", "1"]).output().unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
@@ -4992,6 +4997,7 @@ fn comments_on_an_archived_task_merge_without_conflict() {
 fn setting_a_status_relocates_a_misplaced_task() {
     let fx = Fx::new();
     fx.yman(&fx.a).arg("init").assert().success();
+    fx.v1_config(&fx.a);
     fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
     // Closed under version 1, so it stayed flat.
     fx.yman(&fx.a).args(["done", "1"]).assert().success();
@@ -5056,26 +5062,77 @@ fn move_is_a_positional_set_status() {
     );
 }
 
-/// `cancel` needs the config to say which status it means.
+/// `cancel` needs the config to say which status it means; `init` writes one.
+#[test]
+fn cancel_works_on_a_fresh_tracker() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "x"]).assert().success();
+    let out = fx
+        .yman(&fx.a)
+        .args(["cancel", "1", "-m", "why"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(fx.task_rel(&fx.a, "1"), "cancelled/5.1.x");
+    assert_eq!(
+        stdout(&fx.yman(&fx.a).arg("ls").output().unwrap()).trim(),
+        ""
+    );
+    let all = stdout(&fx.yman(&fx.a).args(["ls", "--all"]).output().unwrap());
+    assert!(all.contains("cancelled"), "{all}");
+    assert!(
+        all.lines()
+            .any(|l| l.contains("cancelled") && l.split_whitespace().any(|w| w == "x")),
+        "{all}"
+    );
+    let shown = stdout(&fx.yman(&fx.a).args(["show", "1"]).output().unwrap());
+    assert!(shown.contains("status: cancelled"), "{shown}");
+    assert!(shown.contains("why"), "{shown}");
+}
+
 #[test]
 fn cancel_uses_the_configured_status() {
     let fx = Fx::new();
     fx.yman(&fx.a).arg("init").assert().success();
     fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
 
-    // Version 1 has no cancel status at all.
+    // A fresh tracker (version 2) cancels out of the box.
     let out = fx.yman(&fx.a).args(["cancel", "1"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(fx.status(&fx.a, "1"), "cancelled");
+    assert_eq!(fx.task_rel(&fx.a, "1"), "cancelled/5.1.fix-login");
+
+    // Version 1 has no cancel status at all, and the error says how to opt in.
+    fx.v1_config(&fx.a);
+    fx.yman(&fx.a).args(["add", "Other"]).assert().success();
+    let out = fx.yman(&fx.a).args(["cancel", "2"]).output().unwrap();
+    assert!(!out.status.success());
+    assert_eq!(
+        stderr(&out).trim(),
+        "error: no cancel status configured; version 1 has none: raise version to 2 and set \
+         statuses.cancel (see \"Opting in to version 2\" in docs/storage.md)"
+    );
+
+    // Version 2 without the role keeps the plain message.
+    fx.set_config(
+        &fx.a,
+        "version = 2\n[ids]\nscheme = \"seq\"\n\
+         [statuses]\nlist = [\"todo\", \"doing\", \"done\"]\ndefault = \"todo\"\n",
+    );
+    let out = fx.yman(&fx.a).args(["cancel", "2"]).output().unwrap();
     assert!(!out.status.success());
     assert_eq!(
         stderr(&out).trim(),
         "error: no cancel status configured; set statuses.cancel in .yman/config.toml"
     );
 
+    // A configured role on a larger list still works.
     fx.v2_config(&fx.a);
-    let out = fx.yman(&fx.a).args(["cancel", "1"]).output().unwrap();
+    let out = fx.yman(&fx.a).args(["cancel", "2"]).output().unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
-    assert_eq!(fx.status(&fx.a, "1"), "cancelled");
-    assert_eq!(fx.task_rel(&fx.a, "1"), "cancelled/5.1.fix-login");
+    assert_eq!(fx.status(&fx.a, "2"), "cancelled");
+    assert_eq!(fx.task_rel(&fx.a, "2"), "cancelled/5.2.other");
 }
 
 /// `reopen` only applies to a closed task, and says so when it does not.
@@ -5255,7 +5312,8 @@ fn done_with_message_comments_in_one_commit() {
     assert!(!out.status.success());
     assert_eq!(stderr(&out).trim(), "error: empty comment");
     // The priority was not applied either: the bail happens before any write.
-    assert_eq!(fx.task_rel(&fx.a, "1"), "5.1.fix-login");
+    // Task is closed, so it sits in the archive at its old priority.
+    assert_eq!(fx.task_rel(&fx.a, "1"), "done/5.1.fix-login");
 }
 
 /// The verbs take several ids: one commit per task, the first failure stops
@@ -5300,7 +5358,10 @@ fn done_accepts_several_ids() {
         .output()
         .unwrap();
     assert_eq!(out.status.code(), Some(4));
-    assert_eq!(stderr(&out).trim(), "error: task 99 not found");
+    assert_eq!(
+        stderr(&out).trim(),
+        "note: task folder is now done/5.1.one\nerror: task 99 not found"
+    );
     assert_eq!(stdout(&out).trim(), "1: status todo -> done");
     assert_eq!(fx.status(&fx.a, "1"), "done");
     assert_eq!(fx.status(&fx.a, "2"), "todo");
@@ -6158,7 +6219,7 @@ fn status_json_reports_refs_and_counts() {
     );
     assert!(
         text.contains(
-            "\"tasks\":{\"by_status\":{\"todo\":0,\"doing\":0,\"done\":0},\"other\":0,\"broken\":0}"
+            "\"tasks\":{\"by_status\":{\"todo\":0,\"doing\":0,\"done\":0,\"cancelled\":0},\"other\":0,\"broken\":0}"
         ),
         "{text}"
     );
@@ -8334,6 +8395,7 @@ fn sync_reports_a_failed_fetch() {
 /// the task to doing, B to done.
 fn conflicted(fx: &Fx) {
     fx.yman(&fx.a).arg("init").assert().success();
+    fx.v1_config(&fx.a);
     fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
     fx.yman(&fx.a).arg("sync").assert().success();
     fx.yman(&fx.b).arg("init").assert().success();
@@ -8342,6 +8404,27 @@ fn conflicted(fx: &Fx) {
     fx.yman(&fx.b).args(["done", "1"]).assert().success();
     let out = fx.yman(&fx.b).arg("sync").output().unwrap();
     assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+}
+
+/// B holds a sync merge stopped on a conflict on a version 2 tracker, the
+/// shape every new tracker has: A closed task 1, which moved its folder to
+/// `done/`, while B started it, which edited `m.yml` where it stood.
+fn conflicted_v2(fx: &Fx) {
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    fx.yman(&fx.a).args(["done", "1"]).assert().success();
+    assert_eq!(fx.task_rel(&fx.a, "1"), "done/5.1.fix-login");
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).args(["start", "1"]).assert().success();
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("note: unmerged files:\n  done/5.1.fix-login/m.yml\n"),
+        "{}",
+        stderr(&out)
+    );
 }
 
 /// Settle `conflicted` B's `m.yml` by keeping B's side, `done`.
@@ -8357,6 +8440,73 @@ fn resolve_to_done(fx: &Fx) {
             "5.1.fix-login/m.yml",
         ],
     );
+}
+
+/// On a version 2 tracker the conflict is in the archived folder; resolving it
+/// to `doing` and continuing leaves the folder under `done/`, and the next
+/// `set --status` puts it where its status says.
+#[test]
+fn v2_conflict_continue_then_set_relocates_the_folder() {
+    let fx = Fx::new();
+    conflicted_v2(&fx);
+    let mpath = fx.b.join(".yman/done/5.1.fix-login/m.yml");
+    let marked = fx.read(&mpath);
+    assert!(marked.contains("<<<<<<<"), "{marked}");
+    fx.git(
+        &fx.b,
+        &[
+            "-C",
+            ".yman",
+            "checkout",
+            "--theirs",
+            "--",
+            "done/5.1.fix-login/m.yml",
+        ],
+    );
+    // Take A's side (`done`) and rewrite its status to B's `doing`.
+    let theirs = fx.read(&mpath);
+    let resolved: String = theirs.replace("status: done", "status: doing");
+    fx.write(&mpath, &resolved);
+
+    let out = fx
+        .yman(&fx.b)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(fx.status(&fx.b, "1"), "doing");
+    assert_eq!(fx.task_rel(&fx.b, "1"), "done/5.1.fix-login");
+
+    let out = fx
+        .yman(&fx.b)
+        .args(["set", "1", "--status", "doing"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(fx.task_rel(&fx.b, "1"), "5.1.fix-login");
+    assert_eq!(fx.status(&fx.b, "1"), "doing");
+    assert!(!fx.b.join(".yman/done/5.1.fix-login").exists());
+
+    fx.yman(&fx.a).arg("sync").assert().success();
+    assert_eq!(fx.status(&fx.a, "1"), "doing");
+}
+
+/// `--abort` on a version 2 conflict puts the pre-merge tree back: B's task
+/// is still open, in its own folder, with no markers.
+#[test]
+fn v2_conflict_abort_restores_the_pre_merge_tree() {
+    let fx = Fx::new();
+    conflicted_v2(&fx);
+    let out = fx.yman(&fx.b).args(["sync", "--abort"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out).trim_end(), "merge aborted");
+    assert_eq!(fx.task_rel(&fx.b, "1"), "5.1.fix-login");
+    assert_eq!(fx.status(&fx.b, "1"), "doing");
+    assert!(
+        !fx.read(&fx.b.join(".yman/5.1.fix-login/m.yml"))
+            .contains("<<<<<<<")
+    );
+    assert!(!fx.b.join(".yman/done").exists());
 }
 
 /// A plain `sync` while its own merge is unresolved is exit 3, and names

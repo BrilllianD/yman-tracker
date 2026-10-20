@@ -297,7 +297,7 @@ yman set <id> [--status S] [--priority 0-9] [--title T]
 yman start <id>...          # = set --status <start status>
 yman done  <id>...          # = set --status <done status>
 yman move <id>... <status>  # = set --status <status>
-yman cancel <id>...         # = set --status <cancel status>   (version 2)
+yman cancel <id>...         # = set --status <cancel status>   (`cancelled` out of the box)
 yman reopen <id>...         # a closed task back to the default status
 yman prio  <id>... <0-9>    # = set --priority
                             # every one of these also takes -m <comment>
@@ -440,30 +440,35 @@ Setting a tracker up from scratch is [docs/setup.md](docs/setup.md).
 `.yman/config.toml` is committed, so a project agrees on these once:
 
 ```toml
-version = 1
+version = 2
 
 [ids]
 scheme = "seq"        # "random" | "seq" | "author"
 random_len = 4        # hex chars, random scheme only
 
 [statuses]
-list = ["todo", "doing", "done"]
+list = ["todo", "doing", "done", "cancelled"]
 default = "todo"
+start = "doing"        # default: second entry in list
+done = "done"         # default: last entry in list
+cancel = "cancelled"       # no default; `yman cancel` needs it
+terminal = ["done", "cancelled"]  # closed; archived under .yman/<status>/
 
 [priorities]
 default = 5           # 0..=9
 
 [slug]
-max_bytes = 200       # hard cap 240
+max_bytes = 200         # hard cap 240
 ```
 
-`statuses.list` is yours to change — the order is meaningful. `yman start` moves
-a task to the second entry, `yman done` to the last, and `yman ls` hides the
-last one by default. A status that is no longer in the list never breaks a
-task; it is reported, not rejected.
+This is what `yman init` writes. `statuses.list` is yours to change. Without
+the role keys (a `version = 1` config, as older trackers have) the order is
+meaningful: `yman start` moves a task to the second entry, `yman done` to the
+last, and `yman ls` hides the last one by default. A status that is no longer
+in the list never breaks a task; it is reported, not rejected.
 
 Those last three are *derived from position*, which means inserting a status
-quietly changes what `yman start` does. At `version = 2` you can name them
+quietly changes what `yman start` does. At `version = 2` you name them
 instead, and say which statuses count as closed:
 
 ```toml
@@ -489,7 +494,8 @@ emptied directory with it. `m.yml` stays the source of truth: a task in the
 wrong directory is still listed correctly, and the next `set` puts it where it
 belongs.
 
-Raising the version is a hand edit. Existing closed tasks are not moved for you — `yman done <id>` on each
+A tracker created by an older yman stays at `version = 1`, where `yman cancel`
+has no status to use; raising the version is a hand edit. Existing closed tasks are not moved for you — `yman done <id>` on each
 one does it, and reports `folder <old> -> <new>`.
 
 Two people closing the *same* task to *different* statuses is the one case that

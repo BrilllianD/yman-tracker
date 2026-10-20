@@ -224,6 +224,20 @@ impl Fx {
         );
     }
 
+    /// A version 1 config: three statuses, no roles, nothing archived.
+    pub fn v1_config(&self, clone: &Path) {
+        self.set_config(
+            clone,
+            "version = 1\n\n\
+             [ids]\nscheme = \"seq\"\nrandom_len = 4\n\n\
+             [statuses]\n\
+             list = [\"todo\", \"doing\", \"done\"]\n\
+             default = \"todo\"\n\n\
+             [priorities]\ndefault = 5\n\n\
+             [slug]\nmax_bytes = 200\n",
+        );
+    }
+
     /// A version 2 config with five statuses, two of them closed.
     pub fn v2_config(&self, clone: &Path) {
         self.set_config(

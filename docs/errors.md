@@ -113,7 +113,8 @@ commit.
 | empty summary text (`state set`) | `empty state` |
 | empty comment (`comment`, or `-m` on `set` and the verbs) | `empty comment` |
 | `--body-file` cannot be read | `cannot read <path>: <why>` — `<why>` is the OS error text |
-| `cancel` with no cancel status | `no cancel status configured; set statuses.cancel in .yman/config.toml` |
+| `cancel` with no cancel status, version 2 config | `no cancel status configured; set statuses.cancel in .yman/config.toml` |
+| `cancel` on a version 1 config | `no cancel status configured; version 1 has none: raise version to 2 and set statuses.cancel (see "Opting in to version 2" in docs/storage.md)` |
 | `add --sections` text above the first heading | `<source>: line <n>: text before the first "# " heading` — `<source>` is the path, or `stdin` for `-` |
 | `add --sections` heading with no title | `<source>: line <n>: empty title` |
 | `add --sections` with no heading at all | `<source>: no "# " heading, so no tasks` |

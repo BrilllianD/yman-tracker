@@ -98,7 +98,9 @@ In the **main repo**, all local and none of it committed:
   which is why every clone must run `init` even when the history already
   exists.
 
-In **`.yman`** — only when the history is being created — `config.toml`,
+In **`.yman`** — only when the history is being created — `config.toml`
+(`version = 2`, with a `cancelled` status, so `yman cancel` works at once and
+closed tasks are archived; a yman older than version 2 cannot read it),
 `.gitignore` and `.gitattributes`, committed as `yman: init (<scheme>)` on top
 of an empty root commit `yman: init`, and pushed unless the run is `--offline`
 or the tracker is local-only. If that push loses the race to another clone
