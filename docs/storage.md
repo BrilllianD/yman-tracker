@@ -464,20 +464,20 @@ file, then `yman sync --continue`.
 Committed inside `.yman/`, so a project agrees on it once.
 
 ```toml
-version = 1
+version = 2
 
 [ids]
 scheme = "seq"        # "random" | "seq" | "author"
 random_len = 4        # hex chars, random scheme only
 
 [statuses]
-list = ["todo", "doing", "done"]
+list = ["todo", "doing", "done", "cancelled"]
 default = "todo"
 # version 2 only, all optional:
-# start = "doing"           # yman start;  default list[1]
-# done = "done"             # yman done;   default list.last()
-# cancel = "cancelled"      # yman cancel; no default
-# terminal = ["done"]       # closed statuses, hidden by ls
+start = "doing"             # yman start;  default list[1]
+done = "done"               # yman done;   default list.last()
+cancel = "cancelled"        # yman cancel; no default
+terminal = ["done", "cancelled"]  # closed statuses, hidden by ls
 
 [priorities]
 default = 5           # 0..=9
@@ -543,8 +543,11 @@ against it would reject a config that ships today.
 
 ### Opting in to version 2
 
-`yman init` writes `version = 1`, so a new repository stays readable by older
-binaries. Raising the version is a hand edit, and it is what turns archiving on:
+`yman init` writes `version = 2` with a `cancelled` status (the config shown at
+the top of this section), so a new repository archives closed tasks and
+`yman cancel` works at once. A repository created by an older yman still has
+`version = 1`; raising the version there is a hand edit, and it is what turns
+archiving on:
 
 ```toml
 version = 2
@@ -560,7 +563,9 @@ terminal = ["done", "cancelled"]
 
 From that point an older `yman` refuses the repository outright with
 `unsupported version 2 (this yman understands 1)` — which is the intended
-failure, because it also would not find the archived tasks.
+failure, because it also would not find the archived tasks. This applies to
+every repository `init` creates now: a new tracker cannot be read by a yman
+that predates version 2.
 
 ## 8. Id schemes
 

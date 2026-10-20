@@ -7,6 +7,13 @@ under [Releasing](README.md#releasing) in the README.
 
 ## [Unreleased]
 
+### Changed
+
+- `yman init` writes `version = 2` with a `cancelled` status, so `yman cancel`
+  works out of the box. New trackers archive closed tasks under `done/` and
+  `cancelled/`, and a yman older than version 2 cannot read them. Existing
+  version 1 trackers are unchanged; `yman cancel` there now says how to opt in.
+
 ## [0.8.0] - 2026-10-19
 
 ### Added

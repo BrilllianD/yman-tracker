@@ -331,6 +331,11 @@ pub fn run_cancel(ctx: &mut Context, ids: &[String], message: Option<String>) ->
     // No fallback: guessing which of several closed statuses means "gave up"
     // is exactly the positional cleverness the roles exist to remove.
     let Some(status) = ctx.config().cancel_status().map(str::to_string) else {
+        if ctx.config().version < 2 {
+            bail!(
+                "no cancel status configured; version 1 has none: raise version to 2 and set statuses.cancel (see \"Opting in to version 2\" in docs/storage.md)"
+            );
+        }
         bail!("no cancel status configured; set statuses.cancel in .yman/config.toml");
     };
     each(ctx, ids, Some(status), None, message)
