@@ -5083,7 +5083,7 @@ fn cancel_works_on_a_fresh_tracker() {
     assert!(all.contains("cancelled"), "{all}");
     assert!(
         all.lines()
-            .any(|l| l.contains("cancelled") && l.contains('x')),
+            .any(|l| l.contains("cancelled") && l.split_whitespace().any(|w| w == "x")),
         "{all}"
     );
     let shown = stdout(&fx.yman(&fx.a).args(["show", "1"]).output().unwrap());
@@ -8442,8 +8442,8 @@ fn resolve_to_done(fx: &Fx) {
     );
 }
 
-/// On a version 2 tracker the conflict is in the archived folder; keeping B's
-/// `doing` and continuing leaves the folder under `done/`, and the next
+/// On a version 2 tracker the conflict is in the archived folder; resolving it
+/// to `doing` and continuing leaves the folder under `done/`, and the next
 /// `set --status` puts it where its status says.
 #[test]
 fn v2_conflict_continue_then_set_relocates_the_folder() {
@@ -8463,8 +8463,9 @@ fn v2_conflict_continue_then_set_relocates_the_folder() {
             "done/5.1.fix-login/m.yml",
         ],
     );
-    let ours = fx.read(&mpath);
-    let resolved: String = ours.replace("status: done", "status: doing");
+    // Take A's side (`done`) and rewrite its status to B's `doing`.
+    let theirs = fx.read(&mpath);
+    let resolved: String = theirs.replace("status: done", "status: doing");
     fx.write(&mpath, &resolved);
 
     let out = fx
