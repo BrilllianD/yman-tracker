@@ -1,0 +1,6 @@
+# commands run on a stale or unreadable config
+
+`preflight` caches `config.toml`, then the lazy refresh can fast-forward onto a history that changed it, and nothing reloads it. The same goes for the config a sync merge brings in before renumber and archive. So the first command after a v1→v2 opt-in arrives through `git pull` places folders with the old rules. During a merge that conflicted in `config.toml`, only `sync` gets past the unloadable config. `status` exits 1 with `invalid .yman/config.toml`, and so do `ls`, `show` and `state`. `status` is the command the guide tells agents to run on exit 3. Unknown keys are silently ignored (`deny_unknown_fields` is not set), so `strat = "doing"` brings back the positional role meaning that roles exist to remove, and storage.md §7 says nothing about it.
+
+- Where: src/repo.rs:299, src/repo.rs:303, src/main.rs:96, src/refresh.rs:108, src/commands/sync.rs:188, src/config.rs:12, docs/storage.md:488
+- Done when: A bumps to v2 and syncs, B runs `git fetch` then `yman done 1`, and B's task lands under `done/`; after `conflict_in_config_toml`, `yman status` exits 0 and lists `config.toml` as unmerged; `Config::parse` with `strat = "doing"` errors or warns naming the key.
