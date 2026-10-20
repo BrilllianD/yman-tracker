@@ -1,0 +1,6 @@
+# per-clone policy values and the merge driver are never validated
+
+`yman.refresh` and `yman.autosync` are parsed as raw strings in five places, each with its own fallback (refresh: anything but unset or `lazy` means manual; autosync: anything but `push` means off). `status` and the `init` summary echo the raw value, so `git config yman.autosync Push` reads as on while it is off. The typed enums in cli.rs are never used on the read side. `merge.ymanmeta.driver` stores the canonical `current_exe`, which is a versioned path under Homebrew or Nix, so an upgrade breaks it silently. From then on every concurrent `m.yml` edit stops sync with exit 3, and nothing reports the stale driver. The hooks take the opposite approach (`command -v yman`), and when `yman` is not on PATH they silently no-op while `hooks status` says `installed`.
+
+- Where: src/refresh.rs:49, src/autosync.rs:17, src/commands/status.rs:52, src/commands/status.rs:134, src/commands/init.rs:163, src/commands/init.rs:213, src/hooks.rs:14
+- Done when: after `git config yman.refresh Lazy`, `yman status` shows the effective policy or a `warning:` naming the value; with `merge.ymanmeta.driver` pointing at a missing binary, `yman status` names it and prints `run: yman init`.
