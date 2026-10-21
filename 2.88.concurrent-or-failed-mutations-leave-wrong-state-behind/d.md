@@ -6,3 +6,7 @@ repro: REPRODUCED: Ry14 add X rc 1 (gpg failed to sign the data) left A 5.2.x/m.
 
 49f0d60: lock (part 1 of 2)
 
+## 2026-10-21T17:19:30Z — Bronnikov Aleksandr
+
+49f0d60, cffe229: lock and failure cleanup
+
