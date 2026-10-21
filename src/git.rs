@@ -75,6 +75,42 @@ pub const LEAKY_ENV: [&str; 16] = [
     "GIT_NAMESPACE",
 ];
 
+/// `-c` overrides on every call `yman` makes for itself, so the user's
+/// configuration cannot reshape output yman parses or prints (`log`,
+/// `status --porcelain`), hide files from it, or make its own merges fail.
+/// Later `-c` beats earlier `-c` and every config file.
+/// `merge.conflictStyle` is deliberately absent: the user keeps diff3 in the
+/// files they resolve, and `is_marker` knows its `|||||||` line. So are
+/// `commit.gpgSign` and `push.gpgSign`: yman's commits are signed when the
+/// user's config says so.
+const PINNED_CONFIG: [&str; 15] = [
+    "core.quotePath=false",
+    "color.ui=never",
+    "color.diff=never",
+    "color.status=never",
+    "color.branch=never",
+    "color.advice=never",
+    "color.push=never",
+    "color.remote=never",
+    "color.transport=never",
+    "log.decorate=no",
+    "log.showSignature=false",
+    "status.showUntrackedFiles=normal",
+    "merge.ff=true",
+    "merge.verifySignatures=false",
+    "merge.log=false",
+];
+
+/// The user's pathspec mode. Stripped because every call passes
+/// `--noglob-pathspecs`, which git refuses to combine with the glob mode,
+/// and the literal and case-insensitive modes would change what a task or
+/// attachment path matches. `yman git` keeps them.
+const PATHSPEC_ENV: [&str; 3] = [
+    "GIT_LITERAL_PATHSPECS",
+    "GIT_GLOB_PATHSPECS",
+    "GIT_ICASE_PATHSPECS",
+];
+
 impl Git {
     pub fn new(dir: impl Into<PathBuf>) -> Self {
         Git {
@@ -145,8 +181,12 @@ impl Git {
     fn command(&self, args: &[&str]) -> Command {
         let mut cmd = Command::new("git");
         cmd.arg("-C").arg(&self.dir);
-        // Non-ASCII paths come back unescaped; no color anywhere.
-        cmd.args(["-c", "core.quotePath=false", "-c", "color.ui=never"]);
+        // Paths are literal (`f/[ab].png` is one file); an explicit `:(glob)`
+        // still globs, which `log <id>` relies on.
+        cmd.arg("--noglob-pathspecs");
+        for kv in PINNED_CONFIG {
+            cmd.arg("-c").arg(kv);
+        }
         if self.no_hooks {
             cmd.arg("-c").arg(format!("core.hooksPath={NO_HOOKS}"));
             for name in self.configured_hooks() {
@@ -155,6 +195,9 @@ impl Git {
         }
         cmd.args(args);
         for key in LEAKY_ENV {
+            cmd.env_remove(key);
+        }
+        for key in PATHSPEC_ENV {
             cmd.env_remove(key);
         }
         // Control flow matches git's English messages ("couldn't find remote
@@ -317,6 +360,32 @@ fn git_failure(args: &[&str], out: &Output) -> anyhow::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every call carries the literal-pathspec flag and every pin, ahead of
+    /// the subcommand, and drops the user's pathspec-mode variables.
+    #[test]
+    fn command_pins_config_and_pathspecs() {
+        let cmd = Git::new("/nonexistent").command(&["status"]);
+        let args: Vec<String> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert!(args.contains(&"--noglob-pathspecs".to_string()), "{args:?}");
+        for kv in PINNED_CONFIG {
+            assert!(
+                args.windows(2).any(|w| w[0] == "-c" && w[1] == kv),
+                "{kv} missing from {args:?}"
+            );
+        }
+        assert_eq!(args.last().map(String::as_str), Some("status"));
+        let envs: Vec<_> = cmd.get_envs().collect();
+        for key in PATHSPEC_ENV {
+            assert!(
+                envs.iter().any(|(k, v)| *k == key && v.is_none()),
+                "{key} not removed"
+            );
+        }
+    }
 
     /// Continuation lines of git's stderr are indented, blank ones dropped.
     #[test]

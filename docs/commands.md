@@ -273,6 +273,9 @@ The lazy refresh still runs, silently.
 name through a priority change, a retitle and a move into or out of a status
 directory, so those keep the task's full history without consulting git's
 rename detection, and `-n` stops the walk once enough commits are found.
+The wrapper matches every other path literally (`--noglob-pathspecs`), and a
+`GIT_LITERAL_PATHSPECS` in the environment is removed, so these two patterns
+glob whatever the user's setting.
 
 A sync renumber is the one move that changes the id, and `log` reads it from
 the commit subject (`yman: renumber 2->3, …`):
@@ -806,7 +809,8 @@ the merge commit, ahead of its checks.
 Both require a merge in progress.
 
 `--continue` treats a file as unresolved while it still carries conflict
-markers — staging is yman's job, since the message tells the user to edit and
+markers — a line starting with `<<<<<<< `, `>>>>>>> ` or `|||||||` (the base
+section of `merge.conflictStyle=diff3` and `zdiff3`), or a bare `=======` — staging is yman's job, since the message tells the user to edit and
 rerun, not to run `git add`. The exception is a conflict git never marked up:
 a binary file, a change on one side to what the other deleted, or an `m.yml`
 whose merge driver could not run. The file on disk is then simply ours, and

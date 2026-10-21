@@ -137,6 +137,14 @@ impl Fx {
         &self.home
     }
 
+    /// Append `text` (gitconfig syntax) to the global config every sandboxed
+    /// process reads, standing in for the user's `~/.gitconfig`.
+    pub fn global_config(&self, text: &str) {
+        let mut cur = std::fs::read_to_string(&self.gitconfig).unwrap();
+        cur.push_str(text);
+        std::fs::write(&self.gitconfig, cur).unwrap();
+    }
+
     /// A `yman` invocation in `dir`, with the sandboxed environment applied.
     pub fn yman(&self, dir: &Path) -> assert_cmd::Command {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_yman"));

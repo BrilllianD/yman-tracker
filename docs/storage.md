@@ -116,13 +116,34 @@ origin rejected because the ref moved (retried) is told apart from one it
 refused (not retried) by git's per-ref line rather than by its stderr — see
 [commands.md](commands.md#6-sync) step 8.
 
-Every `git` that `yman` runs for itself gets `-c core.quotePath=false` and
-`-c color.ui=never` on its command line and `LC_ALL=C` in its environment
-(`src/git.rs`): several decisions read git's own English messages —
-`couldn't find remote ref` for an origin with no tasks yet, `nothing to commit`
-for a change that is already in the tree — and a localized git would turn each
-of them into a failure. The one exception is `yman git`, a raw passthrough that
-keeps the user's locale and flags.
+Every `git` that `yman` runs for itself gets `--noglob-pathspecs` and these
+`-c` overrides on its command line, and has `LC_ALL=C` set and
+`GIT_LITERAL_PATHSPECS`, `GIT_GLOB_PATHSPECS` and `GIT_ICASE_PATHSPECS`
+removed from its environment (`src/git.rs`), so the user's configuration
+cannot change what it parses or does:
+
+- `core.quotePath=false`: non-ASCII paths come back unescaped.
+- `color.ui`, `color.diff`, `color.status`, `color.branch`, `color.advice`,
+  `color.push`, `color.remote` and `color.transport`, all `never`: no ANSI
+  escapes in anything yman parses or prints.
+- `log.decorate=no` and `log.showSignature=false`: `yman log` stdout carries no
+  ref names or gpg lines.
+- `status.showUntrackedFiles=normal`: a hand-made folder in `YDIR` counts as a
+  change.
+- `merge.ff=true`, `merge.verifySignatures=false` and `merge.log=false`: a
+  diverged sync merges, whatever the user prefers for their own merges, and the
+  merge message stays as git writes it by default. Signing yman's own commits
+  stays with the user's `commit.gpgSign`.
+
+`LC_ALL=C` is there because several decisions read git's own English messages
+— `couldn't find remote ref` for an origin with no tasks yet, `nothing to
+commit` for a change that is already in the tree — and a localized git would
+turn each of them into a failure. Paths are matched literally, so an
+attachment named `[ab].png` is that one file, and `log <id>` marks its two
+pathspecs `:(glob)` explicitly. `merge.conflictStyle` is left to the user, and
+its diff3 base marker is recognised. The one exception to all of this is
+`yman git`, a raw passthrough that keeps the user's locale, flags, config and
+environment.
 
 The runner in wt adds `-c core.hooksPath=/dev/null`, and so does the single
 `git worktree add` that creates `YDIR`: no hook file exists below a device

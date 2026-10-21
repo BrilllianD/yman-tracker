@@ -339,8 +339,14 @@ fn file_has_markers(path: &std::path::Path) -> bool {
     text.lines().any(is_marker)
 }
 
+/// `|||||||` opens the base section `merge.conflictStyle=diff3` and `zdiff3`
+/// write.
 fn is_marker(l: &str) -> bool {
-    l.starts_with("<<<<<<< ") || l == "=======" || l.starts_with(">>>>>>> ")
+    l.starts_with("<<<<<<< ")
+        || l == "======="
+        || l.starts_with(">>>>>>> ")
+        || l == "|||||||"
+        || l.starts_with("||||||| ")
 }
 
 fn has_conflict_markers(dir: &std::path::Path) -> Result<Option<String>> {
@@ -889,6 +895,13 @@ fn summary(ctx: &Context, totals: &Totals, no_push: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn is_marker_knows_the_diff3_base_line() {
+        assert!(is_marker("||||||| 66a9ddb"));
+        assert!(is_marker("|||||||"));
+        assert!(!is_marker("|| x"));
+    }
 
     #[test]
     fn ref_status_finds_the_tasks_ref() {

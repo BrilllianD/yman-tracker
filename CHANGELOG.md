@@ -7,6 +7,18 @@ under [Releasing](README.md#releasing) in the README.
 
 ## [Unreleased]
 
+### Fixed
+
+- The user's git configuration no longer changes what yman's own git calls do:
+  `color.*`, `log.decorate` and `log.showSignature` cannot leak into
+  `yman log`, `status.showUntrackedFiles=no` no longer hides hand-made files
+  from `status` and the sync snapshot, and `merge.ff=only` and
+  `merge.verifySignatures` no longer fail every diverged `sync`. Task and
+  attachment paths are matched literally (`detach 1 '[ab].png'` no longer
+  removes `a.png`), `GIT_LITERAL_PATHSPECS` no longer empties `yman log <id>`,
+  and a diff3 `|||||||` line left in a resolved file keeps `sync --continue`
+  pending.
+
 ## [0.9.0] - 2026-10-20
 
 ### Changed
