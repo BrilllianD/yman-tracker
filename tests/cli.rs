@@ -3093,6 +3093,67 @@ fn broken_task_is_listed_not_fatal() {
     assert!(text.contains("(1 broken)"), "{text}");
 }
 
+#[test]
+fn an_m_yml_indentation_indicator_cannot_crash_ls() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let bad = "status: |3\n  я\ncreated: 2026-01-01T00:00:00Z\nupdated: 2026-01-01T00:00:00Z\n";
+    fx.write(&fx.task_dir(&fx.a, "1").join("m.yml"), bad);
+
+    let out = fx.yman(&fx.a).arg("ls").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("broken"), "{text}");
+    assert!(text.contains("indentation indicator"), "{text}");
+
+    // The merge driver takes the same text and must not panic either.
+    let dir = tempfile::tempdir().unwrap();
+    let good = "status: todo\ntags: []\nassignee: null\ncreated: 2026-01-01T00:00:00Z\n\
+                updated: 2026-01-01T00:00:00Z\nattachments: []\nlinks: []\nrelated: []\n";
+    for (name, text) in [("base", good), ("ours", bad), ("theirs", good)] {
+        std::fs::write(dir.path().join(name), text).unwrap();
+    }
+    let out = fx
+        .yman(dir.path())
+        .args(["merge-driver", "base", "ours", "theirs"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert!(!stderr(&out).contains("panicked"), "{}", stderr(&out));
+}
+
+#[test]
+fn a_flow_sequence_comment_is_not_a_tag() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let path = fx.task_dir(&fx.a, "1").join("m.yml");
+    fx.write(
+        &path,
+        "status: todo\ntags: [a, b]  # note\nassignee: null\ncreated: 2026-01-01T00:00:00Z\n\
+         updated: 2026-01-01T00:00:00Z\nattachments: []\nlinks: []\nrelated: [] # x\n",
+    );
+
+    let json = stdout(
+        &fx.yman(&fx.a)
+            .args(["show", "1", "--json"])
+            .output()
+            .unwrap(),
+    );
+    assert!(json.contains(r#""tags":["a","b"]"#), "{json}");
+    assert!(json.contains(r#""related":[]"#), "{json}");
+
+    fx.yman(&fx.a)
+        .args(["set", "1", "--status", "doing"])
+        .assert()
+        .success();
+    let text = fx.read(&path);
+    assert!(text.contains("tags:\n- a\n- b\n"), "{text}");
+    assert!(text.contains("related: []\n"), "{text}");
+    assert!(!text.contains("'[a, b]'"), "{text}");
+}
+
 // ------------------------------------------------------------- editor paths
 
 #[test]

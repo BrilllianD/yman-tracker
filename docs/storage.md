@@ -345,7 +345,12 @@ related:
   too, `status: 'todo'  # x`), flow sequences (`tags: [a, b]`), single- and
   double-quoted scalars with the full libyaml escape set (`\a \b \v \f \N
   \_ \L \P` included), folded blocks (`>-`) and sequences indented under
-  their key are all accepted. A key repeated at
+  their key are all accepted. A flow sequence may be followed by a comment
+  (`tags: [a, b]  # note`), and folded blocks fold as YAML does: a single
+  line break becomes a space, a blank line becomes one newline, and lines
+  indented further keep their breaks. An explicit block indentation indicator
+  larger than the text's indentation (`|3` over two spaces) is a parse error.
+  A key repeated at
   the top level or inside an `attachments` item keeps its **last** occurrence,
   which is the half of a conflict a person usually means to keep. An
   `assignee` that is blank or `-` reads as absent, so a hand edit to `''` and
@@ -353,7 +358,9 @@ related:
 - A flow sequence is split on every `,` before its items are unquoted, so a
   quoted item cannot contain a comma: `tags: ['a,b']` is rejected with
   `unterminated single-quoted string: 'a` (and `["a,b"]` with its
-  double-quoted counterpart). The writer never produces flow form, so this
+  double-quoted counterpart). A flow sequence with no closing `]`, or with
+  anything but a comment after it, is rejected (`unterminated flow sequence:
+  …`, `text after the closing bracket of a flow sequence: …`). The writer never produces flow form, so this
   only bites a hand edit; write such an item as a block sequence
   (`- 'a,b'`) instead.
 - A `status` outside `config.statuses.list` is reported, never a hard error, so

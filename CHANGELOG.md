@@ -9,6 +9,11 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- A hand-edited `m.yml` no longer crashes `ls` and the merge driver with a
+  block indentation indicator larger than the text's indentation (`|3`);
+  `tags: [a, b]  # note` reads as two tags instead of storing `'[a, b]'` on
+  the next write (`related: [] # x` likewise); and folded blocks (`>`) no
+  longer add a blank line at each paragraph break.
 - The user's git configuration no longer changes what yman's own git calls do:
   `color.*`, `log.decorate` and `log.showSignature` cannot leak into
   `yman log`, `status.showUntrackedFiles=no` no longer hides hand-made files
