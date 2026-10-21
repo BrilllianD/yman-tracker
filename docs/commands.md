@@ -91,9 +91,11 @@ contributes `folder`, list fields contribute `+added,-removed`, a changed
 body contributes the bare word `body`, and `-m` contributes the bare word
 `comment`.
 
-`Git::commit` treats "nothing to commit" as success: re-applying an identical
-change inside the same second stages nothing, and the tree already says what the
-caller asked for.
+`Git::commit` treats git's three ways of saying nothing is staged
+(`nothing to commit`, `nothing added to commit`, `no changes added to commit`)
+as success: re-applying an identical change stages nothing, whatever else is
+untracked or unstaged in `.yman`, and the tree already says what the caller
+asked for.
 
 ## 3. Reading
 
@@ -714,7 +716,9 @@ exit 1.
    ([storage.md](storage.md#merging-myml)), so edits to different fields of one
    task settle on their own; anything it cannot settle falls back to the text
    merge. Conflicts print `note: unmerged files:`, then each file indented by
-   two spaces, and exit 3. A clean merge is
+   two spaces, and exit 3; if yman cannot list or record them, it still exits 3,
+   with `merge stopped with conflicts, but yman could not list them: <why>`. A
+   clean merge is
    followed by the **rejoin** below.
 8. Push, unless `--no-push`: resolve `LOCAL` once and push that commit,
    `<sha>:refs/tasks/main`, with `--porcelain`, and read git's verdict from
@@ -810,7 +814,10 @@ Both require a merge in progress.
 
 `--continue` treats a file as unresolved while it still carries conflict
 markers — a line starting with `<<<<<<< `, `>>>>>>> ` or `|||||||` (the base
-section of `merge.conflictStyle=diff3` and `zdiff3`), or a bare `=======` — staging is yman's job, since the message tells the user to edit and
+section of `merge.conflictStyle=diff3` and `zdiff3`). A bare `=======` is
+ordinary content (a setext heading, a separator) and counts only in a file git
+left unmerged that holds more of them than its two sides together, i.e. a
+separator left behind. Staging is yman's job, since the message tells the user to edit and
 rerun, not to run `git add`. The exception is a conflict git never marked up:
 a binary file, a change on one side to what the other deleted, or an `m.yml`
 whose merge driver could not run. The file on disk is then simply ours, and

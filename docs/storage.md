@@ -137,7 +137,7 @@ cannot change what it parses or does:
 
 `LC_ALL=C` is there because several decisions read git's own English messages
 — `couldn't find remote ref` for an origin with no tasks yet, `nothing to
-commit` for a change that is already in the tree — and a localized git would
+commit` and its two variants for a change that is already in the tree — and a localized git would
 turn each of them into a failure. Paths are matched literally, so an
 attachment named `[ab].png` is that one file, and `log <id>` marks its two
 pathspecs `:(glob)` explicitly. `merge.conflictStyle` is left to the user, and

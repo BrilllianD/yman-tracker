@@ -319,9 +319,11 @@ impl Git {
             return Ok(());
         }
         // Re-applying an identical change (`attach --force` with the same
-        // bytes inside the same second) stages nothing; the tree already says
-        // what the caller wanted, so that is a success, not a failure.
-        if out.stdout.contains("nothing to commit") || out.stderr.contains("nothing to commit") {
+        // bytes inside the same second) stages nothing, even when an untracked
+        // or unstaged file elsewhere in `.yman` changes git's wording; the
+        // tree already says what the caller wanted, so that is a success, not
+        // a failure.
+        if nothing_staged(&out) {
             return Ok(());
         }
         if out.stderr.contains("Please tell me who you are") {
@@ -331,6 +333,21 @@ impl Git {
         }
         Err(git_failure(&["commit"], &out))
     }
+}
+
+/// Git found nothing staged. It says so three ways, depending on what else
+/// is in the worktree: `nothing to commit` (clean), `nothing added to
+/// commit but untracked files present`, `no changes added to commit`
+/// (unstaged edits). The caller's change is already in the tree.
+fn nothing_staged(out: &Output) -> bool {
+    const PHRASES: [&str; 3] = [
+        "nothing to commit",
+        "nothing added to commit",
+        "no changes added to commit",
+    ];
+    PHRASES
+        .iter()
+        .any(|p| out.stdout.contains(p) || out.stderr.contains(p))
 }
 
 /// `git <subcommand> failed: <stderr>`, continuation lines indented two
@@ -360,6 +377,28 @@ fn git_failure(args: &[&str], out: &Output) -> anyhow::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nothing_staged_covers_every_phrasing() {
+        let said = |stdout: &str| Output {
+            status: 1,
+            stdout: stdout.into(),
+            stderr: String::new(),
+        };
+        assert!(nothing_staged(&said(
+            "nothing to commit, working tree clean"
+        )));
+        assert!(nothing_staged(&said(
+            "nothing added to commit but untracked files present"
+        )));
+        assert!(nothing_staged(&said("no changes added to commit")));
+        let other = Output {
+            status: 1,
+            stdout: String::new(),
+            stderr: "fatal: unable to auto-detect email address".into(),
+        };
+        assert!(!nothing_staged(&other));
+    }
 
     /// Every call carries the literal-pathspec flag and every pin, ahead of
     /// the subcommand, and drops the user's pathspec-mode variables.

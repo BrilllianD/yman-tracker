@@ -8703,6 +8703,103 @@ fn resolve_to_done(fx: &Fx) {
     );
 }
 
+/// A setext heading in a comment is `=======` on a line of its own. It is
+/// content, not a conflict marker, so it must not hold `sync --continue` back
+/// once the real conflict is resolved.
+#[test]
+fn continue_ignores_a_setext_heading_in_task_content() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v1_config(&fx.a);
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["comment", "1", "-m", "Summary\n======="])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    let d_md = fx.read(&fx.b.join(".yman/5.1.fix-login/d.md"));
+    assert!(d_md.contains("\nSummary\n=======\n"), "{d_md}");
+    fx.yman(&fx.a).args(["start", "1"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).args(["done", "1"]).assert().success();
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+
+    resolve_to_done(&fx);
+    let out = fx
+        .yman(&fx.b)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(fx.status(&fx.b, "1"), "done");
+}
+
+/// Identical re-applied changes stage nothing. Git words that differently
+/// when an untracked or an unstaged file sits elsewhere in `.yman`; all three
+/// are success.
+#[test]
+fn identical_commit_with_untracked_or_unstaged_files_succeeds() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let set = || {
+        let out = fx
+            .yman(&fx.a)
+            .args(["state", "set", "-m", "X"])
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    };
+    set();
+
+    let scratch = fx.a.join(".yman/scratch.txt");
+    fx.write(&scratch, "scratch\n");
+    set();
+    std::fs::remove_file(&scratch).unwrap();
+
+    let t_md = fx.a.join(".yman/5.1.fix-login/t.md");
+    let mut text = fx.read(&t_md);
+    text.push_str("unsaved line\n");
+    fx.write(&t_md, &text);
+    set();
+    let porcelain = fx.git(&fx.a, &["-C", ".yman", "status", "--porcelain"]);
+    assert!(porcelain.contains("t.md"), "{porcelain}");
+}
+
+/// The merge stopped, then yman could not record the conflicts. The user is
+/// still mid-merge, so that is exit 3 with a way out, not exit 1.
+#[test]
+fn a_failure_after_the_merge_stops_keeps_exit_3() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v1_config(&fx.a);
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    fx.yman(&fx.a).args(["start", "1"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).args(["done", "1"]).assert().success();
+    let gitdir = fx.git(&fx.b.join(".yman"), &["rev-parse", "--absolute-git-dir"]);
+    std::fs::create_dir(std::path::Path::new(gitdir.trim()).join("YMAN_MARKED")).unwrap();
+
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    let err = stderr(&out);
+    assert!(
+        err.contains(
+            "error: merge stopped with conflicts, but yman could not list them: cannot write "
+        ),
+        "{err}"
+    );
+    assert!(
+        err.ends_with("; resolve then: yman sync --continue  (or: yman sync --abort)\n"),
+        "{err}"
+    );
+    fx.yman(&fx.b).args(["sync", "--abort"]).assert().success();
+}
+
 /// On a version 2 tracker the conflict is in the archived folder; resolving it
 /// to `doing` and continuing leaves the folder under `done/`, and the next
 /// `set --status` puts it where its status says.

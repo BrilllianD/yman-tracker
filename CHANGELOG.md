@@ -18,6 +18,11 @@ under [Releasing](README.md#releasing) in the README.
   removes `a.png`), `GIT_LITERAL_PATHSPECS` no longer empties `yman log <id>`,
   and a diff3 `|||||||` line left in a resolved file keeps `sync --continue`
   pending.
+- `sync --continue` no longer mistakes a bare `=======` line in task content (a
+  setext heading, a pasted separator) for a conflict marker; an identical
+  `state set` or `attach --force` no longer fails when other files in `.yman`
+  are untracked or unstaged; a failure while reporting a stopped merge now
+  exits 3 instead of 1.
 
 ## [0.9.0] - 2026-10-20
 
