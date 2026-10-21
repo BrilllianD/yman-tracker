@@ -5,6 +5,7 @@ pub mod attach;
 pub mod comment;
 pub mod completions;
 pub mod edit;
+pub mod editor;
 pub mod git;
 pub mod guide;
 pub mod hooks;
@@ -21,6 +22,7 @@ pub mod show;
 pub mod state;
 pub mod status;
 pub mod sync;
+pub mod table;
 pub mod tags;
 
 use crate::cli::Cmd;
@@ -57,6 +59,18 @@ pub fn warn_skipped(rels: &[String]) {
             rels.join(", ")
         );
     }
+}
+
+/// The keys every task object in `--json` output starts with, in this order:
+/// `id, priority, status, title, tags, assignee`. Callers append the rest.
+pub fn task_json(t: &crate::task::Task) -> crate::json::Object {
+    crate::json::Object::new()
+        .str("id", t.id())
+        .raw("priority", t.priority().to_string())
+        .str("status", &t.meta.status)
+        .str("title", &t.title)
+        .raw("tags", crate::json::strings(&t.meta.tags))
+        .opt("assignee", t.meta.assignee.as_deref())
 }
 
 /// Body text for `add --body-file` and `set --body-file`: a path, or `-` for

@@ -9,7 +9,7 @@ use anyhow::{Result, anyhow, bail};
 use std::collections::HashSet;
 use std::path::Path;
 
-use super::edit::run_editor;
+use super::editor::run_editor;
 use super::quote_title;
 
 /// What every task created by one `add` shares: all of it but the title
@@ -37,8 +37,8 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
     let related = super::related_args([a.related, a.waits_on.clone()].concat(), None)?;
     super::warn_unknown_related(ctx, &related, &[])?;
     if a.edit {
-        // Refuse before the folder exists; see `edit::resolve_editor`.
-        super::edit::resolve_editor()?;
+        // Refuse before the folder exists; see `editor::resolve_editor`.
+        super::editor::resolve_editor()?;
     }
     // `--sections` is read and parsed whole before the first id is minted:
     // a bad file costs nothing.

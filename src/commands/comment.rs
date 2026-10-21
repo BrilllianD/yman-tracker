@@ -8,7 +8,7 @@ use std::io::{ErrorKind, IsTerminal, Read};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use super::edit::{resolve_editor, run_editor};
+use super::editor::{resolve_editor, run_editor};
 
 /// The file `comment -e` hands the editor, removed when dropped so that
 /// success, a failed editor and an empty comment all clean up alike. Only a

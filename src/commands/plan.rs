@@ -6,7 +6,7 @@ use crate::repo::Context;
 use crate::task::{self, Task};
 use anyhow::Result;
 
-use super::ls::{cmp_tasks, display_width, join_row, print_body};
+use super::table::{cmp_tasks, display_width, join_row, print_body};
 
 /// One step as printed: the task, and what it waits on if it is blocked.
 struct Step<'a> {
@@ -116,13 +116,7 @@ fn print_json(head: &Task, counts: &[(String, usize)], steps: &[Step], long: boo
         .finish();
     let steps = json::array(steps.iter().map(|s| {
         let t = s.task;
-        let mut obj = json::Object::new()
-            .str("id", t.id())
-            .raw("priority", t.priority().to_string())
-            .str("status", &t.meta.status)
-            .str("title", &t.title)
-            .raw("tags", json::strings(&t.meta.tags))
-            .opt("assignee", t.meta.assignee.as_deref())
+        let mut obj = super::task_json(t)
             .raw("waits_on", json::strings(&s.waits_on))
             .str("dir", &t.rel());
         if long {

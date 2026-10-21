@@ -107,6 +107,9 @@ under [Releasing](README.md#releasing) in the README.
   `state set` or `attach --force` no longer fails when other files in `.yman`
   are untracked or unstaged; a failure while reporting a stopped merge now
   exits 3 instead of 1.
+- `yman ls --related X` no longer lists task X itself when its own `related`
+  names it (a hand edit), so it agrees with `yman plan X` and `yman show X`'s
+  `related by`.
 
 ### Changed
 

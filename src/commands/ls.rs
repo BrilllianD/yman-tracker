@@ -1,12 +1,13 @@
 use crate::cli::LsArgs;
-use crate::config::Config;
 use crate::json;
+use crate::plan;
 use crate::repo::Context;
 use crate::tags;
 use crate::task::{self, Entry, Task, format_ts};
 use anyhow::Result;
-use std::cmp::Ordering;
 use std::io::IsTerminal;
+
+use super::table::{cmp_tasks, display_width, join_row, print_body};
 
 pub fn run(ctx: &mut Context, a: LsArgs) -> Result<()> {
     for s in &a.statuses {
@@ -40,11 +41,12 @@ pub fn run(ctx: &mut Context, a: LsArgs) -> Result<()> {
                 };
                 let keep_priority = a.priority.is_none_or(|p| p == t.priority());
                 // Exact match, like `--relate` writes it: an unknown id is an
-                // empty listing, not a warning, so reads stay quiet.
+                // empty listing, not a warning, so reads stay quiet. A task
+                // never relates to itself.
                 let keep_related = a
                     .related
                     .as_deref()
-                    .is_none_or(|id| t.meta.related.iter().any(|r| r == id));
+                    .is_none_or(|id| plan::relates_to(&t, id));
                 // Plain substring, lowercased on both sides: no regex crate,
                 // and an agent's query is a word or two, not a pattern.
                 let keep_text = needle.as_deref().is_none_or(|n| {
@@ -128,55 +130,6 @@ fn print_table(tasks: &[Task], broken: &[(String, String)], long: bool) {
     }
 }
 
-/// The order every task listing uses: priority, then the status's place in
-/// `statuses.list`, then id.
-pub(crate) fn cmp_tasks(cfg: &Config, x: &Task, y: &Task) -> Ordering {
-    x.priority()
-        .cmp(&y.priority())
-        .then_with(|| {
-            cfg.status_index(&x.meta.status)
-                .cmp(&cfg.status_index(&y.meta.status))
-        })
-        .then_with(|| task::cmp_id(x.id(), y.id()))
-}
-
-/// A body under its row, indented so every row still starts in column 0 and
-/// a script can tell the two apart; blank body lines stay blank, not four
-/// spaces.
-pub(crate) fn print_body(body: &str) {
-    for line in body.trim_matches('\n').lines() {
-        if line.is_empty() {
-            println!();
-        } else {
-            println!("    {line}");
-        }
-    }
-}
-
-/// Columns are padded by character count; good enough for the Latin and
-/// Cyrillic titles this is meant for, and never worse than raw bytes.
-pub(crate) fn display_width(s: &str) -> usize {
-    s.chars().count()
-}
-
-pub(crate) fn join_row<const N: usize>(row: &[String; N], width: &[usize; N]) -> String {
-    let mut out = String::new();
-    // Trailing empty columns are dropped so short rows stay short.
-    let last = row.iter().rposition(|c| !c.is_empty()).unwrap_or(0);
-    for (i, cell) in row.iter().enumerate().take(last + 1) {
-        if i > 0 {
-            out.push_str("  ");
-        }
-        out.push_str(cell);
-        if i < last {
-            for _ in display_width(cell)..width[i] {
-                out.push(' ');
-            }
-        }
-    }
-    out
-}
-
 fn count(n: usize) -> String {
     if n == 0 { String::new() } else { n.to_string() }
 }
@@ -184,13 +137,7 @@ fn count(n: usize) -> String {
 fn print_json(tasks: &[Task], broken: &[(String, String)], long: bool) {
     let mut items: Vec<String> = Vec::new();
     for t in tasks {
-        let mut obj = json::Object::new()
-            .str("id", t.id())
-            .raw("priority", t.priority().to_string())
-            .str("status", &t.meta.status)
-            .str("title", &t.title)
-            .raw("tags", json::strings(&t.meta.tags))
-            .opt("assignee", t.meta.assignee.as_deref())
+        let mut obj = super::task_json(t)
             .raw("links", json::strings(&t.meta.links))
             .raw("related", json::strings(&t.meta.related))
             .str("created", &format_ts(&t.meta.created))
