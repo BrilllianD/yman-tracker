@@ -9,6 +9,22 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- `yman init` no longer rewrites a `.git/info/exclude` it cannot decode as UTF-8
+  down to the single line `.yman/`; it appends and keeps every other byte.
+- A `yman init` that failed after creating `refs/yman/local` (`git worktree
+  add` failed, its commit failed) no longer leaves every rerun refusing with
+  "refs/yman/local is not a yman history"; the rerun finishes it.
+- `yman init --hooks` with a hook yman does not own (husky, lefthook) now
+  finishes with exit 0 and its summary, reporting the hook on stderr.
+- Commands run in a linked worktree of the project (`git worktree add`) now
+  use the main clone's `.yman` (or their own, when only they have one)
+  instead of asking for `yman init`, and yman's
+  hooks stay silent there.
+- `yman refresh --quiet`, which the hooks run, no longer prints an error in a
+  repository without a tracker (for example under a global `core.hooksPath`).
+- Outside a work tree (a bare repository, a directory git refuses under
+  `safe.directory`) every command now shows git's reason under "not inside a
+  git repository" instead of hiding it.
 - `comment -e` no longer discards text the editor saved in a non-UTF-8
   encoding as `empty comment`: it fails, names the error and keeps the file;
   `ls` and `show` no longer report 0 comments for a `d.md` that is not valid

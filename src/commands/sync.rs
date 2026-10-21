@@ -204,7 +204,7 @@ fn duplicate_ids_gate(ctx: &Context) -> Result<()> {
 const MARKED_FILE: &str = "YMAN_MARKED";
 
 fn read_marked(ctx: &Context) -> HashSet<String> {
-    std::fs::read_to_string(ctx.wt_gitdir.join(MARKED_FILE))
+    std::fs::read_to_string(ctx.wt_gitdir().join(MARKED_FILE))
         .unwrap_or_default()
         .lines()
         .map(str::to_string)
@@ -212,7 +212,7 @@ fn read_marked(ctx: &Context) -> HashSet<String> {
 }
 
 fn forget_marked(ctx: &Context) {
-    let _ = std::fs::remove_file(ctx.wt_gitdir.join(MARKED_FILE));
+    let _ = std::fs::remove_file(ctx.wt_gitdir().join(MARKED_FILE));
 }
 
 /// Unmerged paths, in index order, with which of stages 1 (base), 2 (ours)
@@ -484,7 +484,7 @@ fn report_stopped_merge(ctx: &Context) -> Result<usize> {
             eprintln!("  {f}");
         }
     }
-    let path = ctx.wt_gitdir.join(MARKED_FILE);
+    let path = ctx.wt_gitdir().join(MARKED_FILE);
     std::fs::write(&path, marked).with_context(|| format!("cannot write {}", path.display()))?;
     report_split_closes(ctx)?;
     Ok(files.len())

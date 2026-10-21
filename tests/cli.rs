@@ -105,7 +105,43 @@ fn init_requires_a_repo() {
     std::fs::create_dir_all(&plain).unwrap();
     let out = fx.yman(&plain).arg("init").output().unwrap();
     assert!(!out.status.success());
-    assert_eq!(stderr(&out).trim(), "error: not inside a git repository");
+    assert!(
+        stderr(&out)
+            .starts_with("error: not inside a git repository\n  fatal: not a git repository"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn discovery_failure_keeps_gits_reason() {
+    let fx = Fx::new();
+    let out = fx.yman(&fx.remote).arg("ls").output().unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert!(out.stdout.is_empty());
+    assert_eq!(
+        stderr(&out),
+        "error: not inside a git repository\n  fatal: this operation must be run in a work tree\n"
+    );
+
+    let out = fx
+        .yman(&fx.a)
+        .env("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1")
+        .arg("ls")
+        .output()
+        .unwrap();
+    if !stderr(&out).contains("dubious ownership") {
+        skip("git ignores GIT_TEST_ASSUME_DIFFERENT_OWNER");
+        return;
+    }
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).starts_with(
+            "error: not inside a git repository\n  fatal: detected dubious ownership in repository at"
+        ),
+        "{}",
+        stderr(&out)
+    );
 }
 
 #[test]
@@ -2735,6 +2771,160 @@ fn init_names_the_broken_history() {
     );
 }
 
+#[test]
+fn init_keeps_a_non_utf8_info_exclude() {
+    let fx = Fx::new();
+    let before: &[u8] = b"*.log\n# caf\xe9\n";
+    let path = fx.a.join(".git/info/exclude");
+    std::fs::write(&path, before).unwrap();
+    fx.write(&fx.a.join("build.log"), "x\n");
+    fx.yman(&fx.a).arg("init").assert().success();
+    let mut want = before.to_vec();
+    want.extend_from_slice(b".yman/\n");
+    assert_eq!(std::fs::read(&path).unwrap(), want);
+    assert_eq!(fx.git(&fx.a, &["status", "--porcelain"]), "");
+    fx.yman(&fx.a).arg("init").assert().success();
+    assert_eq!(std::fs::read(&path).unwrap(), want);
+}
+
+#[test]
+fn init_names_an_info_exclude_it_cannot_read() {
+    let fx = Fx::new();
+    let path = fx.a.join(".git/info/exclude");
+    std::fs::remove_file(&path).ok();
+    std::fs::create_dir_all(&path).unwrap();
+    let out = fx.yman(&fx.a).arg("init").output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(
+        stderr(&out).starts_with(&format!("error: cannot read {}: ", path.display())),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn init_names_an_info_exclude_it_cannot_write() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let fx = Fx::new();
+    let path = fx.a.join(".git/info/exclude");
+    std::fs::write(&path, "*.log\n").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).unwrap();
+    if std::fs::OpenOptions::new().append(true).open(&path).is_ok() {
+        skip("running as root, read-only files are writable");
+        return;
+    }
+    let out = fx.yman(&fx.a).arg("init").output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(
+        stderr(&out).starts_with(&format!("error: cannot write {}: ", path.display())),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn init_finishes_after_worktree_add_failed() {
+    let fx = Fx::new();
+    let out = fx
+        .yman_shimmed(
+            &fx.a,
+            r#"[ "$sub" = worktree ] && case " $* " in *" add "*) exit 1;; esac"#,
+        )
+        .arg("init")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("git worktree add failed"),
+        "{}",
+        stderr(&out)
+    );
+    let out = fx.yman(&fx.a).arg("init").output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("note: finishing an interrupted yman init"),
+        "{}",
+        stderr(&out)
+    );
+    assert!(
+        stdout(&out).starts_with("initialized .yman"),
+        "{}",
+        stdout(&out)
+    );
+    fx.yman(&fx.a).args(["add", "After"]).assert().success();
+    let ls = fx.yman(&fx.a).arg("ls").output().unwrap();
+    assert!(stdout(&ls).contains("After"), "{}", stdout(&ls));
+    fx.yman(&fx.a).arg("sync").assert().success();
+    assert_eq!(
+        fx.git(&fx.remote, &["rev-parse", "refs/tasks/main"]),
+        fx.git(&fx.a, &["rev-parse", "refs/yman/local"])
+    );
+}
+
+#[test]
+fn init_finishes_after_its_commit_failed() {
+    let fx = Fx::new();
+    let out = fx
+        .yman_shimmed(&fx.a, r#"[ "$sub" = commit ] && exit 1"#)
+        .arg("init")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(fx.a.join(".yman").exists());
+    let out = fx.yman(&fx.a).arg("init").output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("note: finishing an interrupted yman init"),
+        "{}",
+        stderr(&out)
+    );
+    assert!(
+        stdout(&out).starts_with("initialized .yman"),
+        "{}",
+        stdout(&out)
+    );
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["status", "--porcelain"]), "");
+    fx.git(&fx.a.join(".yman"), &["cat-file", "-e", "HEAD:config.toml"]);
+    fx.yman(&fx.a).args(["add", "After"]).assert().success();
+}
+
+#[test]
+fn init_hooks_with_a_foreign_hook_still_finishes() {
+    let fx = Fx::new();
+    let hook = fx.a.join(".git/hooks/post-merge");
+    std::fs::write(&hook, "#!/bin/sh\necho mine\n").unwrap();
+    for (n, first) in [(0, "initialized .yman"), (1, "already initialized .yman")] {
+        let out = fx.yman(&fx.a).args(["init", "--hooks"]).output().unwrap();
+        assert_eq!(out.status.code(), Some(0), "run {n}: {}", stderr(&out));
+        assert!(
+            stdout(&out).lines().any(|l| l.starts_with(first)),
+            "run {n}: {}",
+            stdout(&out)
+        );
+        assert!(
+            stdout(&out).contains("  hooks:    not installed"),
+            "run {n}: {}",
+            stdout(&out)
+        );
+        let e = stderr(&out);
+        assert!(
+            e.contains(
+                "note: hook post-merge exists; add this line to it:\n    yman refresh --quiet"
+            ),
+            "run {n}: {e}"
+        );
+        assert!(
+            e.contains("warning: 1 hook(s) not installed: post-merge"),
+            "run {n}: {e}"
+        );
+        assert!(!e.contains("error:"), "run {n}: {e}");
+        assert_eq!(std::fs::read(&hook).unwrap(), b"#!/bin/sh\necho mine\n");
+    }
+    fx.git(&fx.remote, &["rev-parse", "refs/tasks/main"]);
+}
+
 /// The refetch after a lost race fails: `init` still finishes, with a warning
 /// that it is unpublished, hooks and summary done, and exit 0.
 #[test]
@@ -3040,24 +3230,8 @@ fn hooks_refresh_on_pull() {
     fx.yman(&fx.b).arg("sync").assert().success();
 
     // A's plain `git pull` fires post-merge, which refreshes .yman.
-    let yman_dir = std::path::Path::new(env!("CARGO_BIN_EXE_yman"))
-        .parent()
-        .unwrap()
-        .to_path_buf();
-    let path = format!(
-        "{}:{}",
-        yman_dir.display(),
-        std::env::var("PATH").unwrap_or_default()
-    );
-    let mut pull = std::process::Command::new("git");
-    let out = fx
-        .sandbox(&mut pull)
-        .current_dir(&fx.a)
-        // A plain pull, so the configured refs/tasks/main refspec applies.
-        .args(["pull", "--no-rebase"])
-        .env("PATH", path)
-        .output()
-        .unwrap();
+    // A plain pull, so the configured refs/tasks/main refspec applies.
+    let out = git_with_yman_on_path(&fx, &fx.a, &["pull", "--no-rebase"]);
     assert!(
         out.status.success(),
         "{}",
@@ -4350,11 +4524,125 @@ fn commands_work_from_inside_a_task_folder() {
     assert!(!dir.join(".yman").exists());
 }
 
-/// git guards only branches against a second checkout, and `.yman` is added
-/// with `--detach`, so from a linked worktree of the project nothing but
-/// `init` itself stands between the user and a second `.yman`.
+/// Run raw `git <args>` in `dir` with the built `yman` first on `PATH`, so
+/// the hooks yman installed find it.
+fn git_with_yman_on_path(fx: &Fx, dir: &std::path::Path, args: &[&str]) -> std::process::Output {
+    let yman_dir = std::path::Path::new(env!("CARGO_BIN_EXE_yman"))
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let path = format!(
+        "{}:{}",
+        yman_dir.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let mut cmd = std::process::Command::new("git");
+    fx.sandbox(&mut cmd)
+        .current_dir(dir)
+        .args(args)
+        .env("PATH", path)
+        .output()
+        .unwrap()
+}
+
+/// `ROOT` is the main toplevel, so a linked worktree of the project finds the
+/// main clone's `.yman` instead of asking for an `init` that cannot work.
 #[test]
-fn init_refuses_a_second_yman_from_a_linked_worktree() {
+fn commands_in_a_linked_worktree_use_the_main_yman() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).args(["init", "--hooks"]).assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let wt = fx.tmp.path().join("wt");
+    fx.git(
+        &fx.a,
+        &["worktree", "add", "-q", "-b", "side", wt.to_str().unwrap()],
+    );
+
+    let out = fx.yman(&wt).arg("ls").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stdout(&out).contains("Fix login"), "{}", stdout(&out));
+
+    fx.yman(&wt).args(["add", "From wt"]).assert().success();
+    assert!(fx.has_task(&fx.a, "2"));
+
+    let out = fx.yman(&wt).args(["path", "1"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let printed = std::path::PathBuf::from(stdout(&out).trim())
+        .canonicalize()
+        .unwrap();
+    assert!(
+        printed.starts_with(fx.a.join(".yman").canonicalize().unwrap()),
+        "{}",
+        printed.display()
+    );
+
+    let out = fx.yman(&wt).args(["refresh", "--quiet"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "");
+    assert_eq!(stderr(&out), "");
+    assert!(!wt.join(".yman").exists());
+
+    // yman's hooks fire on checkout and must add nothing to git's own output.
+    let out = git_with_yman_on_path(&fx, &wt, &["checkout", "-q", "-b", "x"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stderr(&out), "");
+}
+
+/// v0.9.0 let `init` run inside a linked worktree, so a tracker can sit at
+/// `wt/.yman` while the main checkout has none. It must keep working.
+#[test]
+fn a_tracker_inside_a_linked_worktree_without_a_main_one_keeps_working() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let wt = fx.tmp.path().join("wt");
+    fx.git(
+        &fx.a,
+        &["worktree", "add", "-q", "-b", "side", wt.to_str().unwrap()],
+    );
+    // Move the checkout of refs/yman/local from the main clone to `wt`.
+    fx.git(&fx.a, &["worktree", "remove", "--force", ".yman"]);
+    let ydir = wt.join(".yman");
+    fx.git(
+        &wt,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "--detach",
+            ydir.to_str().unwrap(),
+            "refs/yman/local",
+        ],
+    );
+    fx.git(&ydir, &["symbolic-ref", "HEAD", "refs/yman/local"]);
+    assert!(!fx.a.join(".yman").exists());
+
+    let out = fx.yman(&wt).arg("ls").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stdout(&out).contains("Fix login"), "{}", stdout(&out));
+
+    fx.yman(&wt).args(["add", "From wt"]).assert().success();
+    assert!(fx.has_task(&wt, "2"));
+
+    let out = fx.yman(&wt).args(["refresh", "--quiet"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "");
+    assert_eq!(stderr(&out), "");
+
+    let out = fx.yman(&wt).arg("init").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stdout(&out).starts_with("already initialized .yman"),
+        "{}",
+        stdout(&out)
+    );
+    assert!(!fx.a.join(".yman").exists());
+}
+
+/// From a linked worktree `init` sees the main `.yman` and repairs it; it must
+/// never make a second one.
+#[test]
+fn init_from_a_linked_worktree_repairs_the_main_yman() {
     let fx = Fx::new();
     fx.yman(&fx.a).arg("init").assert().success();
     let wt = fx.tmp.path().join("wt");
@@ -4364,12 +4652,87 @@ fn init_refuses_a_second_yman_from_a_linked_worktree() {
     );
 
     let out = fx.yman(&wt).arg("init").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stdout(&out).starts_with("already initialized .yman"),
+        "{}",
+        stdout(&out)
+    );
+    assert!(!wt.join(".yman").exists());
+}
+
+/// git guards only branches against a second checkout, and `.yman` is added
+/// with `--detach`, so `init` itself has to refuse when some other worktree
+/// already holds `refs/yman/local`.
+#[test]
+fn init_refuses_when_another_worktree_holds_the_ref() {
+    let fx = Fx::new();
+    fx.git(&fx.b, &["update-ref", "refs/yman/local", "HEAD"]);
+    let other = fx.tmp.path().join("other");
+    fx.git(
+        &fx.b,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "--detach",
+            other.to_str().unwrap(),
+            "refs/yman/local",
+        ],
+    );
+    fx.git(&other, &["symbolic-ref", "HEAD", "refs/yman/local"]);
+
+    let out = fx.yman(&fx.b).args(["init", "--offline"]).output().unwrap();
     assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
     assert_eq!(
         stderr(&out).trim(),
         "error: refs/yman/local is already checked out in another worktree of this repo; only one .yman per clone is supported"
     );
-    assert!(!wt.join(".yman").exists());
+    assert!(!fx.b.join(".yman").exists());
+}
+
+/// The hooks run `refresh --quiet` in every checkout, including repos with no
+/// tracker; `--quiet` promises silence there. Plain `refresh` still reports.
+#[test]
+fn refresh_quiet_without_a_tracker_says_nothing() {
+    let fx = Fx::new();
+    let out = fx
+        .yman(&fx.b)
+        .args(["refresh", "--quiet"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "");
+    assert_eq!(stderr(&out), "");
+
+    let out = fx.yman(&fx.b).arg("refresh").output().unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        stderr(&out).trim(),
+        "error: .yman is not initialized; run: yman init"
+    );
+
+    let plain = fx.tmp.path().join("plain");
+    std::fs::create_dir_all(&plain).unwrap();
+    let out = fx
+        .yman(&plain)
+        .args(["refresh", "--quiet"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "");
+    assert_eq!(stderr(&out), "");
+
+    // A global core.hooksPath fires yman's hook in a repo without a tracker.
+    fx.global_config(&format!(
+        "[core]\n\thooksPath = {}\n",
+        fx.home().join("hooks").display()
+    ));
+    fx.yman(&fx.a).args(["hooks", "install"]).assert().success();
+    assert!(fx.home().join("hooks/post-checkout").exists());
+    let out = git_with_yman_on_path(&fx, &fx.b, &["checkout", "-q", "-b", "y"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stderr(&out), "");
 }
 
 /// Preflight tells the user to run `init` when `.yman` lost its symbolic

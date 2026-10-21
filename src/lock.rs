@@ -42,10 +42,13 @@ fn cannot_lock_here(e: &std::io::Error) -> bool {
 
 /// Take the lock, waiting for another yman to finish when it is held.
 ///
-/// `Ok(None)` when `ctx.wt_gitdir` does not exist (preflight then reports the
+/// `Ok(None)` when `.yman` is not our worktree (preflight then reports the
 /// real problem) or when the filesystem cannot lock (after a warning).
 pub fn acquire(ctx: &Context) -> Result<Option<Lock>> {
-    let path = ctx.wt_gitdir.join(LOCK_FILE);
+    let Some(dir) = ctx.wt_gitdir.as_deref() else {
+        return Ok(None);
+    };
+    let path = dir.join(LOCK_FILE);
     let file = match OpenOptions::new()
         .create(true)
         .write(true)

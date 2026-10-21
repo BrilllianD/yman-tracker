@@ -58,7 +58,11 @@ pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
 
     // Where does the new worktree start, and whose history is it?
     let mut source = LOCAL_HISTORY;
-    let fresh = if ctx.main.rev_parse(LOCAL)?.is_some() {
+    let half = half_made(ctx)?;
+    if half {
+        eprintln!("{FINISHING_NOTE}");
+    }
+    let fresh = if ctx.main.rev_parse(LOCAL)?.is_some() && !half {
         false
     } else if ctx.main.rev_parse(REMOTE)?.is_some() {
         ctx.main
@@ -66,6 +70,8 @@ pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
             .ok(&["update-ref", LOCAL, REMOTE])?;
         source = ORIGIN_HISTORY;
         false
+    } else if half {
+        true
     } else {
         let tree = ctx
             .main
@@ -87,16 +93,7 @@ pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
     // hooks and the summary still follow, and the failure becomes a warning.
     let mut unpublished: Option<anyhow::Error> = None;
     if fresh {
-        let cfg = Config::new(scheme);
-        cfg.save(&ctx.ydir)?;
-        std::fs::write(ctx.ydir.join(".gitignore"), GITIGNORE)?;
-        std::fs::write(ctx.ydir.join(".gitattributes"), GITATTRIBUTES)?;
-        ctx.wt.ok(&["add", "-A"])?;
-        ctx.wt.commit(&format!("yman: init ({scheme})"))?;
-        ctx.config = Some(cfg);
-        if !offline {
-            unpublished = publish_fresh(ctx)?;
-        }
+        unpublished = create_history(ctx, scheme, offline)?;
     } else {
         ctx.config = Some(load_history_config(ctx, source)?);
         if a.id_scheme.is_some() {
@@ -105,7 +102,7 @@ pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
     }
 
     if a.hooks {
-        hooks::install(ctx)?;
+        install_hooks(ctx);
     }
 
     summary(ctx, url.as_deref(), "initialized")?;
@@ -168,14 +165,69 @@ fn repair(ctx: &mut Context, a: &InitArgs, url: Option<&str>) -> Result<()> {
         ctx.set_cfg("yman.author", author)?;
     }
     register_merge_driver(ctx)?;
-    ctx.config = Some(load_history_config(ctx, LOCAL_HISTORY)?);
-    if a.id_scheme.is_some() {
-        warn_scheme_ignored(ctx);
-    }
+    let mut unpublished: Option<anyhow::Error> = None;
+    let verb = if half_made(ctx)? {
+        eprintln!("{FINISHING_NOTE}");
+        let offline = a.offline || url.is_none();
+        let scheme = a.id_scheme.map(Scheme::from).unwrap_or(Scheme::Seq);
+        unpublished = create_history(ctx, scheme, offline)?;
+        "initialized"
+    } else {
+        ctx.config = Some(load_history_config(ctx, LOCAL_HISTORY)?);
+        if a.id_scheme.is_some() {
+            warn_scheme_ignored(ctx);
+        }
+        "already initialized"
+    };
     if a.hooks {
-        hooks::install(ctx)?;
+        install_hooks(ctx);
     }
-    summary(ctx, url, "already initialized")
+    summary(ctx, url, verb)?;
+    if let Some(e) = unpublished {
+        eprintln!("warning: not published to origin ({e:#}); run: yman sync");
+    }
+    Ok(())
+}
+
+/// `init --hooks` is a convenience on top of a tracker that already exists:
+/// a hook yman may not replace is a warning, not a reason to fail.
+fn install_hooks(ctx: &Context) {
+    if let Err(e) = hooks::install(ctx) {
+        eprintln!("warning: {e:#}");
+    }
+}
+
+const FINISHING_NOTE: &str = "note: finishing an interrupted yman init";
+
+/// `refs/yman/local` as a fresh init leaves it before its own commit lands:
+/// one parentless commit with the empty tree.
+fn half_made(ctx: &Context) -> Result<bool> {
+    if ctx.main.rev_parse(LOCAL)?.is_none() {
+        return Ok(false);
+    }
+    let commits = ctx.main.out(&["rev-list", "--max-count=2", LOCAL])?;
+    Ok(commits.lines().count() == 1 && ctx.main.out(&["ls-tree", LOCAL])?.trim().is_empty())
+}
+
+/// Write config.toml, .gitignore, .gitattributes into `.yman`, commit
+/// `yman: init (<scheme>)`, set `ctx.config`, and publish unless offline.
+/// The publish failure comes back as `Ok(Some(why))`, as in `run`.
+fn create_history(
+    ctx: &mut Context,
+    scheme: Scheme,
+    offline: bool,
+) -> Result<Option<anyhow::Error>> {
+    let cfg = Config::new(scheme);
+    cfg.save(&ctx.ydir)?;
+    std::fs::write(ctx.ydir.join(".gitignore"), GITIGNORE)?;
+    std::fs::write(ctx.ydir.join(".gitattributes"), GITATTRIBUTES)?;
+    ctx.wt.ok(&["add", "-A"])?;
+    ctx.wt.commit(&format!("yman: init ({scheme})"))?;
+    ctx.config = Some(cfg);
+    if offline {
+        return Ok(None);
+    }
+    publish_fresh(ctx)
 }
 
 /// Put `.yman`'s HEAD back on `refs/yman/local` — the repair preflight's

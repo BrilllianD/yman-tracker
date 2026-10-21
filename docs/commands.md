@@ -7,7 +7,8 @@ Normative, as-built. Companion documents: [storage.md](storage.md),
 
 `main` does four things in order before the body, and one after it (`src/main.rs`):
 
-1. **Discover** the repository. Failure is `not inside a git repository`.
+1. **Discover** the repository. Failure is `not inside a git repository`,
+   followed by git's own reason.
 2. **Lock**, for the mutating commands (listed below) and `sync`: an advisory
    lock on `yman.lock` in the `.yman` worktree's private git dir, held until
    the command exits, autosync included. A command that finds it held prints
@@ -682,6 +683,11 @@ file at all. The author is `$YMAN_ACTOR` (trimmed, non-empty), else
    `note: refreshed N new commit(s)` unless quiet.
 
 `yman refresh` additionally prints `up to date` when there was nothing to do.
+
+`yman refresh --quiet` where there is no tracker (not in a repository, or
+`.yman` missing or not a yman worktree) exits 0 and prints nothing; the hooks
+run it in every checkout. Plain `yman refresh` there fails with
+`.yman is not initialized; run: yman init`.
 
 | `yman.refresh` | Effect |
 |---|---|

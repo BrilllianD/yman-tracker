@@ -2,7 +2,7 @@
 
 use crate::config::Config;
 use crate::errors::MergePending;
-use crate::git::Git;
+use crate::git::{Git, indent_detail};
 use anyhow::{Result, bail};
 use std::path::{Path, PathBuf};
 
@@ -16,13 +16,6 @@ pub const REMOTE_REF: &str = "refs/tasks/main";
 pub const FETCH_REFSPEC: &str = "+refs/tasks/main:refs/yman/remote";
 /// Name of the `.yman` directory, and the line added to `info/exclude`.
 pub const YDIR_NAME: &str = ".yman";
-
-/// `COMMON/worktrees/-yman`: git names a worktree's private dir after its
-/// basename with a leading dot sanitized to `-`. Only a fallback for when
-/// `.yman/.git` cannot be read; that file is the authority.
-fn default_wt_gitdir(common: &Path) -> PathBuf {
-    common.join("worktrees").join("-yman")
-}
 
 /// Follow `.yman/.git` (a file reading `gitdir: <path>`) to the worktree's
 /// private git dir.
@@ -45,8 +38,9 @@ pub struct Context {
     pub common: PathBuf,
     /// `root/.yman`.
     pub ydir: PathBuf,
-    /// Private git dir of the `.yman` worktree.
-    pub wt_gitdir: PathBuf,
+    /// Private git dir of the `.yman` worktree; `None` when `.yman` is not
+    /// our worktree. Read it through [`Context::wt_gitdir`].
+    pub wt_gitdir: Option<PathBuf>,
     /// Runner for ref/remote/config operations, in the main worktree.
     pub main: Git,
     /// Runner for everything touching task files, in `.yman`. Runs with the
@@ -70,9 +64,13 @@ pub enum YdirState {
 
 /// Find the repository containing the current directory.
 ///
-/// One `rev-parse` answers both questions: it prints the results in the order
-/// the options were given, so toplevel comes first and the common dir second.
-/// This is the only `git` process a read-only command needs.
+/// One `rev-parse` answers all three questions: it prints the results in the
+/// order the options were given, so toplevel comes first, the common dir
+/// second and the git dir third. From the main worktree that is the only
+/// `git` process a read-only command needs. From a linked worktree (where the
+/// git dir differs from the common dir) one `worktree list` finds the main
+/// toplevel, which is what `ROOT` means, unless only the current worktree
+/// holds a `.yman` of ours.
 pub fn discover() -> Result<Context> {
     let here = Git::new(std::env::current_dir()?);
     // `--path-format=absolute` so worktrees and `.git`-file layouts both give
@@ -82,26 +80,53 @@ pub fn discover() -> Result<Context> {
         "--path-format=absolute",
         "--show-toplevel",
         "--git-common-dir",
+        "--git-dir",
     ])?;
     let mut lines = out.stdout.lines();
-    let (root, common) = match (out.ok(), lines.next(), lines.next()) {
+    let (top, common, git_dir) = match (out.ok(), lines.next(), lines.next(), lines.next()) {
         // Git before 2.31 does not know `--path-format` and echoes it back as
-        // the first line, so both answers must look like absolute paths.
-        (true, Some(top), Some(dir))
-            if Path::new(top.trim()).is_absolute() && Path::new(dir.trim()).is_absolute() =>
+        // the first line, so all answers must look like absolute paths.
+        (true, Some(top), Some(dir), Some(gd))
+            if Path::new(top.trim()).is_absolute()
+                && Path::new(dir.trim()).is_absolute()
+                && Path::new(gd.trim()).is_absolute() =>
         {
-            (PathBuf::from(top.trim()), PathBuf::from(dir.trim()))
+            (
+                PathBuf::from(top.trim()),
+                PathBuf::from(dir.trim()),
+                PathBuf::from(gd.trim()),
+            )
         }
-        // Older git, or a layout where one of the two is unanswerable: ask
-        // separately, without the flag.
+        // Older git, or a layout where one of the answers is unanswerable:
+        // ask separately, without the flag.
         _ => discover_separately(&here)?,
     };
-    let root = yman_parent(&root, &common).unwrap_or(root);
+    let root = if same_dir(&git_dir, &common) {
+        top
+    } else {
+        // A linked worktree, `.yman` itself included. Reading `.yman/.git`
+        // costs no process, so try it first.
+        match yman_parent(&top, &common) {
+            Some(parent) => parent,
+            None => match main_toplevel(&here)? {
+                // A tracker v0.9.0 let `init` create inside this linked
+                // worktree, with none in the main checkout, stays ours.
+                Some(main)
+                    if our_worktree_gitdir(&main.join(YDIR_NAME), &common).is_none()
+                        && our_worktree_gitdir(&top.join(YDIR_NAME), &common).is_some() =>
+                {
+                    top
+                }
+                Some(main) => main,
+                None => top,
+            },
+        }
+    };
     let main = Git::new(&root);
     let ydir = root.join(YDIR_NAME);
     // git derives the worktree's private dir name from the basename and
     // sanitizes it (".yman" becomes "-yman"), so read it rather than guess.
-    let wt_gitdir = read_gitdir_file(&ydir).unwrap_or_else(|| default_wt_gitdir(&common));
+    let wt_gitdir = our_worktree_gitdir(&ydir, &common);
     Ok(Context {
         main,
         // The user's hooks never run for yman's own commits, merges and
@@ -115,6 +140,23 @@ pub fn discover() -> Result<Context> {
     })
 }
 
+fn same_dir(a: &Path, b: &Path) -> bool {
+    match (a.canonicalize(), b.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
+    }
+}
+
+/// `Some(private git dir)` when `ydir/.git` is a `gitdir:` file pointing under
+/// `COMMON/worktrees/` at a directory holding a `gitdir` file. The one test
+/// for "this `.yman` is our worktree".
+fn our_worktree_gitdir(ydir: &Path, common: &Path) -> Option<PathBuf> {
+    let pointed = read_gitdir_file(ydir)?;
+    let worktrees = common.join("worktrees");
+    let worktrees = worktrees.canonicalize().unwrap_or(worktrees);
+    (pointed.starts_with(&worktrees) && pointed.join("gitdir").exists()).then_some(pointed)
+}
+
 /// From anywhere inside `.yman` — `cd $(yman path 14)` — git's toplevel is
 /// `.yman` itself. When that toplevel is our own linked worktree, the project
 /// is its parent. Read off disk, so it costs no process.
@@ -122,36 +164,67 @@ fn yman_parent(top: &Path, common: &Path) -> Option<PathBuf> {
     if top.file_name()? != YDIR_NAME {
         return None;
     }
-    let pointed = read_gitdir_file(top)?;
-    let worktrees = common.join("worktrees");
-    let worktrees = worktrees.canonicalize().unwrap_or(worktrees);
-    pointed
-        .starts_with(&worktrees)
-        .then(|| top.parent().map(Path::to_path_buf))
-        .flatten()
+    our_worktree_gitdir(top, common)?;
+    top.parent().map(Path::to_path_buf)
 }
 
-/// Fallback for [`discover`]: the two separate `rev-parse` calls.
-fn discover_separately(here: &Git) -> Result<(PathBuf, PathBuf)> {
+/// The first record of `git worktree list --porcelain -z`, which git documents
+/// as the main worktree. `None` when the main repository is bare: it has no
+/// toplevel, and the caller keeps the current one.
+fn main_toplevel(here: &Git) -> Result<Option<PathBuf>> {
+    let text = here.out(&["worktree", "list", "--porcelain", "-z"])?;
+    let mut path = None;
+    for field in text.split('\0') {
+        if field.is_empty() {
+            break;
+        }
+        if field == "bare" {
+            return Ok(None);
+        }
+        if path.is_none() {
+            path = field.strip_prefix("worktree ").map(PathBuf::from);
+        }
+    }
+    Ok(path)
+}
+
+/// Fallback for [`discover`]: separate `rev-parse` calls, without
+/// `--path-format`. Returns toplevel, common dir and git dir.
+fn discover_separately(here: &Git) -> Result<(PathBuf, PathBuf, PathBuf)> {
     let root = match here.run(&["rev-parse", "--show-toplevel"])? {
         o if o.ok() => PathBuf::from(o.stdout.trim()),
-        _ => bail!("not inside a git repository"),
+        o => {
+            let detail = indent_detail(&o.stderr);
+            if detail.is_empty() {
+                bail!("not inside a git repository");
+            }
+            bail!("not inside a git repository\n  {detail}");
+        }
     };
     // Relative to the directory git ran in, which `-C` makes `root`.
-    let common = PathBuf::from(
-        Git::new(&root)
-            .out(&["rev-parse", "--git-common-dir"])?
-            .trim(),
-    );
-    let common = if common.is_absolute() {
-        common
-    } else {
-        root.join(common)
+    let ask = |flag: &str| -> Result<PathBuf> {
+        let dir = PathBuf::from(Git::new(&root).out(&["rev-parse", flag])?.trim());
+        Ok(if dir.is_absolute() {
+            dir
+        } else {
+            root.join(dir)
+        })
     };
-    Ok((root, common))
+    let common = ask("--git-common-dir")?;
+    let git_dir = ask("--git-dir")?;
+    Ok((root, common, git_dir))
 }
 
 impl Context {
+    /// Private git dir of `.yman`. Only valid once `.yman` is known to be our
+    /// worktree: after preflight, or in `init` after `add_worktree` or on the
+    /// repair path.
+    pub fn wt_gitdir(&self) -> &Path {
+        self.wt_gitdir
+            .as_deref()
+            .expect("preflight checked .yman is our worktree")
+    }
+
     /// Config of the task history. Only valid after `preflight`, and not for
     /// a command `preflight` let through a merge with an unloadable config.
     pub fn config(&self) -> &Config {
@@ -183,21 +256,33 @@ impl Context {
     pub fn exclude_add(&self) -> Result<bool> {
         let line = format!("{YDIR_NAME}/");
         let path = self.common.join("info").join("exclude");
-        let existing = std::fs::read_to_string(&path).unwrap_or_default();
+        let existing = match std::fs::read(&path) {
+            Ok(b) => b,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(e) => bail!("cannot read {}: {e}", path.display()),
+        };
         if existing
-            .lines()
-            .any(|l| l.trim() == line || l.trim() == YDIR_NAME)
+            .split(|&b| b == b'\n')
+            .any(|l| l.trim_ascii() == line.as_bytes() || l.trim_ascii() == YDIR_NAME.as_bytes())
         {
             return Ok(false);
         }
         std::fs::create_dir_all(path.parent().expect("info/exclude has a parent"))?;
-        let mut text = existing;
-        if !text.is_empty() && !text.ends_with('\n') {
-            text.push('\n');
+        let mut add = Vec::new();
+        if !existing.is_empty() && !existing.ends_with(b"\n") {
+            add.push(b'\n');
         }
-        text.push_str(&line);
-        text.push('\n');
-        std::fs::write(&path, text)?;
+        add.extend_from_slice(line.as_bytes());
+        add.push(b'\n');
+        // Append only: the bytes already there are never rewritten.
+        let write = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .and_then(|mut f| std::io::Write::write_all(&mut f, &add));
+        if let Err(e) = write {
+            bail!("cannot write {}: {e}", path.display());
+        }
         Ok(true)
     }
 
@@ -221,17 +306,7 @@ impl Context {
         if self.ydir.join(".git").is_dir() {
             return YdirState::StandaloneRepo;
         }
-        let Some(pointed) = read_gitdir_file(&self.ydir) else {
-            return YdirState::PlainDir;
-        };
-        // A linked worktree of *this* repo keeps its private dir under the
-        // common dir's `worktrees/`.
-        let worktrees = self
-            .common
-            .join("worktrees")
-            .canonicalize()
-            .unwrap_or_else(|_| self.common.join("worktrees"));
-        if pointed.starts_with(&worktrees) && pointed.join("gitdir").exists() {
+        if our_worktree_gitdir(&self.ydir, &self.common).is_some() {
             YdirState::Worktree
         } else {
             YdirState::PlainDir
@@ -240,13 +315,11 @@ impl Context {
 
     /// Re-resolve the worktree's private git dir, after creating `.yman`.
     pub fn relearn_wt_gitdir(&mut self) {
-        if let Some(p) = read_gitdir_file(&self.ydir) {
-            self.wt_gitdir = p;
-        }
+        self.wt_gitdir = our_worktree_gitdir(&self.ydir, &self.common);
     }
 
     pub fn merge_in_progress(&self) -> bool {
-        self.wt_gitdir.join("MERGE_HEAD").exists()
+        self.wt_gitdir().join("MERGE_HEAD").exists()
     }
 
     /// HEAD of the `.yman` worktree must be the symbolic ref `refs/yman/local`
@@ -254,7 +327,7 @@ impl Context {
     pub fn check_worktree_head(&self) -> Result<()> {
         // HEAD is a file in the worktree's private git dir; only a layout
         // `refs` does not recognise costs a process here.
-        let head = match crate::refs::head_symref(&self.wt_gitdir) {
+        let head = match crate::refs::head_symref(self.wt_gitdir()) {
             Ok(v) => v,
             Err(_) => {
                 let out = self.wt.run(&["symbolic-ref", "-q", "HEAD"])?;

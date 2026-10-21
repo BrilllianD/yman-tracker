@@ -15,10 +15,12 @@ against the git of CI's `ubuntu-latest` image. Building needs Rust 1.89
 `git not found in PATH` except `guide`, `completions` and `man`, which are
 answered before any git process runs. The current directory must be inside the project's git
 repository — any subdirectory will do, including a task folder inside
-`.yman` (`cd $(yman path 14)`), which resolves to the project around it — or
+`.yman` (`cd $(yman path 14)`), which resolves to the project around it, and
+a linked worktree of the project (`git worktree add`), which uses the main
+clone's `.yman` — or
 the command fails with
-`not inside a git repository`. There is no `-C <dir>` flag and no global
-configuration file outside the repository.
+`not inside a git repository`, followed by git's own reason. There is no
+`-C <dir>` flag and no global configuration file outside the repository.
 
 Until `.yman` exists, every command except `init`, `hooks`, `git`, `guide`,
 `completions` and `man` fails with `.yman is not initialized; run: yman init` (`commands.md` §1;
@@ -83,11 +85,24 @@ because attaching it would let the next snapshot revert the ref. A `.yman`
 that is a plain directory or a standalone repository is never touched; the
 command says so and stops.
 
+A fresh `init` that failed part-way (`git worktree add` failed, or its own
+commit did) leaves `refs/yman/local` as the empty root commit and nothing
+more. A rerun recognises that, says `note: finishing an interrupted yman init`
+and finishes the job, on both the fresh and the repair path. A history that has
+commits but no loadable `config.toml` is still refused with
+`refs/yman/local is not a yman history`. A problem with `--hooks` does not undo
+an `init` either: it is a warning on stderr
+(`warning: <n> hook(s) not installed: <names>`), the summary reports
+`hooks:    not installed` and the exit code is 0; the standalone
+`yman hooks install` still exits 1.
+
 ## 3. What `init` changes
 
 In the **main repo**, all local and none of it committed:
 
-- `.yman/` added to `COMMON/info/exclude`;
+- `.yman/` appended to `COMMON/info/exclude`; the file's other bytes are never
+  rewritten, and a file that exists but cannot be read stops `init` with
+  `cannot read <path>: <why>`;
 - the fetch refspec `+refs/tasks/main:refs/yman/remote` appended to
   `remote.origin.fetch`, when there is an `origin`;
 - `yman.refresh`, `yman.autosync` when `--autosync` was given, and
@@ -138,8 +153,8 @@ whose `refs/tasks/main` is not a yman history fails with
 config.toml)`; a kept or repaired local history with no loadable
 `config.toml` fails the same way, naming `refs/yman/local` instead.
 
-One `.yman` per clone. A second attempt — typically `init` run from a linked
-worktree of the project, where the toplevel differs — fails with
+One `.yman` per clone. A second attempt, with the ref already checked out by
+some other worktree, fails with
 `refs/yman/local is already checked out in another worktree of this repo`
 before anything is changed; see [storage.md §2](storage.md#2-the-ref-namespace).
 
