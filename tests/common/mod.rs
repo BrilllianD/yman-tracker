@@ -10,8 +10,9 @@ use tempfile::TempDir;
 /// Removed from every child's environment: what `LEAKY_ENV` in `src/git.rs`
 /// strips (keep the two in step, and the `unset` lists in `scripts/*.sh`), the author and committer overrides, which
 /// would beat the `user.name` the scenarios assert, and the ref-format
-/// override, which would beat the fixture's `init.defaultRefFormat`.
-const SCRUBBED_ENV: [&str; 23] = [
+/// override, which would beat the fixture's `init.defaultRefFormat`. A test in
+/// `tests/cli.rs` checks this list against `LEAKY_ENV` and both scripts.
+pub const SCRUBBED_ENV: [&str; 23] = [
     "GIT_ALTERNATE_OBJECT_DIRECTORIES",
     "GIT_CONFIG",
     "GIT_CONFIG_PARAMETERS",
@@ -98,8 +99,18 @@ impl Fx {
     /// Apply the sandboxed environment to `cmd`. Every process a test starts
     /// — the fixture's own git calls, `yman`, and a raw `git pull` that fires
     /// hooks — goes through here, so none of them sees the outer repository,
-    /// the developer's identity or their git configuration.
+    /// the developer's identity or their git configuration. That includes the
+    /// XDG `git/ignore` and `git/attributes` (`XDG_CONFIG_HOME` points into the
+    /// tempdir) and the system attributes file (`GIT_ATTR_NOSYSTEM`).
     pub fn sandbox<'c>(&self, cmd: &'c mut Command) -> &'c mut Command {
+        // Tracing (`GIT_TRACE*`), templates (`GIT_TEMPLATE_DIR`), editors,
+        // pagers, ssh: none of them may reach a scenario. The fixture sets
+        // what it needs below.
+        for (key, _) in std::env::vars_os() {
+            if key.to_str().is_some_and(|k| k.starts_with("GIT_")) {
+                cmd.env_remove(&key);
+            }
+        }
         for key in SCRUBBED_ENV {
             cmd.env_remove(key);
         }
@@ -109,6 +120,8 @@ impl Fx {
         cmd.env("HOME", &self.home)
             .env("GIT_CONFIG_GLOBAL", &self.gitconfig)
             .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("XDG_CONFIG_HOME", self.home.join(".config"))
+            .env("GIT_ATTR_NOSYSTEM", "1")
             .env("GIT_CEILING_DIRECTORIES", ceiling)
             .env("EDITOR", "true")
             .env("VISUAL", "")
@@ -403,11 +416,15 @@ impl Fx {
         )
     }
 
-    /// Lines in an attempt log written by a wrapper or hook; 0 if it never ran.
+    /// Lines in an attempt log written by a wrapper or hook; 0 if it never
+    /// ran (the log does not exist). Any other read error panics: an
+    /// unreadable log is not "zero runs".
     pub fn runs(&self, log: &Path) -> usize {
-        std::fs::read_to_string(log)
-            .map(|t| t.lines().count())
-            .unwrap_or(0)
+        match std::fs::read_to_string(log) {
+            Ok(t) => t.lines().count(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => 0,
+            Err(e) => panic!("read attempt log {}: {e}", log.display()),
+        }
     }
 
     /// An executable `#!/bin/sh` script in the tempdir.
@@ -459,4 +476,20 @@ pub fn stdout(out: &std::process::Output) -> String {
 
 pub fn stderr(out: &std::process::Output) -> String {
     String::from_utf8_lossy(&out.stderr).into_owned()
+}
+
+/// Report a scenario that cannot run here. The line goes through the handle,
+/// not `eprintln!`, because libtest captures only the print macros: written
+/// this way it reaches the terminal above the `ok`. With `YMAN_TEST_NO_SKIP`
+/// set and non-empty the skip panics instead, so a run that must not skip
+/// (for example CI on a machine known to have the prerequisites) fails.
+/// Use as `skip("..."); return;`.
+pub fn skip(reason: &str) {
+    use std::io::Write;
+    if std::env::var_os("YMAN_TEST_NO_SKIP").is_some_and(|v| !v.is_empty()) {
+        panic!("skipped: {reason} (YMAN_TEST_NO_SKIP is set)");
+    }
+    let thread = std::thread::current();
+    let name = thread.name().unwrap_or("?");
+    let _ = writeln!(std::io::stderr().lock(), "SKIPPED {name}: {reason}");
 }

@@ -17,6 +17,7 @@ cargo clippy --all-targets -- -D warnings   # must be clean; CI runs it too
 cargo fmt                                   # run before committing
 sh scripts/spike-symref.sh                  # re-proves the git invariant below
 cargo test --test cli <name>                # one integration scenario
+YMAN_TEST_NO_SKIP=1 cargo test              # a scenario that would skip fails instead
 sh scripts/book.sh                          # docs site; fails on broken links
 ```
 
@@ -34,7 +35,8 @@ past it, bump it in its own `ci:` commit that also fixes any new clippy lints.
   does not leak state) and forces `core.quotePath=false` and `color.ui=never`.
   `yman git` bypasses the wrapper so the user's own flags, colour and hooks
   survive, but strips the same environment (`LEAKY_ENV`); the fixture's
-  `SCRUBBED_ENV` and the `unset` lines in `scripts/*.sh` copy that list.
+  `SCRUBBED_ENV` and the `unset` lines in `scripts/*.sh` copy that list, and
+  `tests/cli.rs` checks the copies.
 - **User-facing strings are part of the contract.** `tests/cli.rs` asserts many
   of them verbatim, and `docs/errors.md` lists the ones the spec pins down.
   Changing wording means changing the test and the doc in the same commit.
@@ -52,8 +54,10 @@ past it, bump it in its own `ci:` commit that also fixes any new clippy lints.
   not a failure.
 - **Integration tests must never touch the network or real git config.** The
   fixture in `tests/common/mod.rs` builds a bare remote plus two clones in a
-  tempdir and pins `HOME`, `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_NOSYSTEM`. Add
-  scenarios there rather than reaching for a live repo.
+  tempdir and pins `HOME`, `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_NOSYSTEM`. It
+  also pins `XDG_CONFIG_HOME` and `GIT_ATTR_NOSYSTEM`, and drops every
+  inherited `GIT_*` variable. Add scenarios there rather than reaching for a
+  live repo.
 
 ## Dependencies
 
