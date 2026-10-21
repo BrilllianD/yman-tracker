@@ -269,12 +269,15 @@ whether the hooks are installed (the refresh policy and autosync setting
 shown are the ones in effect: an invalid value shows its fallback, with the
 warning above on stderr), the number of uncommitted changes under
 `.yman`, an unresolved merge with its unmerged files, and the task counts per
-configured status. A merge driver that is not set or whose program does not
-exist is reported on stderr as `warning: merge driver merge.ymanmeta.driver
-is not set; run: yman init` or `warning: merge driver merge.ymanmeta.driver
-runs <program>, which does not exist; run: yman init`, and with the hooks
-installed and no `yman` on `PATH` it prints `warning: yman is not on PATH, so
-the installed hooks do nothing`.
+configured status. A merge driver that is not set (or empty), or whose program
+does not exist or is not executable, is reported on stderr as `warning: merge
+driver merge.ymanmeta.driver is not set; run: yman init` or `warning: merge
+driver merge.ymanmeta.driver runs <program>, which does not exist; run: yman
+init` (`which is not executable` for a file without the exec bit). A program
+written with a leading `~`, `$` or `"`, or as a relative path, is not judged:
+git's shell resolves those differently from `yman`. With the hooks installed
+and no `yman` on `PATH` it prints `warning: yman is not on PATH, so the
+installed hooks do nothing`.
 
 `--json` emits one object —
 `{local: {ref, head}, remote: {ref, fetched, head, ahead, behind, origin}, refresh,

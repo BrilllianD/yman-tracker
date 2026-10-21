@@ -276,22 +276,42 @@ fn register_merge_driver(ctx: &Context) -> Result<()> {
     Ok(())
 }
 
-/// Why this clone's `m.yml` merge driver would not run, or `None`.
+/// Why this clone's `m.yml` merge driver would not run, or `None`. Only a
+/// program yman can resolve the way git's shell would is judged: one that is
+/// `~`, `$` or `"` quoted, or a relative path (git runs from the toplevel, not
+/// our cwd), is taken as working.
 pub(crate) fn merge_driver_problem(ctx: &Context) -> Result<Option<String>> {
     let key = format!("merge.{MERGE_DRIVER}.driver");
-    let Some(driver) = ctx.get_cfg(&key)? else {
+    let driver = ctx.get_cfg(&key)?.filter(|d| !d.trim().is_empty());
+    let Some(driver) = driver else {
         return Ok(Some(format!("merge driver {key} is not set")));
     };
-    let program = match sh_unquote(&driver) {
+    let driver = driver.trim_start();
+    let program = match sh_unquote(driver) {
         Some((word, _)) if driver.starts_with('\'') => word,
         _ => driver.split_whitespace().next().unwrap_or("").to_string(),
     };
-    let found = if program.contains('/') {
-        Path::new(&program).is_file()
+    if program.starts_with(['~', '"', '$']) || (program.contains('/') && !program.starts_with('/'))
+    {
+        return Ok(None);
+    }
+    let why = if program.contains('/') {
+        let p = Path::new(&program);
+        if !p.is_file() {
+            "does not exist"
+        } else if !hooks::is_executable(p) {
+            "is not executable"
+        } else {
+            return Ok(None);
+        }
+    } else if hooks::on_path(&program).is_none() {
+        "does not exist"
     } else {
-        hooks::on_path(&program).is_some()
+        return Ok(None);
     };
-    Ok((!found).then(|| format!("merge driver {key} runs {program}, which does not exist")))
+    Ok(Some(format!(
+        "merge driver {key} runs {program}, which {why}"
+    )))
 }
 
 /// Read one shell word written by [`sh_quote`] from the start of `s`; returns

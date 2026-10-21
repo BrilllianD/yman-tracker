@@ -18,8 +18,10 @@ under [Releasing](README.md#releasing) in the README.
   actually in effect, and an invalid value (`Push`, `Lazy`) is reported
   instead of silently acting as off or manual.
 - `yman status` reports a merge driver whose binary is gone (after a Homebrew
-  or Nix upgrade, say) with `run: yman init`, instead of every concurrent
-  `m.yml` edit stopping `sync` with exit 3 unexplained.
+  or Nix upgrade, say) or is not executable with `run: yman init`, instead of
+  every concurrent `m.yml` edit stopping `sync` with exit 3 unexplained. A
+  hand-written driver it cannot resolve (`~/…`, `$VAR`, quoted or relative
+  paths) is left unjudged.
 - `hooks status`, `hooks install` and `status` warn when `yman` is not on
   `PATH`, where the installed hooks silently do nothing.
 - The first command after a `config.toml` change arrives through `git pull` or

@@ -9,6 +9,10 @@ use std::path::{Path, PathBuf};
 pub const MARKER: &str = "# yman-hook v1";
 pub const HOOKS: [&str; 2] = ["post-merge", "post-checkout"];
 
+// `install` and `remove` compare a hook file with these exact bytes. Changing
+// SCRIPT makes every hook written from the old text read as edited, so `remove`
+// would leave it forever: keep each past version in a list and compare against
+// all of them (or bump MARKER) in the same change.
 const SCRIPT: &str = "#!/bin/sh\n\
                       # yman-hook v1\n\
                       command -v yman >/dev/null 2>&1 && yman refresh --quiet\n\
@@ -108,14 +112,14 @@ pub fn on_path(name: &str) -> Option<PathBuf> {
 }
 
 #[cfg(unix)]
-fn is_executable(p: &Path) -> bool {
+pub(crate) fn is_executable(p: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     p.metadata()
         .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
 }
 
 #[cfg(not(unix))]
-fn is_executable(p: &Path) -> bool {
+pub(crate) fn is_executable(p: &Path) -> bool {
     p.is_file()
 }
 

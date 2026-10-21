@@ -11556,6 +11556,71 @@ fn status_reports_a_stale_merge_driver() {
     );
 }
 
+#[test]
+fn status_does_not_judge_a_merge_driver_it_cannot_resolve() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let spaced = fx.tmp.path().join("my tools");
+    std::fs::create_dir_all(&spaced).unwrap();
+    let exe = spaced.join("yman");
+    std::fs::write(&exe, "#!/bin/sh\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let quoted = format!("\"{}\" merge-driver %O %A %B", exe.display());
+    for driver in [
+        "~/bin/yman merge-driver %O %A %B",
+        "$HOME/bin/yman merge-driver %O %A %B",
+        "bin/yman merge-driver %O %A %B",
+        "'rel/my tools/yman' merge-driver %O %A %B",
+        quoted.as_str(),
+    ] {
+        fx.git(&fx.a, &["config", "merge.ymanmeta.driver", driver]);
+        let out = fx.yman(&fx.a).arg("status").output().unwrap();
+        assert!(
+            !stderr(&out).contains("merge driver"),
+            "{driver}: {}",
+            stderr(&out)
+        );
+    }
+    fx.git(&fx.a, &["config", "merge.ymanmeta.driver", ""]);
+    let out = fx.yman(&fx.a).arg("status").output().unwrap();
+    assert!(
+        stderr(&out)
+            .contains("warning: merge driver merge.ymanmeta.driver is not set; run: yman init"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn status_reports_a_merge_driver_that_is_not_executable() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let file = fx.tmp.path().join("plain-yman");
+    std::fs::write(&file, "#!/bin/sh\n").unwrap();
+    fx.git(
+        &fx.a,
+        &[
+            "config",
+            "merge.ymanmeta.driver",
+            &format!("'{}' merge-driver %O %A %B", file.display()),
+        ],
+    );
+    let out = fx.yman(&fx.a).arg("status").output().unwrap();
+    assert!(
+        stderr(&out).contains(&format!(
+            "warning: merge driver merge.ymanmeta.driver runs {}, which is not executable; run: yman init",
+            file.display()
+        )),
+        "{}",
+        stderr(&out)
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn hooks_warn_when_yman_is_not_on_path() {
