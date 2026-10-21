@@ -402,14 +402,16 @@ run `yman sync` before a status change and after it (the after is automatic
 under `yman.autosync = push`), never open an editor, always give `comment` its
 text with `-m` (without it the comment is read from stdin until end of file,
 which blocks on a pipe left open), read `yman state` at session start and
-rewrite it with `yman state set --body-file - <<'EOF'` when the situation changed (short:
-in progress, next, blockers; never edit `.yman/state.md` by hand), and set `YMAN_ACTOR` so
-the work is attributed to the agent. Parallel writing calls on one clone queue
-instead of colliding (a waiting one prints a note on stderr; reads never wait).
-Big work is a plan: an epic task plus steps that `--relate` it, read from the epic with `yman plan <id>` (progress
-and open steps in one call, enough to pick the next step without a `show` per step) and created in one go with
-`add --sections plan.md --relate <id>`, so the epic is never edited; a step that waits
-sits in `blocked` and relates to what it waits on.
+rewrite it with `yman state set --body-file - <<'EOF'` when the situation
+changed (short: in progress, next, blockers; never edit `.yman/state.md` by
+hand), and set `YMAN_ACTOR` so the work is attributed to the agent. Parallel
+writing calls on one clone queue instead of colliding (a waiting one prints a
+note on stderr; reads never wait). Big work is a plan: an epic task plus steps
+that `--relate` it, read from the epic with `yman plan <id>` (progress and open
+steps in one call, enough to pick the next step without a `show` per step) and
+created in one go with `add --sections plan.md --relate <id>`, so the epic is
+never edited; a step that waits sits in `blocked` and relates to what it waits
+on.
 
 For a harness that loads skills, [skills/yman/](skills/yman/) is the fuller
 version of the same rules as a Claude Code skill — the task-list procedure,

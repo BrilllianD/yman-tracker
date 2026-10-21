@@ -10363,18 +10363,31 @@ fn a_waiting_writer_says_so_and_readers_do_not_wait() {
         .unwrap();
     // The note is printed only once try_lock failed, so reading it proves the
     // child is blocked on the held lock, however slow the machine is.
+    // The pipe is read on a thread so a writer that never announces itself
+    // fails the test instead of hanging it.
     let note = "note: waiting for another yman command in this clone to finish\n";
-    let mut err = std::io::BufReader::new(child.stderr.take().unwrap());
-    let mut first = String::new();
-    err.read_line(&mut first).unwrap();
+    let pipe = child.stderr.take().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        let mut err = std::io::BufReader::new(pipe);
+        let mut first = String::new();
+        err.read_line(&mut first).unwrap();
+        tx.send(first).unwrap();
+        let mut rest = String::new();
+        err.read_to_string(&mut rest).unwrap();
+        rest
+    });
+    let Ok(first) = rx.recv_timeout(Duration::from_secs(20)) else {
+        let _ = child.kill();
+        panic!("writer printed no waiting note within 20 s");
+    };
     assert_eq!(first, note, "writer must announce that it waits");
     assert!(
         child.try_wait().unwrap().is_none(),
         "writer must be blocked"
     );
     drop(held);
-    let mut rest = String::new();
-    err.read_to_string(&mut rest).unwrap();
+    let rest = reader.join().unwrap();
     let mut out = String::new();
     child
         .stdout
