@@ -3,7 +3,7 @@ use crate::config::{Config, Scheme};
 use crate::errors::MergePending;
 use crate::ids;
 use crate::repo::{Context, LOCAL, REMOTE, REMOTE_REF};
-use crate::task::{self, FolderName};
+use crate::task;
 use crate::transport::{self, PUSH_ATTEMPTS, PushResult, push};
 use anyhow::{Context as _, Result, bail};
 use std::collections::{HashMap, HashSet};
@@ -72,10 +72,8 @@ fn resume(ctx: &mut Context, no_push: bool) -> Result<()> {
     // Staged into the merge commit itself, and before the checks, which
     // would otherwise read the left-behind folder as a duplicate id, or a
     // removed task's remnant as an unloadable task.
-    rejoin_split_folders(ctx)?;
-    if let Some(base) = ctx.wt.merge_base("HEAD", "MERGE_HEAD")? {
-        drop_deleted_remnants(ctx, &base, "HEAD", "MERGE_HEAD")?;
-    }
+    let base = ctx.wt.merge_base("HEAD", "MERGE_HEAD")?;
+    repair_merge(ctx, base.as_deref()).map_err(still_pending)?;
     check_resolved_tasks(ctx)?;
 
     // What the merge brings in, counted before the commit makes it ours.
@@ -96,6 +94,40 @@ fn resume(ctx: &mut Context, no_push: bool) -> Result<()> {
         push_with_count(ctx, &mut totals)?;
     }
     summary(ctx, &totals, no_push)
+}
+
+/// Rejoin split folders, then drop removed tasks' remnants, staged into
+/// the merge in progress. Both read their work off the disk and the
+/// trees, so a rerun after a failure part-way finishes what is left.
+fn repair_merge(ctx: &Context, base: Option<&str>) -> Result<()> {
+    rejoin_split_folders(ctx)?;
+    if let Some(base) = base {
+        drop_deleted_remnants(ctx, base, "HEAD", "MERGE_HEAD")?;
+    }
+    Ok(())
+}
+
+/// A clean merge is left uncommitted so the repairs go into the merge
+/// commit and the duplicate-id gate sees the final tree. Anything that
+/// fails here leaves MERGE_HEAD in place: exit 3, and `--continue`
+/// reruns every step.
+fn finish_clean_merge(ctx: &Context, base: &str) -> Result<()> {
+    repair_merge(ctx, Some(base))
+        .and_then(|()| duplicate_ids_gate(ctx))
+        .and_then(|()| ctx.wt.commit_merge())
+        .map_err(still_pending)
+}
+
+/// Exit 3 for any failure while a merge is in progress: a plain error
+/// would exit 1 and leave the user mid-merge with no hint how to leave.
+fn still_pending(e: anyhow::Error) -> anyhow::Error {
+    if e.downcast_ref::<MergePending>().is_some() {
+        return e;
+    }
+    MergePending::new(format!(
+        "{e:#}; the merge is still in progress; fix that, then: yman sync --continue  (or: yman sync --abort)"
+    ))
+    .into()
 }
 
 /// Every task folder the merge touched must load, and must not still carry
@@ -143,10 +175,10 @@ fn check_resolved_tasks(ctx: &Context) -> Result<()> {
 /// command can touch that task again. This is the only thing that catches it.
 fn duplicate_ids_gate(ctx: &Context) -> Result<()> {
     let mut seen: HashMap<String, String> = HashMap::new();
-    for entry in task::list(&ctx.ydir)? {
-        let rel = entry.rel();
-        let Some(f) = FolderName::parse(&entry.dir_name()) else {
-            continue;
+    for (parent, name, f) in task::task_dirs(&ctx.ydir)? {
+        let rel = match parent {
+            Some(p) => format!("{p}/{name}"),
+            None => name,
         };
         if let Some(first) = seen.insert(f.id.clone(), rel.clone()) {
             return Err(MergePending::new(format!(
@@ -328,9 +360,12 @@ fn normal(ctx: &mut Context, no_push: bool) -> Result<()> {
         attempt += 1;
         transport::fetch(ctx, "fetch failed")?;
 
+        // Read once: every later step names this sha, never `REMOTE`, so a
+        // `git fetch` running alongside (the refspec `init` appends) cannot
+        // bring in ids the renumber never saw.
         if let Some(remote) = ctx.main.rev_parse(REMOTE)? {
             let local = ctx.main.rev_parse(LOCAL)?.unwrap_or_default();
-            let Some(base) = ctx.main.merge_base(LOCAL, REMOTE)? else {
+            let Some(base) = ctx.main.merge_base(LOCAL, &remote)? else {
                 bail!(
                     "task history unrelated to origin {REMOTE_REF}; re-init from remote:  rm -rf .yman && git update-ref -d {LOCAL} && yman init"
                 );
@@ -338,24 +373,11 @@ fn normal(ctx: &mut Context, no_push: bool) -> Result<()> {
             if base != remote {
                 totals.pulled += count(ctx, &format!("{base}..{remote}"))?;
                 if base == local {
-                    ctx.wt.ok(&["merge", "-q", "--ff-only", REMOTE])?;
+                    ctx.wt.ok(&["merge", "-q", "--ff-only", &remote])?;
                 } else {
-                    totals.renumbered += renumber_collisions(ctx, &base)?;
-                    merge_remote(ctx)?;
-                    // Pinned before the rejoin, whose commit moves HEAD off
-                    // the merge: `HEAD^2` would then name nothing.
-                    let Some(merge) = ctx.wt.rev_parse("HEAD")? else {
-                        bail!("merge left no HEAD in .yman");
-                    };
-                    if rejoin_split_folders(ctx)? > 0 {
-                        ctx.wt
-                            .commit("yman: rejoin files left under a moved folder")?;
-                    }
-                    let (ours, theirs) = (format!("{merge}^1"), format!("{merge}^2"));
-                    if drop_deleted_remnants(ctx, &base, &ours, &theirs)? > 0 {
-                        ctx.wt
-                            .commit("yman: drop files left under a removed task")?;
-                    }
+                    totals.renumbered += renumber_collisions(ctx, &base, &remote)?;
+                    merge_remote(ctx, &remote)?;
+                    finish_clean_merge(ctx, &base)?;
                 }
             }
         }
@@ -397,7 +419,9 @@ fn snapshot_dirty(ctx: &Context) -> Result<()> {
     Ok(())
 }
 
-fn merge_remote(ctx: &Context) -> Result<()> {
+/// Merge `remote` (a pinned sha) without committing: on success the merge is
+/// staged and `MERGE_HEAD` exists, so the repairs go into the merge commit.
+fn merge_remote(ctx: &Context, remote: &str) -> Result<()> {
     // A retitle or a close moves a task's whole folder. A file the other side
     // added under the old folder — a first comment's `d.md`, an attachment —
     // belongs in the new one, and git's default for that is to stop and ask.
@@ -405,11 +429,13 @@ fn merge_remote(ctx: &Context) -> Result<()> {
         "-c",
         "merge.directoryRenames=true",
         "merge",
+        "--no-commit",
+        "--no-ff",
         "--no-edit",
         "--no-verify",
         "-m",
         &format!("yman: merge origin {REMOTE_REF}"),
-        REMOTE,
+        remote,
     ])?;
     if out.ok() {
         return Ok(());
@@ -499,8 +525,11 @@ fn report_split_closes(ctx: &Context) -> Result<()> {
 /// folder. An attachment on its own is `f/<name>`, one level down, and stays
 /// behind under the old name, in a folder with no `m.yml`: the task is split
 /// in two and the merge reports success. Move whatever was left behind into
-/// the folder that carries the task. Staged, not committed.
-fn rejoin_split_folders(ctx: &Context) -> Result<usize> {
+/// the folder that carries the task, staged into the merge in progress. A
+/// file the live folder already has is not moved over it; once every other
+/// file has moved, that collision stops the merge (exit 3), because the old
+/// folder would otherwise be published beside the live one.
+fn rejoin_split_folders(ctx: &Context) -> Result<()> {
     let mut by_id: HashMap<String, Vec<String>> = HashMap::new();
     for (parent, name, folder) in task::task_dirs(&ctx.ydir)? {
         let rel = match parent {
@@ -509,8 +538,15 @@ fn rejoin_split_folders(ctx: &Context) -> Result<usize> {
         };
         by_id.entry(folder.id).or_default().push(rel);
     }
-    let mut moved = 0;
-    for rels in by_id.values().filter(|r| r.len() > 1) {
+    let mut ids: Vec<&String> = by_id.keys().collect();
+    ids.sort_by(|a, b| task::cmp_id(a, b));
+    // (id, old, live), one per folder that kept a file back.
+    let mut blocked: Vec<(&String, &String, &String)> = Vec::new();
+    for id in ids {
+        let rels = &by_id[id];
+        if rels.len() < 2 {
+            continue;
+        }
         let (live, left): (Vec<&String>, Vec<&String>) = rels
             .iter()
             .partition(|rel| ctx.ydir.join(rel).join(task::META_FILE).exists());
@@ -522,13 +558,20 @@ fn rejoin_split_folders(ctx: &Context) -> Result<usize> {
         for old in left {
             let files = ctx.wt.out(&["ls-files", "--", old])?;
             let mut n = 0;
+            let mut kept_back = false;
             for file in files.lines().filter(|l| !l.trim().is_empty()) {
                 let Some(sub) = file.strip_prefix(old.as_str()) else {
                     continue;
                 };
+                // Under `--continue` the user may have deleted it by hand;
+                // `add -A` stages that.
+                if ctx.ydir.join(file).symlink_metadata().is_err() {
+                    continue;
+                }
                 let dest = format!("{live}{sub}");
                 if ctx.ydir.join(&dest).exists() {
                     eprintln!("warning: {file} not moved; {dest} already exists");
+                    kept_back = true;
                     continue;
                 }
                 if let Some(dir) = ctx.ydir.join(&dest).parent() {
@@ -544,10 +587,19 @@ fn rejoin_split_folders(ctx: &Context) -> Result<usize> {
             if n > 0 {
                 eprintln!("note: moved {n} file(s) left under {old} into {live}");
             }
-            moved += n;
+            if kept_back {
+                blocked.push((id, old, live));
+            }
         }
     }
-    Ok(moved)
+    blocked.sort_by(|a, b| a.1.cmp(b.1));
+    if let Some((id, old, live)) = blocked.first() {
+        return Err(MergePending::new(format!(
+            "task {id} is split: {old} holds file(s) {live} already has; keep one copy of each in {live}, delete {old}, then: yman sync --continue  (or: yman sync --abort)"
+        ))
+        .into());
+    }
+    Ok(())
 }
 
 /// A task removed on one side while the other added a file to it — a first
@@ -588,7 +640,9 @@ fn drop_deleted_remnants(ctx: &Context, base: &str, ours: &str, theirs: &str) ->
         // tracked in it. `git rm` would fail on that pathspec, and there is
         // nothing for it to do, nor anything the other side lost to report.
         if n > 0 {
-            ctx.wt.ok(&["rm", "-r", "-q", "--", &rel])?;
+            // `-f`: the merge staged the other side's new files, and plain
+            // `git rm` refuses a file whose index entry differs from HEAD.
+            ctx.wt.ok(&["rm", "-r", "-q", "-f", "--", &rel])?;
         }
         // `git rm` leaves the emptied directories; anything untracked stays.
         let dir = ctx.ydir.join(&rel);
@@ -627,7 +681,7 @@ fn tree_ids(ctx: &Context, rev: &str) -> Result<HashSet<String>> {
 
 /// Two people offline with the same id scheme will mint the same id. Ours
 /// moves, because theirs is already published.
-fn renumber_collisions(ctx: &mut Context, base: &str) -> Result<usize> {
+fn renumber_collisions(ctx: &mut Context, base: &str, remote: &str) -> Result<usize> {
     // A candidate is a task *created* here since the base: an id that the
     // local side has and the base did not. Reading that off the trees is the
     // whole point. The earlier version asked `git diff --diff-filter=A -M`
@@ -639,7 +693,7 @@ fn renumber_collisions(ctx: &mut Context, base: &str) -> Result<usize> {
     // is in the folder name at both ends, so comparing id sets settles it
     // without consulting the rename detector at all.
     let base_ids = tree_ids(ctx, base)?;
-    let remote_ids = tree_ids(ctx, REMOTE)?;
+    let remote_ids = tree_ids(ctx, remote)?;
 
     let mut colliding: Vec<String> = tree_ids(ctx, LOCAL)?
         .into_iter()
@@ -652,7 +706,7 @@ fn renumber_collisions(ctx: &mut Context, base: &str) -> Result<usize> {
 
     let mut taken: HashSet<String> = ids::fs_ids(&ctx.ydir)?;
     taken.extend(remote_ids.iter().cloned());
-    taken.extend(ids::ever_assigned(ctx, &[LOCAL, REMOTE])?);
+    taken.extend(ids::assigned_in(ctx, &[LOCAL, remote])?);
 
     // Plan first: every lookup that can fail (a task that does not load, an
     // exhausted id space) fails here, before the first `git mv`.

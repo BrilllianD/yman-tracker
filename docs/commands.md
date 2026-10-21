@@ -79,8 +79,6 @@ to the user's configuration.
 | `sync` snapshot | `yman: snapshot local changes` |
 | `sync` renumber | `yman: renumber 2->3, 7->8 (sync collision)` |
 | `sync` merge | `yman: merge origin refs/tasks/main` |
-| `sync` rejoin | `yman: rejoin files left under a moved folder` |
-| `sync` drop | `yman: drop files left under a removed task` |
 
 In both `tags` subjects `{n} tasks` is `1 task` when there is exactly one.
 
@@ -708,20 +706,25 @@ exit 1.
    `couldn't find remote ref` means origin simply has no tasks yet; if we had a
    `REMOTE` before, it is deleted and the disappearance is reported. Any other
    failure is fatal, with git's stderr passed through.
-4. No `REMOTE` → straight to the push.
+4. No `REMOTE` → straight to the push. This read is the only one: the merge
+   base, the fast-forward, the renumber and the merge all use the commit it
+   returned, so a `git fetch` running alongside cannot move them.
 5. No merge base → fatal: the histories are unrelated, and the message spells
    out the re-init recipe.
 6. `base == remote` → nothing to merge. `base == local` → `merge --ff-only`.
 7. Otherwise **renumber collisions** (below), then
-   `merge --no-edit --no-verify` with `merge.directoryRenames=true`. `m.yml`
+   `merge --no-commit --no-ff --no-edit --no-verify` with
+   `merge.directoryRenames=true`. `m.yml`
    goes through the field-wise merge driver
    ([storage.md](storage.md#merging-myml)), so edits to different fields of one
    task settle on their own; anything it cannot settle falls back to the text
    merge. Conflicts print `note: unmerged files:`, then each file indented by
    two spaces, and exit 3; if yman cannot list or record them, it still exits 3,
    with `merge stopped with conflicts, but yman could not list them: <why>`. A
-   clean merge is
-   followed by the **rejoin** below.
+   clean merge stays uncommitted while the **rejoin**, the **drop** and the
+   duplicate-id check (all below) run on it, and is then committed with its
+   `-m` subject. Any failure from that point leaves the merge in progress with
+   exit 3, and `sync --continue` reruns the repairs and the check.
 8. Push, unless `--no-push`: resolve `LOCAL` once and push that commit,
    `<sha>:refs/tasks/main`, with `--porcelain`, and read git's verdict from
    the `refs/tasks/main` line on stdout. Four reasons on a `!` line mean
@@ -783,13 +786,15 @@ git move it — but only when something was also added directly in that folder,
 so a first comment's `d.md` follows and an attachment on its own, `f/<name>`,
 does not. The merge then succeeds with the task split across two folders.
 
-So after the merge, any folder that shares its id with exactly one folder
+So after the merge, before it is committed, any folder that shares its id with exactly one folder
 carrying an `m.yml`, and has none itself, is emptied into that folder with
 `git mv`, printing `note: moved N file(s) left under <old> into <rel>`. A file
 whose destination already exists stays put, with
-`warning: <path> not moved; <dest> already exists`. After a clean merge the
-moves are committed as `yman: rejoin files left under a moved folder`; under
-`--continue` they go into the merge commit, ahead of its checks.
+`warning: <path> not moved; <dest> already exists`; the other files still move,
+and the merge then stops with
+`task <id> is split: <old> holds file(s) <live> already has; keep one copy of each in <live>, delete <old>, then: yman sync --continue  (or: yman sync --abort)`
+(exit 3). Keep one copy, delete the old folder, then `--continue`. The moves go
+into the merge commit, in a clean merge and under `--continue` alike.
 
 ### Dropping a removed task's new files
 
@@ -805,10 +810,8 @@ A folder broken by hand, whose id both sides still have, is left alone and
 listed as broken. Untracked and ignored files stay on disk, and with them the
 folder; one holding nothing tracked at all — what `rm` leaves behind around a
 `*.swp` — has nothing to remove from git and is passed over without a note.
-The parents compared are the merge commit's own, even when a rejoin
-commit has already moved HEAD past it. After a clean merge the removal is committed as
-`yman: drop files left under a removed task`; under `--continue` it goes into
-the merge commit, ahead of its checks.
+The parents compared are the merge commit's own. The removal goes into the
+merge commit, in a clean merge and under `--continue` alike.
 
 ### `--continue` and `--abort`
 
@@ -859,7 +862,8 @@ with exit 3, and `sync` names the same pair on stderr when the merge fails:
 note: task 1 was closed to two different statuses; keep one of cancelled/5.1.fix-login, done/5.1.fix-login
 ```
 
-The note fires only for folders that carry the task (`m.yml`) under two
+The check runs on every sync merge, clean or resumed, before the merge is
+committed. The note fires only for folders that carry the task (`m.yml`) under two
 different closed statuses. A file the other side added under a folder this
 side retitled or closed can be left behind under the old name while a merge is
 stopped; that remnant is not a split close, and `--continue` moves it into the

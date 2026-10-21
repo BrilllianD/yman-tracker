@@ -199,6 +199,41 @@ impl Fx {
         self.read(&log).lines().map(str::to_string).collect()
     }
 
+    /// `yman` with a `git` shim first on `PATH`. The shim sets `$sub` to the
+    /// git subcommand (the first argument that is not an option; `-c k=v` and
+    /// `-C dir` skipped), runs `body` (which may `exit` to fail the call),
+    /// then execs the real git with the original arguments. Used to log every
+    /// call or to make one fail.
+    #[cfg(unix)]
+    pub fn yman_shimmed(&self, dir: &Path, body: &str) -> assert_cmd::Command {
+        use std::os::unix::fs::PermissionsExt;
+
+        let shim_dir = self.tmp.path().join("shim-body");
+        std::fs::create_dir_all(&shim_dir).unwrap();
+        let shim = shim_dir.join("git");
+        std::fs::write(
+            &shim,
+            format!(
+                "#!/bin/sh\n\
+                 sub=; skip=0\n\
+                 for a in \"$@\"; do\n\
+                 \tif [ $skip = 1 ]; then skip=0; continue; fi\n\
+                 \tcase $a in -c|-C) skip=1;; -*) ;; *) sub=$a; break;; esac\n\
+                 done\n\
+                 {body}\n\
+                 PATH=\"$YMAN_REAL_PATH\"\nexport PATH\nexec git \"$@\"\n"
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let path = std::env::var("PATH").unwrap_or_default();
+        let mut cmd = self.yman(dir);
+        cmd.env("YMAN_REAL_PATH", &path)
+            .env("PATH", format!("{}:{path}", shim_dir.display()));
+        cmd
+    }
+
     /// Run git, panic on failure, return trimmed stdout.
     pub fn git(&self, dir: &Path, args: &[&str]) -> String {
         self.git_at(dir, args)

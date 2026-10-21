@@ -63,7 +63,13 @@ pub fn ever_assigned(ctx: &Context, refs: &[&str]) -> Result<HashSet<String>> {
             present.push(r);
         }
     }
-    if present.is_empty() {
+    assigned_in(ctx, &present)
+}
+
+/// `ever_assigned` for revisions known to exist. A pinned sha must come
+/// through here: `Context::resolve_ref` reads a bare sha as a missing ref.
+pub fn assigned_in(ctx: &Context, revs: &[&str]) -> Result<HashSet<String>> {
+    if revs.is_empty() {
         return Ok(HashSet::new());
     }
     // `--no-renames`: the `git mv` of a sync renumber would otherwise read as
@@ -77,7 +83,7 @@ pub fn ever_assigned(ctx: &Context, refs: &[&str]) -> Result<HashSet<String>> {
         "--format=",
         "-z",
     ];
-    args.extend_from_slice(&present);
+    args.extend_from_slice(revs);
     args.extend_from_slice(&["--", "."]);
     let out = ctx.wt.out(&args)?;
     let mut ids = HashSet::new();

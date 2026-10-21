@@ -44,9 +44,13 @@ coreutils end. A shell reports that as status 141 (128 + 13), and only for the
 command on the left of the pipe; command substitution such as
 `cd $(yman path 14)` reads everything and never sees it.
 
-Messages that carry code 3, beyond the preflight and merge ones: a
-`sync --continue` that would leave two folders for one id reports
-`duplicate task id <id>: <relA>, <relB>; delete one folder, then: yman sync --continue`.
+Messages that carry code 3, beyond the preflight and merge ones: a `sync`
+merge (clean or resumed) that would leave two folders for one id reports
+`duplicate task id <id>: <relA>, <relB>; delete one folder, then: yman sync --continue`,
+and one whose rejoin finds the same file in both folders reports
+`task <id> is split: <old> holds file(s) <live> already has; keep one copy of each in <live>, delete <old>, then: yman sync --continue  (or: yman sync --abort)`.
+Any other failure after a clean merge started (a `git mv` that fails) ends
+`; the merge is still in progress; fix that, then: yman sync --continue  (or: yman sync --abort)`.
 
 Code 4 is only `task <id> not found`. A folder that exists but is broken or
 duplicated is a repository problem, not a missing task, and stays at code 1.
@@ -190,7 +194,7 @@ Never fatal, always stderr:
 | `warning: task <id> does not exist here; relating anyway` | `add --relate`/`--waits-on` or `set --relate`/`--waits-on` naming an id no folder here carries |
 | `warning: <id> closed with open tasks relating to it: <ids>` | a close (as for the note below) of a task tagged `epic` while tasks relating to it are still open; the close is committed |
 | `warning: skipped N unreadable task folder(s): <rels>` | `tags`, `tags rename`, `tags rm` and `rm` walking every task |
-| `warning: <path> not moved; <dest> already exists` | `sync` rejoining a split folder found the same file on both sides |
+| `warning: <path> not moved; <dest> already exists` | `sync` rejoining a split folder found the same file on both sides; the merge stops with `task <id> is split` (exit 3) |
 | `note: no project state yet; write one with yman state set -m <text>` | bare `state` found no `.yman/state.md` |
 | `note: added remote "origin" -> <url>` | `init --remote` created the remote |
 | `note: no "origin" remote; tasks stay local until you run: yman init --remote <url>` | `init` in a repo with no `origin` and no `--remote` |
