@@ -405,8 +405,8 @@ which blocks on a pipe left open), read `yman state` at session start and
 rewrite it with `yman state set --body-file - <<'EOF'` when the situation changed (short:
 in progress, next, blockers; never edit `.yman/state.md` by hand), and set `YMAN_ACTOR` so
 the work is attributed to the agent. Parallel writing calls on one clone queue
-instead of colliding (a waiting one prints a note on stderr; reads never wait). Big work is a plan: an epic task plus
-steps that `--relate` it, read from the epic with `yman plan <id>` (progress
+instead of colliding (a waiting one prints a note on stderr; reads never wait).
+Big work is a plan: an epic task plus steps that `--relate` it, read from the epic with `yman plan <id>` (progress
 and open steps in one call, enough to pick the next step without a `show` per step) and created in one go with
 `add --sections plan.md --relate <id>`, so the epic is never edited; a step that waits
 sits in `blocked` and relates to what it waits on.

@@ -39,7 +39,7 @@ take several ids, one commit each, and `-m <text>` to comment in the same commit
 `set <id>` changes any field: `--status` `--priority` `--title` `-a/--assignee` `--no-assignee`
 `--tag/--untag` `--link/--unlink` `--relate/--unrelate` `--body <text>` `--body-file <path|->`
 `-m <text>`. Every mutation is its own commit; nothing to save; parallel calls on one clone are
-safe, writes queue. `comment <id> -m <text>` adds a note; without `-m` it reads stdin, pass `-m`.
+safe, writes queue. `comment <id> -m <text>` adds a note; without `-m` it reads stdin to EOF, pass `-m`.
 
 ## Plans
 

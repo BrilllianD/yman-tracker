@@ -10325,6 +10325,7 @@ fn parallel_adds_get_distinct_ids_and_commits() {
 /// waits.
 #[test]
 fn a_waiting_writer_says_so_and_readers_do_not_wait() {
+    use std::io::{BufRead, Read};
     use std::process::Stdio;
     use std::time::Duration;
     let fx = Fx::new();
@@ -10360,16 +10361,53 @@ fn a_waiting_writer_says_so_and_readers_do_not_wait() {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    std::thread::sleep(Duration::from_millis(500));
+    // The note is printed only once try_lock failed, so reading it proves the
+    // child is blocked on the held lock, however slow the machine is.
+    let note = "note: waiting for another yman command in this clone to finish\n";
+    let mut err = std::io::BufReader::new(child.stderr.take().unwrap());
+    let mut first = String::new();
+    err.read_line(&mut first).unwrap();
+    assert_eq!(first, note, "writer must announce that it waits");
     assert!(
         child.try_wait().unwrap().is_none(),
         "writer must be blocked"
     );
     drop(held);
-    let out = child.wait_with_output().unwrap();
+    let mut rest = String::new();
+    err.read_to_string(&mut rest).unwrap();
+    let mut out = String::new();
+    child
+        .stdout
+        .take()
+        .unwrap()
+        .read_to_string(&mut out)
+        .unwrap();
+    let status = child.wait().unwrap();
+    assert!(status.success(), "{first}{rest}");
+    assert!(!rest.contains("waiting for another"), "{rest}");
+    assert!(out.starts_with("added "), "{out}");
+}
+
+/// A lock file that cannot be opened is a hard error, exit 1. The other
+/// branch, the "cannot lock ... not serialising" warning, needs a filesystem
+/// that refuses locks; on Linux no test can make `flock` fail that way, so it
+/// has no scenario.
+#[test]
+fn an_unopenable_lock_file_stops_a_writer() {
+    let fx = Fx::new();
+    let out = fx.yman(&fx.a).arg("init").output().unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
+    let gitfile = std::fs::read_to_string(fx.a.join(".yman/.git")).unwrap();
+    let dir = std::path::PathBuf::from(gitfile.trim().strip_prefix("gitdir:").unwrap().trim());
+    let dir = fx.a.join(".yman").join(dir);
+    let lock = dir.join("yman.lock");
+    let _ = std::fs::remove_file(&lock);
+    std::fs::create_dir(&lock).unwrap();
+
+    let out = fx.yman(&fx.a).args(["add", "One"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
     let err = stderr(&out);
-    let note = "note: waiting for another yman command in this clone to finish\n";
-    assert_eq!(err.matches(note).count(), 1, "{err}");
-    assert!(stdout(&out).starts_with("added "), "{}", stdout(&out));
+    let want = format!("error: cannot lock {}: ", lock.display());
+    assert!(err.starts_with(&want), "{err}");
+    assert_eq!(stdout(&out), "");
 }

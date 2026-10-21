@@ -14,7 +14,8 @@ under [Releasing](README.md#releasing) in the README.
   committed instead of leaving it local.
 - Commands that write the task history on one clone now run one at a time,
   so parallel `yman add` calls (an agent's parallel tool calls) no longer mint
-  the same id; a waiting command prints a note.
+  the same id; a waiting command prints a note. A filesystem that cannot lock
+  (Linux `ENOLCK`, as on NFS without lockd) only warns instead of failing.
 - A clean `sync` merge can no longer publish one task split across two
   folders. The duplicate-id check and the rejoin of attachments left under a
   moved folder now run on every merge before it is committed; a file present

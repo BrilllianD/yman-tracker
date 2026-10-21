@@ -44,10 +44,10 @@ Normative, as-built. Companion documents: [storage.md](storage.md),
 
 Mutating commands, for the purposes of step 3: `add`, `edit`, `set`, `start`,
 `done`, `move`, `cancel`, `reopen`, `prio`, `rm`, `attach`, `detach`, `comment`,
-`tags rename`, `tags rm` and `state set`. Bare `yman tags` is a listing and is not
-mutating. `sync` is excluded because it handles `MERGE_HEAD` itself (it still takes
-the lock). The
-same list decides when steps 2 and 5 run.
+`tags rename`, `tags rm` and `state set`. Bare `yman tags` is a listing and is
+not mutating. `sync` is excluded because it handles `MERGE_HEAD` itself (it
+still takes the lock). The same list decides when step 5 runs, and, together
+with `sync`, when step 2 runs.
 
 `guide`, `completions` and `man` run none of these steps. They are
 documentation compiled into the binary and are answered before the repository

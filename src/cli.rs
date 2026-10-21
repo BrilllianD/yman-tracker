@@ -562,7 +562,7 @@ pub struct MergeDriverArgs {
 impl Cmd {
     /// Commands that mutate the task history: preflight refuses them while a
     /// sync merge is unresolved, and they are the ones that autosync after
-    /// they succeed.
+    /// they succeed or fail after committing.
     ///
     /// The match is exhaustive on purpose: a new command does not compile
     /// until someone decides which side of the line it is on.

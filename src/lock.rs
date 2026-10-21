@@ -20,8 +20,25 @@ pub const LOCK_FILE: &str = "yman.lock";
 
 /// Held for the life of the process; dropping it (or the process dying)
 /// releases the lock.
-#[allow(dead_code)]
-pub struct Lock(File);
+pub struct Lock {
+    _file: File,
+}
+
+/// `ENOLCK`: Linux reports it for a filesystem that cannot lock (NFS without
+/// lockd) instead of `Unsupported`. std has no `ErrorKind` for it and the
+/// crate takes no libc, so the number is spelled out.
+#[cfg(target_os = "linux")]
+const ENOLCK: i32 = 37;
+
+/// Does this error mean the filesystem cannot lock at all, as opposed to a
+/// real failure?
+fn cannot_lock_here(e: &std::io::Error) -> bool {
+    #[cfg(target_os = "linux")]
+    if e.raw_os_error() == Some(ENOLCK) {
+        return true;
+    }
+    e.kind() == ErrorKind::Unsupported
+}
 
 /// Take the lock, waiting for another yman to finish when it is held.
 ///
@@ -40,15 +57,15 @@ pub fn acquire(ctx: &Context) -> Result<Option<Lock>> {
         Err(e) => bail!("cannot lock {}: {e}", path.display()),
     };
     match file.try_lock() {
-        Ok(()) => Ok(Some(Lock(file))),
+        Ok(()) => Ok(Some(Lock { _file: file })),
         Err(TryLockError::WouldBlock) => {
             eprintln!("note: waiting for another yman command in this clone to finish");
             match file.lock() {
-                Ok(()) => Ok(Some(Lock(file))),
+                Ok(()) => Ok(Some(Lock { _file: file })),
                 Err(e) => bail!("cannot lock {}: {e}", path.display()),
             }
         }
-        Err(TryLockError::Error(e)) if e.kind() == ErrorKind::Unsupported => {
+        Err(TryLockError::Error(e)) if cannot_lock_here(&e) => {
             eprintln!(
                 "warning: cannot lock {}: {e}; not serialising with other yman commands",
                 path.display()
@@ -56,5 +73,17 @@ pub fn acquire(ctx: &Context) -> Result<Option<Lock>> {
             Ok(None)
         }
         Err(TryLockError::Error(e)) => bail!("cannot lock {}: {e}", path.display()),
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn enolck_and_unsupported_mean_the_filesystem_cannot_lock() {
+        assert!(cannot_lock_here(&std::io::Error::from_raw_os_error(ENOLCK)));
+        assert!(cannot_lock_here(&ErrorKind::Unsupported.into()));
+        assert!(!cannot_lock_here(&ErrorKind::PermissionDenied.into()));
     }
 }
