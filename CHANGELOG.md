@@ -16,7 +16,10 @@ under [Releasing](README.md#releasing) in the README.
   running alongside can no longer slip unrenumbered ids into the merge; and a
   failure part-way leaves the merge for `sync --continue` instead of having
   the next sync commit half of it. The separate rejoin and drop commits are
-  gone; those repairs are part of the merge commit.
+  gone; those repairs are part of the merge commit. `sync --continue` stops
+  with exit 3, instead of removing it, when a removed task's folder holds a
+  file you kept or staged by hand or an uncommitted edit.
+- A failure after `sync --continue` started its work exits 3 instead of 1.
 - `init` in a clone with no local tracker no longer adopts a
   `refs/yman/remote` that origin has since deleted; like `sync`, it drops the
   stale ref with a warning and creates a fresh tracker.
@@ -165,10 +168,6 @@ under [Releasing](README.md#releasing) in the README.
   `pathspec … did not match any files` on a removed task's folder that `rm`
   left holding only an ignored file such as `*.swp`; there is nothing to drop
   there, and the sync goes through.
-- `yman sync --continue` no longer force-removes a removed task's folder when
-  it holds a file you kept after a modify/delete conflict, a hand-staged
-  version or an uncommitted edit: it stops with exit 3 and asks you to delete
-  the folder. A failure after the merge started (`add`, `commit`) exits 3 too.
 - `yman detach` matches the attachment name ignoring case, as `attach` does:
   `detach 3 A.png` removes an `a.png` (under its stored spelling) instead of
   failing with `no attachment "A.png" on task 3`.

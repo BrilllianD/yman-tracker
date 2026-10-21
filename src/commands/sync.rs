@@ -638,8 +638,8 @@ fn drop_deleted_remnants(ctx: &Context, base: &str, ours: &str, theirs: &str) ->
         if !base_ids.contains(&id) || (our_ids.contains(&id) && their_ids.contains(&id)) {
             continue;
         }
-        let files = ctx.wt.out(&["ls-files", "-s", "--", &rel])?;
-        let n = files.lines().filter(|l| !l.trim().is_empty()).count();
+        let files = ctx.wt.out(&["ls-files", "-s", "-z", "--", &rel])?;
+        let n = files.split('\0').filter(|l| !l.is_empty()).count();
         if n > 0 && !only_merged_in(ctx, &rel, &files, [base, ours, theirs])? {
             return Err(MergePending::new(format!(
                 "{rel} holds file(s) that are in no commit or that you staged by hand; \
@@ -684,7 +684,7 @@ fn only_merged_in(ctx: &Context, rel: &str, staged: &str, revs: [&str; 3]) -> Re
     if !ctx.wt.run(&["diff", "--quiet", "--", rel])?.ok() {
         return Ok(false);
     }
-    for line in staged.lines().filter(|l| !l.trim().is_empty()) {
+    for line in staged.split('\0').filter(|l| !l.is_empty()) {
         let Some((meta, path)) = line.split_once('\t') else {
             return Ok(false);
         };

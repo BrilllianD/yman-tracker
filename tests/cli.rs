@@ -1668,6 +1668,99 @@ fn continue_does_not_drop_a_d_md_the_user_kept() {
     assert!(fx.read(&ydir.join(d)).contains("keep me"));
 }
 
+/// Sets up a stopped merge: task 1 removed on B, its `d.md` conflicting on A.
+fn stopped_on_removed_task_d_md(fx: &Fx) -> std::path::PathBuf {
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["comment", "1", "-m", "first"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    fx.yman(&fx.b).args(["rm", "-f", "1"]).assert().success();
+    fx.yman(&fx.b).arg("sync").assert().success();
+    let ydir = fx.a.join(".yman");
+    fx.write(
+        &ydir.join("5.1.fix-login/d.md"),
+        "## 2026-10-05T10:00:00Z — Test A\n\nkeep me\n\n",
+    );
+    let out = fx.yman(&fx.a).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    ydir
+}
+
+const HOLDS_FILES: &str = "error: 5.1.fix-login holds file(s) that are in no commit or that you \
+     staged by hand; delete 5.1.fix-login to let the removal of task 1 win, then: \
+     yman sync --continue  (or: yman sync --abort)";
+
+/// An edit made after `git add` is in no commit and not in the index, so the
+/// drop under `--continue` must stop instead of discarding it.
+#[test]
+fn continue_does_not_drop_an_unstaged_edit_in_the_leftover() {
+    let fx = Fx::new();
+    let ydir = stopped_on_removed_task_d_md(&fx);
+    let d = "5.1.fix-login/d.md";
+    fx.yman(&fx.a).args(["git", "add", d]).assert().success();
+    fx.write(
+        &ydir.join(d),
+        "## 2026-10-05T10:00:00Z — Test A\n\nlater\n\n",
+    );
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert!(stderr(&out).contains(HOLDS_FILES), "{}", stderr(&out));
+    assert!(fx.read(&ydir.join(d)).contains("later"));
+}
+
+/// A blob the user staged that is in neither side's tree is theirs to keep.
+#[test]
+fn continue_does_not_drop_a_blob_staged_by_hand() {
+    let fx = Fx::new();
+    let ydir = stopped_on_removed_task_d_md(&fx);
+    let d = "5.1.fix-login/d.md";
+    let note = "5.1.fix-login/note.txt";
+    fx.write(&ydir.join(note), "mine\n");
+    fx.yman(&fx.a)
+        .args(["git", "add", d, note])
+        .assert()
+        .success();
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert!(stderr(&out).contains(HOLDS_FILES), "{}", stderr(&out));
+    assert_eq!(fx.read(&ydir.join(note)), "mine\n");
+}
+
+/// `ls-files` quotes a path holding `"` unless told `-z`; a normal sync must
+/// still recognise the other side's attachment as merged in and drop it.
+#[test]
+fn a_remnant_holding_a_quoted_attachment_name_is_dropped() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    fx.yman(&fx.b).args(["rm", "-f", "1"]).assert().success();
+    fx.yman(&fx.b).arg("sync").assert().success();
+    let ydir = fx.a.join(".yman");
+    fx.write(&ydir.join("5.1.fix-login/f/a\"b.png"), "x");
+    fx.git(&ydir, &["add", "-A"]);
+    fx.git(&ydir, &["commit", "-q", "-m", "attach"]);
+
+    let out = fx.yman(&fx.a).arg("sync").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(!ydir.join("5.1.fix-login").exists());
+}
+
 /// A remnant under `--continue` that holds only the other side's plain new
 /// file is still dropped, as it is in a clean merge.
 #[test]

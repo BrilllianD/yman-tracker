@@ -60,7 +60,7 @@ stdout carries data only. Errors (`error: ...`), warnings and notes go to stderr
     0  ok
     1  error, stderr says what
     2  usage error, from the argument parser
-    3  a sync merge is unresolved
+    3  a sync merge is unresolved; mutating commands exit 3 till then
     4  no task has that id
 
 On 3: read stderr, the cause comes first. `yman status` names unmerged files: remove the markers, or
