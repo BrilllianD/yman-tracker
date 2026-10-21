@@ -69,7 +69,8 @@ pub enum YdirState {
 /// second and the git dir third. From the main worktree that is the only
 /// `git` process a read-only command needs. From a linked worktree (where the
 /// git dir differs from the common dir) one `worktree list` finds the main
-/// toplevel, which is what `ROOT` means.
+/// toplevel, which is what `ROOT` means, unless only the current worktree
+/// holds a `.yman` of ours.
 pub fn discover() -> Result<Context> {
     let here = Git::new(std::env::current_dir()?);
     // `--path-format=absolute` so worktrees and `.git`-file layouts both give
@@ -107,7 +108,18 @@ pub fn discover() -> Result<Context> {
         // costs no process, so try it first.
         match yman_parent(&top, &common) {
             Some(parent) => parent,
-            None => main_toplevel(&here)?.unwrap_or(top),
+            None => match main_toplevel(&here)? {
+                // A tracker v0.9.0 let `init` create inside this linked
+                // worktree, with none in the main checkout, stays ours.
+                Some(main)
+                    if our_worktree_gitdir(&main.join(YDIR_NAME), &common).is_none()
+                        && our_worktree_gitdir(&top.join(YDIR_NAME), &common).is_some() =>
+                {
+                    top
+                }
+                Some(main) => main,
+                None => top,
+            },
         }
     };
     let main = Git::new(&root);

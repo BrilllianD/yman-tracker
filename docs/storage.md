@@ -7,7 +7,7 @@ Companion documents: [commands.md](commands.md), [errors.md](errors.md).
 
 | Term | Meaning | Source |
 |---|---|---|
-| `ROOT` | main repo toplevel | `git rev-parse --path-format=absolute --show-toplevel --git-common-dir --git-dir`, first line; from a linked worktree (`.yman` included), whose `--git-dir` differs from `--git-common-dir`, the first record of `git worktree list --porcelain -z` |
+| `ROOT` | main repo toplevel | `git rev-parse --path-format=absolute --show-toplevel --git-common-dir --git-dir`, first line; from a linked worktree, whose `--git-dir` differs from `--git-common-dir`, the parent of an `.yman` toplevel that is ours, else the first record of `git worktree list --porcelain -z`, unless only the current worktree holds our `.yman` |
 | `COMMON` | main repo common git dir, absolute | the same call, second line |
 | `YDIR` | `ROOT/.yman` | |
 | `WT_GITDIR` | private git dir of the `.yman` worktree | read from `YDIR/.git` |
@@ -29,8 +29,9 @@ sanitizes it, so `.yman` becomes `COMMON/worktrees/-yman` — with a leading
 hyphen, not the literal name. `repo::read_gitdir_file` follows the `gitdir:`
 line in `YDIR/.git` to the real path; `our_worktree_gitdir` is the single test
 for "this `.yman` is our worktree" (discovery, `ydir_state`, `init`): the path
-must live under `COMMON/worktrees/` and contain a `gitdir` file. Building the path from the directory name breaks every command
-with `.yman is not initialized`.
+must live under `COMMON/worktrees/` and contain a `gitdir` file. Building the
+path from the directory name breaks every command with `.yman is not
+initialized`.
 
 ## 2. The ref namespace
 

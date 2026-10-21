@@ -93,7 +93,7 @@ commits but no loadable `config.toml` is still refused with
 `refs/yman/local is not a yman history`. A problem with `--hooks` does not undo
 an `init` either: it is a warning on stderr
 (`warning: <n> hook(s) not installed: <names>`), the summary reports
-`hooks: not installed` and the exit code is 0; the standalone
+`hooks:    not installed` and the exit code is 0; the standalone
 `yman hooks install` still exits 1.
 
 ## 3. What `init` changes
