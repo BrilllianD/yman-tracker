@@ -1,4 +1,5 @@
 use crate::cli::LogArgs;
+use crate::ids;
 use crate::repo::{Context, LOCAL};
 use crate::task;
 use anyhow::Result;
@@ -20,8 +21,6 @@ pub fn run(ctx: &mut Context, a: LogArgs) -> Result<()> {
     }
     Ok(())
 }
-
-const RENUMBER: &str = "yman: renumber ";
 
 /// Append up to `n` lines of the log of task `id`, as reached from `tip`.
 ///
@@ -69,7 +68,7 @@ fn task_log(ctx: &Context, id: &str, tip: &str, n: usize, lines: &mut Vec<String
         lines.push(format!("{short} {subject}"));
         // The task arrived here under another id; its history before that
         // is the renumber's parent's, under the old one.
-        if let Some((old, _)) = renumber_pairs(subject)
+        if let Some((old, _)) = ids::renumber_pairs(subject)
             .into_iter()
             .find(|(_, new)| new == id)
         {
@@ -89,27 +88,19 @@ fn renumbered_away(ctx: &Context, id: &str, tip: &str) -> Result<Vec<String>> {
     let out = ctx.wt.out(&[
         "log",
         "--format=%H%x09%s",
-        &format!("--grep=^{RENUMBER}"),
+        &format!("--grep=^{}", ids::RENUMBER_PREFIX),
         tip,
     ])?;
     Ok(out
         .lines()
         .filter_map(|l| l.split_once('\t'))
-        .filter(|(_, subject)| renumber_pairs(subject).iter().any(|(old, _)| old == id))
+        .filter(|(_, subject)| {
+            ids::renumber_pairs(subject)
+                .iter()
+                .any(|(old, _)| old == id)
+        })
         .map(|(commit, _)| commit.to_string())
         .collect())
-}
-
-/// `yman: renumber 2->3, 7->8 (sync collision)` -> `[("2", "3"), ("7", "8")]`.
-fn renumber_pairs(subject: &str) -> Vec<(String, String)> {
-    let Some(rest) = subject.strip_prefix(RENUMBER) else {
-        return Vec::new();
-    };
-    let rest = rest.strip_suffix(" (sync collision)").unwrap_or(rest);
-    rest.split(", ")
-        .filter_map(|p| p.split_once("->"))
-        .map(|(old, new)| (old.to_string(), new.to_string()))
-        .collect()
 }
 
 /// An id is `[^./\\]+`, which leaves room for glob metacharacters in a
@@ -128,18 +119,6 @@ fn glob_escape(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn parses_renumber_subjects() {
-        assert_eq!(
-            renumber_pairs("yman: renumber 2->3, iv-7->iv-8 (sync collision)"),
-            vec![
-                ("2".to_string(), "3".to_string()),
-                ("iv-7".to_string(), "iv-8".to_string())
-            ]
-        );
-        assert!(renumber_pairs("task(2): set title").is_empty());
-    }
 
     #[test]
     fn escapes_glob_metacharacters() {

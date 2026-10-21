@@ -13,7 +13,7 @@ pub fn run(ctx: &mut Context, a: AttachArgs) -> Result<()> {
     let mut t = task::find(&ctx.ydir, &a.id)?;
     let by = super::actor(ctx)?;
 
-    let fdir = t.dir.join(task::FILES_DIR);
+    let fdir = t.files_dir();
 
     // Every source is checked before any is copied: a refusal on the second
     // file used to leave the first one copied under `f/` with no `m.yml` entry
@@ -79,7 +79,7 @@ pub fn run(ctx: &mut Context, a: AttachArgs) -> Result<()> {
             );
         }
     }
-    let meta_path = t.dir.join(task::META_FILE);
+    let meta_path = t.dir().join(task::META_FILE);
     let before = std::fs::read(&meta_path)?;
     // The copies land first and `m.yml` is written only once all of them
     // have, so a copy that fails half way (disk full) is undone by `place`
@@ -89,7 +89,7 @@ pub fn run(ctx: &mut Context, a: AttachArgs) -> Result<()> {
     let mut names: Vec<String> = Vec::new();
     for (_, name, _, _) in &plan {
         let entry = Attachment {
-            path: format!("{}/{}", task::FILES_DIR, name),
+            path: task::attachment_rel(name),
             name: name.clone(),
             added: task::now(),
             by: by.clone(),
@@ -135,7 +135,7 @@ pub fn run(ctx: &mut Context, a: AttachArgs) -> Result<()> {
                 "-q",
                 "--ignore-unmatch",
                 "--",
-                &format!("{rel}/{}/{old}", task::FILES_DIR),
+                &t.attachment_rel(old),
             ])?;
         }
         // Only `m.yml`, not the folder: files `--force` moved aside are still
@@ -148,7 +148,7 @@ pub fn run(ctx: &mut Context, a: AttachArgs) -> Result<()> {
         // saw a dangling attachment after `sync`. The user named this file, so the
         // ignore rule does not apply to it — stage each one by force.
         for name in &names {
-            let file = format!("{rel}/{}/{name}", task::FILES_DIR);
+            let file = t.attachment_rel(name);
             ctx.wt.ok(&["add", "-f", "--", &file])?;
         }
         ctx.wt
@@ -360,7 +360,7 @@ pub fn run_detach(ctx: &mut Context, a: DetachArgs) -> Result<()> {
             name
         );
     };
-    let rel = format!("{}/{}/{}", t.rel(), task::FILES_DIR, name);
+    let rel = t.attachment_rel(&name);
     // A listed attachment whose file is already gone just loses its entry.
     if file.exists() {
         ctx.wt.ok(&["rm", "-q", "--", &rel])?;

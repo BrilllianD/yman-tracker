@@ -5,6 +5,7 @@ pub mod attach;
 pub mod comment;
 pub mod completions;
 pub mod edit;
+pub mod editor;
 pub mod git;
 pub mod guide;
 pub mod hooks;
@@ -21,11 +22,55 @@ pub mod show;
 pub mod state;
 pub mod status;
 pub mod sync;
+pub mod table;
 pub mod tags;
 
 use crate::cli::Cmd;
 use crate::repo::Context;
-use anyhow::Result;
+use anyhow::{Result, bail};
+use std::io::{BufRead, IsTerminal, Write};
+
+/// The confirmation `rm` and `tags rm` ask before removing anything: off a
+/// terminal it refuses outright; on one it asks `<question>` plus the yes-or-no
+/// suffix on stderr, and anything but `y`/`Y` refuses.
+pub fn confirm_remove(question: &str) -> Result<()> {
+    if !std::io::stdin().is_terminal() {
+        bail!("refusing to remove without -f");
+    }
+    // stderr: stdout is data, and a prompt is not.
+    eprint!("{question} [y/N] ");
+    std::io::stderr().flush()?;
+    let mut answer = String::new();
+    std::io::stdin().lock().read_line(&mut answer)?;
+    if !matches!(answer.trim(), "y" | "Y") {
+        bail!("aborted");
+    }
+    Ok(())
+}
+
+/// The stderr warning for task folders a walk over every task could not load;
+/// nothing when `rels` is empty.
+pub fn warn_skipped(rels: &[String]) {
+    if !rels.is_empty() {
+        eprintln!(
+            "warning: skipped {} unreadable task folder(s): {}",
+            rels.len(),
+            rels.join(", ")
+        );
+    }
+}
+
+/// The keys every task object in `--json` output starts with, in this order:
+/// `id, priority, status, title, tags, assignee`. Callers append the rest.
+pub fn task_json(t: &crate::task::Task) -> crate::json::Object {
+    crate::json::Object::new()
+        .str("id", t.id())
+        .raw("priority", t.priority().to_string())
+        .str("status", &t.meta.status)
+        .str("title", &t.title)
+        .raw("tags", crate::json::strings(&t.meta.tags))
+        .opt("assignee", t.meta.assignee.as_deref())
+}
 
 /// Body text for `add --body-file` and `set --body-file`: a path, or `-` for
 /// stdin. Errors name the source, since "No such file" alone is useless in a

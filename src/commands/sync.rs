@@ -80,12 +80,9 @@ fn resume(ctx: &mut Context, no_push: bool) -> Result<()> {
     check_resolved_tasks(ctx).map_err(still_pending)?;
 
     // What the merge brings in, counted before the commit makes it ours.
-    let pulled = ctx
-        .wt
-        .out(&["rev-list", "--count", "HEAD..MERGE_HEAD"])
-        .map_err(still_pending)?;
+    let pulled = ctx.wt.count("HEAD..MERGE_HEAD").map_err(still_pending)?;
     let mut totals = Totals {
-        pulled: pulled.trim().parse().unwrap_or(0),
+        pulled,
         ..Totals::default()
     };
     ctx.wt
@@ -186,10 +183,7 @@ fn check_resolved_tasks(ctx: &Context) -> Result<()> {
 fn duplicate_ids_gate(ctx: &Context) -> Result<()> {
     let mut seen: HashMap<String, String> = HashMap::new();
     for (parent, name, f) in task::task_dirs(&ctx.ydir)? {
-        let rel = match parent {
-            Some(p) => format!("{p}/{name}"),
-            None => name,
-        };
+        let rel = task::rel_of(parent.as_deref(), &name);
         if let Some(first) = seen.insert(f.id.clone(), rel.clone()) {
             return Err(MergePending::new(format!(
                 "duplicate task id {}: {first}, {rel}; delete one folder, then: \
@@ -381,7 +375,7 @@ fn normal(ctx: &mut Context, no_push: bool) -> Result<()> {
                 );
             };
             if base != remote {
-                totals.pulled += count(ctx, &format!("{base}..{remote}"))?;
+                totals.pulled += ctx.main.count(&format!("{base}..{remote}"))?;
                 if base == local {
                     ctx.wt.ok(&["merge", "-q", "--ff-only", &remote])?;
                     ctx.reload_config()?;
@@ -400,8 +394,8 @@ fn normal(ctx: &mut Context, no_push: bool) -> Result<()> {
         match push(ctx)? {
             PushResult::Ok(after) | PushResult::UpToDate(after) => {
                 totals.pushed += match before_push {
-                    Some(before) => count(ctx, &format!("{before}..{after}"))?,
-                    None => count(ctx, &after)?,
+                    Some(before) => ctx.main.count(&format!("{before}..{after}"))?,
+                    None => ctx.main.count(&after)?,
                 };
                 break;
             }
@@ -419,8 +413,7 @@ fn normal(ctx: &mut Context, no_push: bool) -> Result<()> {
 /// Uncommitted edits (hand-edited files, a half-finished `yman edit`) are
 /// committed as they are rather than silently merged over.
 fn snapshot_dirty(ctx: &Context) -> Result<()> {
-    let porcelain = ctx.wt.out(&["status", "--porcelain"])?;
-    let n = porcelain.lines().filter(|l| !l.trim().is_empty()).count();
+    let n = ctx.wt.dirty_count()?;
     if n == 0 {
         return Ok(());
     }
@@ -513,7 +506,7 @@ fn report_split_closes(ctx: &Context) -> Result<()> {
         let Some(status) = parent.filter(|s| cfg.is_terminal(s)) else {
             continue;
         };
-        let rel = format!("{status}/{name}");
+        let rel = task::rel_of(Some(&status), &name);
         if !ctx.ydir.join(&rel).join(task::META_FILE).exists() {
             continue;
         }
@@ -543,10 +536,7 @@ fn report_split_closes(ctx: &Context) -> Result<()> {
 fn rejoin_split_folders(ctx: &Context) -> Result<()> {
     let mut by_id: HashMap<String, Vec<String>> = HashMap::new();
     for (parent, name, folder) in task::task_dirs(&ctx.ydir)? {
-        let rel = match parent {
-            Some(p) => format!("{p}/{name}"),
-            None => name,
-        };
+        let rel = task::rel_of(parent.as_deref(), &name);
         by_id.entry(folder.id).or_default().push(rel);
     }
     let mut ids: Vec<&String> = by_id.keys().collect();
@@ -624,10 +614,7 @@ fn rejoin_split_folders(ctx: &Context) -> Result<()> {
 fn drop_deleted_remnants(ctx: &Context, base: &str, ours: &str, theirs: &str) -> Result<usize> {
     let mut remnants: Vec<(String, String)> = Vec::new();
     for (parent, name, folder) in task::task_dirs(&ctx.ydir)? {
-        let rel = match parent {
-            Some(p) => format!("{p}/{name}"),
-            None => name,
-        };
+        let rel = task::rel_of(parent.as_deref(), &name);
         let dir = ctx.ydir.join(&rel);
         if !dir.join(task::MD_FILE).exists() && !dir.join(task::META_FILE).exists() {
             remnants.push((rel, folder.id));
@@ -804,11 +791,8 @@ fn apply_renumber(ctx: &Context, plan: Vec<(task::Task, String)>) -> Result<Vec<
         let old = t.id().to_string();
         let old_rel = t.rel();
         t.folder.id = new.clone();
-        // `rel`, not the bare folder: a closed task stays in its status
-        // directory.
+        t.relocate(Some(&ctx.wt), &old_rel)?;
         let new_rel = t.rel();
-        ctx.wt.ok(&["mv", "--", &old_rel, &new_rel])?;
-        t.dir = ctx.ydir.join(&new_rel);
         t.touch();
         t.write_meta()
             .map_err(|e| e.context(format!("cannot write {new_rel}/{}", task::META_FILE)))?;
@@ -817,11 +801,7 @@ fn apply_renumber(ctx: &Context, plan: Vec<(task::Task, String)>) -> Result<Vec<
     }
 
     let rewritten = rewrite_related(ctx, &moves)?;
-    let pairs: Vec<String> = moves.iter().map(|(o, n)| format!("{o}->{n}")).collect();
-    ctx.wt.commit(&format!(
-        "yman: renumber {} (sync collision)",
-        pairs.join(", ")
-    ))?;
+    ctx.wt.commit(&ids::renumber_subject(&moves))?;
     if rewritten > 0 {
         eprintln!("note: rewrote {rewritten} reference(s) to renumbered ids");
     }
@@ -875,21 +855,12 @@ fn push_with_count(ctx: &Context, totals: &mut Totals) -> Result<()> {
         }
         PushResult::Ok(after) | PushResult::UpToDate(after) => {
             totals.pushed = match before {
-                Some(before) => count(ctx, &format!("{before}..{after}"))?,
-                None => count(ctx, &after)?,
+                Some(before) => ctx.main.count(&format!("{before}..{after}"))?,
+                None => ctx.main.count(&after)?,
             };
             Ok(())
         }
     }
-}
-
-fn count(ctx: &Context, range: &str) -> Result<usize> {
-    Ok(ctx
-        .main
-        .out(&["rev-list", "--count", range])?
-        .trim()
-        .parse()
-        .unwrap_or(0))
 }
 
 fn summary(ctx: &Context, totals: &Totals, no_push: bool) -> Result<()> {

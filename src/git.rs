@@ -293,9 +293,28 @@ impl Git {
         }
     }
 
+    /// `git rev-list --count <range>`; 0 when git prints something unparsable.
+    pub fn count(&self, range: &str) -> Result<usize> {
+        Ok(self
+            .out(&["rev-list", "--count", range])?
+            .trim()
+            .parse()
+            .unwrap_or(0))
+    }
+
+    /// Number of non-blank `git status --porcelain` lines: uncommitted
+    /// changes, tracked or untracked.
+    pub fn dirty_count(&self) -> Result<usize> {
+        Ok(self
+            .out(&["status", "--porcelain"])?
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .count())
+    }
+
     /// Does the worktree have uncommitted changes (tracked or untracked)?
     pub fn is_dirty(&self) -> Result<bool> {
-        Ok(!self.out(&["status", "--porcelain"])?.trim().is_empty())
+        Ok(self.dirty_count()? > 0)
     }
 
     /// Commit whatever is staged. `--no-verify` so main-repo hooks (which may

@@ -1,8 +1,9 @@
 use crate::cli::ShowArgs;
 use crate::discussion;
 use crate::json;
+use crate::plan;
 use crate::repo::Context;
-use crate::task::{self, Entry, Task, format_ts};
+use crate::task::{self, Task, format_ts};
 use anyhow::Result;
 
 pub fn run(ctx: &mut Context, a: ShowArgs) -> Result<()> {
@@ -12,7 +13,7 @@ pub fn run(ctx: &mut Context, a: ShowArgs) -> Result<()> {
     // Both output forms trim the discussion the same way: `-n` keeps the last
     // N entries in time order, and `total` is what the file held before
     // trimming.
-    let dpath = t.dir.join(task::DISCUSSION_FILE);
+    let dpath = t.dir().join(task::DISCUSSION_FILE);
     let text = discussion::read_for_display(&dpath, &t.rel());
     let mut entries = discussion::sort_by_time(discussion::parse(&text));
     let total = entries.len();
@@ -36,14 +37,10 @@ pub fn run(ctx: &mut Context, a: ShowArgs) -> Result<()> {
 /// every `m.yml` that `show` makes; `find` deliberately does not. Broken
 /// folders cannot relate to anything and are skipped, as `rm` skips them.
 fn related_by(ydir: &std::path::Path, id: &str) -> Result<Vec<String>> {
-    let mut ids: Vec<String> = task::list(ydir)?
-        .into_iter()
-        .filter_map(|entry| match entry {
-            Entry::Task(t) if t.id() != id && t.meta.related.iter().any(|r| r == id) => {
-                Some(t.id().to_string())
-            }
-            _ => None,
-        })
+    let tasks = plan::tasks(ydir)?;
+    let mut ids: Vec<String> = plan::steps_of(&tasks, id)
+        .iter()
+        .map(|t| t.id().to_string())
         .collect();
     ids.sort_by(|x, y| task::cmp_id(x, y));
     Ok(ids)
@@ -83,7 +80,7 @@ fn print_text(
     if !related_by.is_empty() {
         println!("related by: {}", related_by.join(", "));
     }
-    println!("folder:   {}", ctx.display_path(&t.dir));
+    println!("folder:   {}", ctx.display_path(&t.dir()));
 
     let body = t.body.trim_matches('\n');
     if !body.is_empty() {
@@ -161,13 +158,7 @@ fn print_json(t: &Task, related_by: &[String], entries: &[discussion::Entry], to
 
     println!(
         "{}",
-        json::Object::new()
-            .str("id", t.id())
-            .raw("priority", t.priority().to_string())
-            .str("status", &t.meta.status)
-            .str("title", &t.title)
-            .raw("tags", json::strings(&t.meta.tags))
-            .opt("assignee", t.meta.assignee.as_deref())
+        super::task_json(t)
             .raw("links", json::strings(&t.meta.links))
             .raw("related", json::strings(&t.meta.related))
             .raw("related_by", json::strings(related_by))

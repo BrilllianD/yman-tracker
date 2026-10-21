@@ -40,12 +40,7 @@ fn apply(ctx: &mut Context, a: SetArgs) -> Result<Option<String>> {
         Some(BLOCKED.to_string())
     };
     if let Some(status) = status {
-        if !ctx.config().has_status(&status) {
-            bail!(
-                "unknown status \"{status}\"; allowed: {}",
-                ctx.config().statuses_joined()
-            );
-        }
+        ctx.config().check_status(&status)?;
         if status != t.meta.status {
             changes.push(Change {
                 token: format!("status={}->{}", t.meta.status, status),
@@ -171,19 +166,8 @@ fn apply(ctx: &mut Context, a: SetArgs) -> Result<Option<String>> {
     }
 
     if relocating {
-        // `git mv a b/a` fails outright when `b` does not exist.
-        if let Some(p) = &t.parent {
-            std::fs::create_dir_all(ctx.ydir.join(p))?;
-        }
-        ctx.wt.ok(&["mv", "--", &old_rel, &new_rel])?;
-        t.dir = ctx.ydir.join(&new_rel);
+        t.relocate(Some(&ctx.wt), &old_rel)?;
         if old_parent != t.parent {
-            // Git does not track directories, so the one we left behind is an
-            // untracked leftover. Non-recursive: it fails harmlessly while
-            // other tasks are still in there.
-            if let Some(p) = &old_parent {
-                let _ = std::fs::remove_dir(ctx.ydir.join(p));
-            }
             // stdout is data. Someone who had cd'd into the folder needs to
             // hear that it moved, but `yman path` must stay pipeable.
             eprintln!("note: task folder is now {new_rel}");
@@ -192,7 +176,7 @@ fn apply(ctx: &mut Context, a: SetArgs) -> Result<Option<String>> {
 
     if let Some(text) = comment {
         discussion::append_entry(
-            &t.dir.join(task::DISCUSSION_FILE),
+            &t.dir().join(task::DISCUSSION_FILE),
             task::now(),
             &actor(ctx)?,
             text.trim(),

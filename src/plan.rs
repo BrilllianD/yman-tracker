@@ -58,13 +58,16 @@ pub fn is_epic(t: &Task) -> bool {
     t.meta.tags.iter().any(|tag| tags::fold(tag) == "epic")
 }
 
-/// The tasks whose `related` carries `id`: the same rule as `ls --related`
-/// and `show`'s `related by:`.
+/// Does `t` relate to `id`: its own `related` carries `id`, and it is not the
+/// task `id` itself. The one rule behind `ls --related`, `show`'s `related by`
+/// and `plan`'s steps.
+pub fn relates_to(t: &Task, id: &str) -> bool {
+    t.id() != id && t.meta.related.iter().any(|r| r == id)
+}
+
+/// The tasks whose `related` carries `id`, by [`relates_to`].
 pub fn steps_of<'a>(tasks: &'a [Task], id: &str) -> Vec<&'a Task> {
-    tasks
-        .iter()
-        .filter(|t| t.id() != id && t.meta.related.iter().any(|r| r == id))
-        .collect()
+    tasks.iter().filter(|t| relates_to(t, id)).collect()
 }
 
 /// What `t` is still waiting on: the tasks it relates to that exist here,
@@ -198,7 +201,7 @@ mod tests {
         Task {
             folder: FolderName::parse(&name).unwrap(),
             parent: None,
-            dir: PathBuf::from("/tmp/.yman").join(&name),
+            ydir: PathBuf::from("/tmp/.yman"),
             title: format!("Task {id}"),
             body: String::new(),
             meta,

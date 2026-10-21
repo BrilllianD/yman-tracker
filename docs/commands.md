@@ -154,7 +154,8 @@ error `add` gives.
 `--assignee WHO` keeps one assignee (`-` keeps the unassigned, which includes
 an `m.yml` value that is blank or `-`), `-p N` one
 priority, `--related ID` the tasks whose own `related` list carries that id
-(exactly as `--relate` wrote it; an id nothing relates to is an empty listing,
+(exactly as `--relate` wrote it; never the task itself, the rule `show`'s
+`related by:` and `plan` use; an id nothing relates to is an empty listing,
 not a warning), and `-q TEXT` the tasks whose title or body contains the text,
 compared lowercase; all of these AND together with the status and tag
 filters. `-n N` keeps the first N rows **after** sorting. None of the filters

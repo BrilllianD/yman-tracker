@@ -119,6 +119,17 @@ impl FolderName {
     }
 }
 
+impl FolderName {
+    /// `{priority}.{id}.{slugify(title, max_bytes)}`
+    pub fn for_title(priority: u8, id: &str, title: &str, max_bytes: usize) -> FolderName {
+        FolderName {
+            priority,
+            id: id.to_string(),
+            slug: slugify(title, max_bytes),
+        }
+    }
+}
+
 impl std::fmt::Display for FolderName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}.{}.{}", self.priority, self.id, self.slug)
@@ -246,8 +257,9 @@ pub struct Task {
     /// Status directory this folder sits in, `None` at the top level of
     /// `.yman`. See `docs/storage.md` §5.
     pub parent: Option<String>,
-    /// Absolute.
-    pub dir: PathBuf,
+    /// The `.yman` directory this task was loaded from. The folder's own path
+    /// is derived from it, `parent` and `folder` by `dir()`, never stored.
+    pub ydir: PathBuf,
     pub title: String,
     pub body: String,
     pub meta: Meta,
@@ -269,14 +281,14 @@ pub enum Entry {
 impl Entry {
     /// Leaf folder name of this entry, parsed or not.
     pub fn dir_name(&self) -> String {
-        let dir = match self {
-            Entry::Task(t) => &t.dir,
-            Entry::Broken { dir, .. } => dir,
-        };
-        dir.file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .into_owned()
+        match self {
+            Entry::Task(t) => t.folder.to_string(),
+            Entry::Broken { dir, .. } => dir
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned(),
+        }
     }
 
     /// Path relative to `.yman`, status directory included. What error
@@ -315,7 +327,7 @@ pub fn load(ydir: &Path, dir: &Path) -> Result<Task> {
     Ok(Task {
         folder,
         parent,
-        dir: dir.to_path_buf(),
+        ydir: ydir.to_path_buf(),
         title,
         body,
         meta,
@@ -380,7 +392,7 @@ pub fn list(ydir: &Path) -> Result<Vec<Entry>> {
     Ok(task_dirs(ydir)?
         .into_iter()
         .map(|(parent, name, _)| {
-            let dir = dir_of(ydir, &parent, &name);
+            let dir = dir_of(ydir, parent.as_deref(), &name);
             match load(ydir, &dir) {
                 Ok(t) => Entry::Task(t),
                 Err(e) => Entry::Broken {
@@ -424,7 +436,7 @@ pub fn task_dirs(ydir: &Path) -> Result<Vec<(Option<String>, String, FolderName)
     Ok(rels)
 }
 
-fn dir_of(ydir: &Path, parent: &Option<String>, name: &str) -> PathBuf {
+fn dir_of(ydir: &Path, parent: Option<&str>, name: &str) -> PathBuf {
     match parent {
         Some(p) => ydir.join(p).join(name),
         None => ydir.join(name),
@@ -447,8 +459,8 @@ pub fn find(ydir: &Path, id: &str) -> Result<Task> {
         0 => Err(crate::errors::NotFound::new(format!("task {id} not found")).into()),
         1 => {
             let (parent, name) = hits.pop().expect("length checked");
-            let rel = rel_of(&parent, &name);
-            load(ydir, &dir_of(ydir, &parent, &name))
+            let rel = rel_of(parent.as_deref(), &name);
+            load(ydir, &dir_of(ydir, parent.as_deref(), &name))
                 .map_err(|e| anyhow::anyhow!("task {id} is broken: {rel}: {e:#}"))
         }
         _ => {
@@ -456,29 +468,84 @@ pub fn find(ydir: &Path, id: &str) -> Result<Task> {
             // can share a leaf name and differ only in their status directory.
             let names: Vec<String> = hits
                 .iter()
-                .map(|(parent, name)| rel_of(parent, name))
+                .map(|(parent, name)| rel_of(parent.as_deref(), name))
                 .collect();
             bail!("duplicate task id {id}: {}", names.join(", "))
         }
     }
 }
 
-fn rel_of(parent: &Option<String>, name: &str) -> String {
+/// `<parent>/<name>`, or `<name>` at the top level: a path relative to `.yman`.
+pub fn rel_of(parent: Option<&str>, name: &str) -> String {
     match parent {
         Some(p) => format!("{p}/{name}"),
         None => name.to_string(),
     }
 }
 
+/// `f/<name>`: an attachment's path relative to its task folder.
+pub fn attachment_rel(name: &str) -> String {
+    format!("{FILES_DIR}/{name}")
+}
+
 impl Task {
+    /// Absolute path of the task folder, derived from `ydir`, `parent` and
+    /// `folder` so a mutation of either can never leave it stale.
+    pub fn dir(&self) -> PathBuf {
+        dir_of(&self.ydir, self.parent.as_deref(), &self.folder.to_string())
+    }
+
+    /// The task's attachment directory.
+    pub fn files_dir(&self) -> PathBuf {
+        self.dir().join(FILES_DIR)
+    }
+
+    /// An attachment's path relative to `.yman`.
+    pub fn attachment_rel(&self, name: &str) -> String {
+        format!("{}/{}", self.rel(), attachment_rel(name))
+    }
+
+    /// Move the folder from `from_rel` (relative to `.yman`) to `self.rel()`.
+    /// `wt` is the `.yman` runner for a tracked folder (`git mv`), `None` for a
+    /// folder not yet tracked (plain rename). Creates the target status
+    /// directory first (`git mv a b/a` fails when `b` is missing); after the
+    /// move, when the status directory changed, removes the old one
+    /// non-recursively and ignores the error (other tasks may still be in it).
+    /// Returns `Ok(false)` and does nothing when `from_rel == self.rel()`.
+    pub fn relocate(&self, wt: Option<&crate::git::Git>, from_rel: &str) -> Result<bool> {
+        let to_rel = self.rel();
+        if from_rel == to_rel {
+            return Ok(false);
+        }
+        if let Some(p) = &self.parent {
+            std::fs::create_dir_all(self.ydir.join(p))?;
+        }
+        match wt {
+            Some(wt) => {
+                wt.ok(&["mv", "--", from_rel, &to_rel])?;
+            }
+            None => std::fs::rename(self.ydir.join(from_rel), self.ydir.join(&to_rel))?,
+        }
+        let old_parent = from_rel.split_once('/').map(|(p, _)| p);
+        if old_parent != self.parent.as_deref() {
+            // Git does not track directories, so the one we left behind is an
+            // untracked leftover. Non-recursive: it fails harmlessly while
+            // other tasks are still in there.
+            if let Some(p) = old_parent {
+                let _ = std::fs::remove_dir(self.ydir.join(p));
+            }
+        }
+        Ok(true)
+    }
+
     pub fn write_md(&self) -> Result<()> {
-        std::fs::write(self.dir.join(MD_FILE), render_md(&self.title, &self.body))?;
+        std::fs::write(self.dir().join(MD_FILE), render_md(&self.title, &self.body))?;
         Ok(())
     }
 
     pub fn write_meta(&self) -> Result<()> {
         let yml = crate::yml::render(&self.meta);
-        std::fs::write(self.dir.join(META_FILE), yml)?;
+        std::fs::write(self.dir().join(META_FILE), yml)?;
         Ok(())
     }
 
@@ -486,13 +553,9 @@ impl Task {
         self.meta.updated = now();
     }
 
-    /// Folder name, i.e. the path relative to `.yman`.
     /// Path relative to `.yman` — what every git call and `ls --json` use.
     pub fn rel(&self) -> String {
-        match &self.parent {
-            Some(p) => format!("{p}/{}", self.folder),
-            None => self.folder.to_string(),
-        }
+        rel_of(self.parent.as_deref(), &self.folder.to_string())
     }
 
     pub fn id(&self) -> &str {
@@ -504,7 +567,7 @@ impl Task {
     }
 
     pub fn comment_count(&self) -> usize {
-        let path = self.dir.join(DISCUSSION_FILE);
+        let path = self.dir().join(DISCUSSION_FILE);
         let text = crate::discussion::read_for_display(&path, &self.rel());
         // Raw chunks are kept for `show`, but they are not comments.
         crate::discussion::parse(&text)
@@ -526,7 +589,7 @@ impl Task {
     pub fn attachment_path(&self, at: &Attachment) -> Option<PathBuf> {
         let n = at.name.as_str();
         let plain = !matches!(n, "" | "." | "..") && !n.contains(['/', '\\']);
-        plain.then(|| self.dir.join(FILES_DIR).join(n))
+        plain.then(|| self.files_dir().join(n))
     }
 }
 
@@ -779,7 +842,7 @@ mod tests {
         let mut t = Task {
             folder,
             parent: None,
-            dir: PathBuf::from("/tmp/.yman/5.1.fix-login"),
+            ydir: PathBuf::from("/tmp/.yman"),
             title: "Fix login".to_string(),
             body: String::new(),
             meta: Meta::new("todo".to_string(), Vec::new()),
@@ -790,11 +853,36 @@ mod tests {
     }
 
     #[test]
+    fn dir_follows_folder_and_parent() {
+        let mut t = Task {
+            folder: FolderName::parse("5.1.fix-login").unwrap(),
+            parent: None,
+            ydir: PathBuf::from("/tmp/.yman"),
+            title: "Fix login".to_string(),
+            body: String::new(),
+            meta: Meta::new("todo".to_string(), Vec::new()),
+        };
+        assert_eq!(t.dir(), PathBuf::from("/tmp/.yman/5.1.fix-login"));
+        t.parent = Some("done".to_string());
+        t.folder.slug = "x".to_string();
+        assert_eq!(t.dir(), PathBuf::from("/tmp/.yman/done/5.1.x"));
+        assert_eq!(t.files_dir(), PathBuf::from("/tmp/.yman/done/5.1.x/f"));
+        assert_eq!(attachment_rel("a.png"), "f/a.png");
+        assert_eq!(t.attachment_rel("a.png"), "done/5.1.x/f/a.png");
+        assert_eq!(rel_of(Some("done"), "5.1.x"), "done/5.1.x");
+        assert_eq!(rel_of(None, "5.1.x"), "5.1.x");
+        assert_eq!(
+            FolderName::for_title(2, "14", "Fix login!", 200).to_string(),
+            "2.14.fix-login"
+        );
+    }
+
+    #[test]
     fn attachment_path_stays_inside_f() {
         let t = Task {
             folder: FolderName::parse("5.1.fix-login").unwrap(),
             parent: None,
-            dir: PathBuf::from("/tmp/.yman/5.1.fix-login"),
+            ydir: PathBuf::from("/tmp/.yman"),
             title: "Fix login".to_string(),
             body: String::new(),
             meta: Meta::new("todo".to_string(), Vec::new()),

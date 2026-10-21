@@ -4126,6 +4126,24 @@ fn visual_wins_over_editor() {
 }
 
 #[test]
+fn add_with_editor_retitles_inside_the_archive_dir() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v2_config(&fx.a);
+
+    let editor = fx.editor_writing("ed-retitle-archive", "# Real title\n");
+    let out = fx
+        .yman(&fx.a)
+        .env("EDITOR", &editor)
+        .args(["add", "Placeholder", "-s", "done", "-e"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(fx.task_rel(&fx.a, "1"), "done/5.1.real-title");
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["status", "--porcelain"]), "");
+}
+
+#[test]
 fn add_with_editor_uses_the_edited_title() {
     let fx = Fx::new();
     fx.yman(&fx.a).arg("init").assert().success();
@@ -6851,6 +6869,86 @@ fn ls_filters_by_related() {
             .unwrap(),
     );
     assert!(json.contains(r#""related":["1","2"]"#), "{json}");
+}
+
+/// `ls --related X`, `plan X` and `show X` share one rule: a task whose own
+/// `related` names itself (only a hand edit can write that) is not a step of
+/// itself.
+#[test]
+fn a_self_related_task_is_not_its_own_step() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Epic"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Step one", "--relate", "1"])
+        .assert()
+        .success();
+    let meta = fx.task_dir(&fx.a, "1").join("m.yml");
+    let text = fx.read(&meta).replace("related: []", "related:\n- 1");
+    std::fs::write(&meta, text).unwrap();
+
+    let out = |args: &[&str]| stdout(&fx.yman(&fx.a).args(args).output().unwrap());
+    let ids = |s: &str| -> Vec<String> {
+        s.split(r#""id":""#)
+            .skip(1)
+            .map(|p| p.split('"').next().unwrap().to_string())
+            .collect()
+    };
+    let ls = out(&["ls", "--related", "1", "--json"]);
+    assert!(ls.contains(r#""id":"2""#), "{ls}");
+    assert!(!ls.contains(r#""id":"1""#), "{ls}");
+    let plan = out(&["plan", "1", "-a", "--json"]);
+    let steps = plan.split(r#""steps":"#).nth(1).unwrap();
+    assert!(steps.contains(r#""id":"2""#), "{plan}");
+    assert!(!steps.contains(r#""id":"1""#), "{plan}");
+    assert_eq!(ids(&ls), ids(steps));
+    assert_eq!(ids(&ls), ["2"]);
+    let show = out(&["show", "1", "--json"]);
+    assert!(show.contains(r#""related_by":["2"]"#), "{show}");
+}
+
+/// The six keys every task object starts with, and the key sequence that
+/// follows them, are the `--json` wire format of `ls`, `show` and `plan`.
+#[test]
+fn task_json_key_order_is_pinned() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Plain"]).assert().success();
+    let out = |args: &[&str]| stdout(&fx.yman(&fx.a).args(args).output().unwrap());
+
+    let ls = out(&["ls", "--json"]);
+    assert!(
+        ls.contains(r#""tags":[],"assignee":null,"links":[],"related":[],"created":""#),
+        "{ls}"
+    );
+    assert!(
+        ls.contains(r#""attachments":0,"comments":0,"dir":"5.1."#),
+        "{ls}"
+    );
+    let show = out(&["show", "1", "--json"]);
+    assert!(
+        show.contains(r#""assignee":null,"links":[],"related":[],"related_by":[],"created":""#),
+        "{show}"
+    );
+    assert!(
+        show.contains(r#","body":"","attachments":[],"discussion":[],"discussion_total":0}"#),
+        "{show}"
+    );
+    assert!(
+        show.starts_with(r#"{"id":"1","priority":5,"status":"todo","title":"Plain","#),
+        "{show}"
+    );
+    let plan = out(&["plan", "1", "--json"]);
+    assert!(plan.contains(r#""steps":[]"#), "{plan}");
+    fx.yman(&fx.a)
+        .args(["add", "Step", "--relate", "1"])
+        .assert()
+        .success();
+    let plan = out(&["plan", "1", "--json"]);
+    assert!(
+        plan.contains(r#""tags":[],"assignee":null,"waits_on":[],"dir":"5.2."#),
+        "{plan}"
+    );
 }
 
 /// `ls -l` prints each body indented under its row, blank lines kept blank,
