@@ -906,6 +906,14 @@ fn log_follows_renames() {
     assert!(log.contains("task(1): set title"), "{log}");
     assert!(log.contains("task(1): comment"), "{log}");
     assert!(!log.contains("Other task"), "{log}");
+    let pos = |needle: &str| log.find(needle).expect(needle);
+    assert!(
+        pos("task(1): comment") < pos("task(1): set title")
+            && pos("task(1): set title") < pos("task(1): set priority=5->2")
+            && pos("task(1): set priority=5->2") < pos("task(1): add \"Fix login\""),
+        "not newest first:\n{log}"
+    );
+    assert_eq!(log.lines().count(), 4, "{log}");
 
     // The unfiltered log shows everything, newest first.
     let log = stdout(&fx.yman(&fx.a).args(["log", "-n", "2"]).output().unwrap());
@@ -1190,6 +1198,9 @@ fn author_collision_renumber() {
     assert_eq!(fx.title(&fx.b, "iv-2"), "A two");
 }
 
+/// What every mutating command prints while a sync merge is unresolved.
+const MERGE_PENDING: &str = "error: sync merge in progress; resolve conflicts then run: yman sync --continue  (or: yman sync --abort)\n";
+
 #[test]
 fn conflict_and_continue() {
     let fx = Fx::new();
@@ -1235,11 +1246,7 @@ fn conflict_and_continue() {
     // Any mutating command is refused until the merge is settled.
     let out = fx.yman(&fx.b).args(["add", "Nope"]).output().unwrap();
     assert_eq!(out.status.code(), Some(3));
-    assert!(
-        stderr(&out).contains("sync merge in progress"),
-        "{}",
-        stderr(&out)
-    );
+    assert_eq!(stderr(&out), MERGE_PENDING);
 
     // --continue refuses while markers are still there.
     let out = fx
@@ -1745,6 +1752,32 @@ fn a_stale_merge_driver_is_reported_and_not_taken_as_resolved() {
         .output()
         .unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
+
+    // The result is a settled, pushed merge that kept both edits.
+    let settled = fx.read(&mpath);
+    assert!(settled.contains("assignee: Ann"), "{settled}");
+    assert!(
+        settled.lines().any(|l| l.trim() == "- ui"),
+        "no `- ui` tag in\n{settled}"
+    );
+    assert!(!settled.contains("<<<<<<<"), "{settled}");
+    let ydir = fx.b.join(".yman");
+    assert_eq!(fx.git(&ydir, &["status", "--porcelain"]), "");
+    let (merging, _, _) = fx.git_try(&ydir, &["rev-parse", "-q", "--verify", "MERGE_HEAD"]);
+    assert!(!merging, "MERGE_HEAD still set");
+    let parents = fx.git(
+        &fx.b,
+        &["rev-list", "--parents", "-n", "1", "refs/yman/local"],
+    );
+    assert_eq!(
+        parents.split_whitespace().count(),
+        3,
+        "not a merge commit: {parents}"
+    );
+    assert_eq!(
+        origin_tasks(&fx),
+        fx.git(&fx.b, &["rev-parse", "refs/yman/local"])
+    );
 }
 
 #[test]
@@ -1807,11 +1840,7 @@ fn a_conflicted_config_toml_keeps_exit_3_and_abort() {
 
     let out = fx.yman(&fx.b).args(["add", "Nope"]).output().unwrap();
     assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
-    assert!(
-        stderr(&out).contains("sync merge in progress"),
-        "{}",
-        stderr(&out)
-    );
+    assert_eq!(stderr(&out), MERGE_PENDING);
     let out = fx.yman(&fx.b).arg("sync").output().unwrap();
     assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
     let out = fx
@@ -2964,7 +2993,9 @@ fn hook_environment_does_not_leak() {
             .env("GIT_CONFIG_COUNT", "1")
             .env("GIT_CONFIG_KEY_0", "core.bare")
             .env("GIT_CONFIG_VALUE_0", "true")
-            .env("GIT_CONFIG_PARAMETERS", "'core.bare'='true'");
+            .env("GIT_CONFIG_PARAMETERS", "'core.bare'='true'")
+            .env("GIT_INDEX_FILE", fx.tmp.path().join("stray-index"))
+            .env("GIT_OBJECT_DIRECTORY", fx.tmp.path().join("stray-objects"));
     };
 
     let mut ls = fx.yman(&fx.a);
@@ -2983,6 +3014,14 @@ fn hook_environment_does_not_leak() {
         &["for-each-ref", "--format=%(refname)", "refs/namespaces"],
     );
     assert_eq!(refs, "", "GIT_NAMESPACE leaked");
+    assert!(
+        !fx.tmp.path().join("stray-index").exists(),
+        "GIT_INDEX_FILE leaked"
+    );
+    assert!(
+        !fx.tmp.path().join("stray-objects").exists(),
+        "GIT_OBJECT_DIRECTORY leaked"
+    );
 
     let mut top = fx.yman(&fx.a);
     leaky(&mut top);
@@ -2996,6 +3035,20 @@ fn hook_environment_does_not_leak() {
         "{}",
         stdout(&out)
     );
+}
+
+/// An unreadable (not merely absent) attempt log is an error, not zero runs.
+#[test]
+#[should_panic(expected = "read ")]
+fn fx_runs_panics_on_unreadable_log() {
+    let fx = Fx::new();
+    fx.runs(fx.tmp.path());
+}
+
+#[test]
+fn fx_runs_reads_a_missing_log_as_zero() {
+    let fx = Fx::new();
+    assert_eq!(fx.runs(&fx.tmp.path().join("never-written")), 0);
 }
 
 /// A git killed by a signal exits the way a shell reports it, `128 + signal`.
@@ -3559,8 +3612,39 @@ fn a_localized_git_does_not_change_behaviour() {
     fx.write(&src, "same bytes\n");
     let src = src.to_str().unwrap();
     assert!(yman(&["attach", "1", src]).status.success());
-    let out = yman(&["attach", "1", src, "--force"]);
-    assert!(out.status.success(), "{}", stderr(&out));
+    // Two identical re-attaches inside one second: the second stages nothing
+    // and must still succeed under a localized git. Wait for a second
+    // boundary so both land in the same second, retrying if a slow run
+    // straddles the next one.
+    let now = || {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+    };
+    let mut hit = false;
+    for _ in 0..5 {
+        let into_second = now().subsec_nanos() as u64;
+        std::thread::sleep(std::time::Duration::from_nanos(
+            1_000_000_000 - into_second + 10_000_000,
+        ));
+        let start = now().as_secs();
+        let out = yman(&["attach", "1", src, "--force"]);
+        assert!(out.status.success(), "{}", stderr(&out));
+        let n = fx.git(&fx.a.join(".yman"), &["rev-list", "--count", "HEAD"]);
+        let out = yman(&["attach", "1", src, "--force"]);
+        assert!(out.status.success(), "{}", stderr(&out));
+        let end = now().as_secs();
+        if start == end {
+            assert_eq!(
+                fx.git(&fx.a.join(".yman"), &["rev-list", "--count", "HEAD"]),
+                n,
+                "an identical re-attach in the same second must commit nothing"
+            );
+            hit = true;
+            break;
+        }
+    }
+    assert!(hit, "five attempts never fit two attaches into one second");
     let out = yman(&["sync"]);
     assert!(out.status.success(), "{}", stderr(&out));
 }
@@ -4568,15 +4652,37 @@ fn awkward_field_values_survive_a_rewrite() {
         assert!(text.contains(expected), "{expected} missing from\n{text}");
     }
 
-    // A second write must not drift: the file is identical apart from
-    // `updated`, which `set` touches on purpose.
-    let before = fx.read(&fx.a.join(".yman/5.1.fix-login/m.yml"));
+    // A second write must not drift. It is a real write (the status changes,
+    // so a commit lands) and only `status` and `updated` may differ.
+    let mpath = fx.a.join(".yman/5.1.fix-login/m.yml");
+    let commits = || fx.git(&fx.a.join(".yman"), &["rev-list", "--count", "HEAD"]);
+    let before = fx.read(&mpath);
+    let count = commits();
     fx.yman(&fx.a)
-        .args(["set", "1", "--title", "Fix login"])
+        .args(["set", "1", "--status", "doing"])
         .assert()
         .success();
-    let after = fx.read(&fx.a.join(".yman/5.1.fix-login/m.yml"));
-    assert_eq!(before, after, "an unchanged task was rewritten");
+    let after = fx.read(&mpath);
+    assert_eq!(
+        commits().parse::<u32>().unwrap(),
+        count.parse::<u32>().unwrap() + 1,
+        "the second write did not commit"
+    );
+    assert!(
+        after.lines().any(|l| l == "status: doing"),
+        "no `status: doing` in\n{after}"
+    );
+    let stable = |t: &str| -> Vec<String> {
+        t.lines()
+            .filter(|l| !l.starts_with("status:") && !l.starts_with("updated:"))
+            .map(str::to_string)
+            .collect()
+    };
+    assert_eq!(
+        stable(&before),
+        stable(&after),
+        "an unrelated write drifted m.yml"
+    );
 }
 
 /// A key this yman does not know — a newer version's field, or one someone
@@ -7783,6 +7889,8 @@ fn init_takes_explicit_refresh_and_autosync_values() {
         .args(["init", "--refresh", "manual", "--autosync", "push"])
         .assert()
         .success();
+    assert_eq!(fx.git(&fx.a, &["config", "yman.refresh"]), "manual");
+    assert_eq!(fx.git(&fx.a, &["config", "yman.autosync"]), "push");
     fx.yman(&fx.a)
         .args(["init", "--refresh", "lazy", "--autosync", "off"])
         .assert()
@@ -8858,17 +8966,26 @@ fn reference_transaction_hook_never_sees_yman_refs() {
     let hook = fx.a.join(".git/hooks/reference-transaction");
     fx.write(&hook, &format!("#!/bin/sh\ncat >> '{}'\n", log.display()));
     std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    // Positive control: a plain git ref update must reach the hook, or the
+    // absence of yman refs below proves nothing.
+    fx.git(&fx.a, &["update-ref", "refs/heads/yman-probe", "HEAD"]);
+    assert!(
+        fx.read(&log).contains("refs/heads/yman-probe"),
+        "the hook never fired; the test would prove nothing"
+    );
+    fx.write(&log, "");
+
     for args in [vec!["init"], vec!["add", "One"], vec!["sync"]] {
         let out = fx.yman(&fx.a).args(&args).output().unwrap();
         assert!(out.status.success(), "{args:?}: {}", stderr(&out));
     }
-    if let Ok(text) = std::fs::read_to_string(&log) {
-        for line in text.lines() {
-            assert!(
-                !line.contains("refs/yman/") && !line.contains("refs/tasks/"),
-                "hook saw {line}"
-            );
-        }
+    let text = fx.read(&log);
+    for line in text.lines() {
+        assert!(
+            !line.contains("refs/yman/") && !line.contains("refs/tasks/"),
+            "hook saw {line}"
+        );
     }
 }
 
@@ -9050,11 +9167,7 @@ fn state_conflict_keeps_exit_3() {
         .output()
         .unwrap();
     assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
-    assert!(
-        stderr(&out).contains("sync merge in progress"),
-        "{}",
-        stderr(&out)
-    );
+    assert_eq!(stderr(&out), MERGE_PENDING);
 
     fx.write(&fx.b.join(".yman/state.md"), "resolved\n");
     fx.yman(&fx.b)

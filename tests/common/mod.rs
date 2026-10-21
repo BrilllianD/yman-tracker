@@ -416,11 +416,15 @@ impl Fx {
         )
     }
 
-    /// Lines in an attempt log written by a wrapper or hook; 0 if it never ran.
+    /// Lines in an attempt log written by a wrapper or hook; 0 if it never
+    /// ran (the log does not exist). Any other read error panics: an
+    /// unreadable log is not "zero runs".
     pub fn runs(&self, log: &Path) -> usize {
-        std::fs::read_to_string(log)
-            .map(|t| t.lines().count())
-            .unwrap_or(0)
+        match std::fs::read_to_string(log) {
+            Ok(t) => t.lines().count(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => 0,
+            Err(e) => panic!("read {}: {e}", log.display()),
+        }
     }
 
     /// An executable `#!/bin/sh` script in the tempdir.
