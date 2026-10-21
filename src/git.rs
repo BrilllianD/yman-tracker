@@ -365,18 +365,32 @@ fn git_failure(args: &[&str], out: &Output) -> anyhow::Error {
     if detail.is_empty() {
         detail = format!("exit status {}", out.status);
     }
-    let detail = detail
+    anyhow!("git {sub} failed: {}", indent_detail(&detail))
+}
+
+/// `text` trimmed, empty lines dropped, lines joined so each continuation
+/// line is indented two spaces.
+pub(crate) fn indent_detail(text: &str) -> String {
+    text.trim()
         .lines()
         .map(str::trim_end)
         .filter(|l| !l.is_empty())
         .collect::<Vec<_>>()
-        .join("\n  ");
-    anyhow!("git {sub} failed: {detail}")
+        .join("\n  ")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn indent_detail_drops_blanks_and_indents_continuations() {
+        assert_eq!(
+            indent_detail("fatal: a\n\nhint: b  \n"),
+            "fatal: a\n  hint: b"
+        );
+        assert_eq!(indent_detail(""), "");
+    }
 
     #[test]
     fn nothing_staged_covers_every_phrasing() {

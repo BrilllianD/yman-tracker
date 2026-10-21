@@ -7,7 +7,8 @@ Normative, as-built. Companion documents: [storage.md](storage.md),
 
 `main` does four things in order before the body, and one after it (`src/main.rs`):
 
-1. **Discover** the repository. Failure is `not inside a git repository`.
+1. **Discover** the repository. Failure is `not inside a git repository`,
+   followed by git's own reason.
 2. **Lock**, for the mutating commands (listed below) and `sync`: an advisory
    lock on `yman.lock` in the `.yman` worktree's private git dir, held until
    the command exits, autosync included. A command that finds it held prints

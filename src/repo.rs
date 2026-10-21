@@ -2,7 +2,7 @@
 
 use crate::config::Config;
 use crate::errors::MergePending;
-use crate::git::Git;
+use crate::git::{Git, indent_detail};
 use anyhow::{Result, bail};
 use std::path::{Path, PathBuf};
 
@@ -135,7 +135,13 @@ fn yman_parent(top: &Path, common: &Path) -> Option<PathBuf> {
 fn discover_separately(here: &Git) -> Result<(PathBuf, PathBuf)> {
     let root = match here.run(&["rev-parse", "--show-toplevel"])? {
         o if o.ok() => PathBuf::from(o.stdout.trim()),
-        _ => bail!("not inside a git repository"),
+        o => {
+            let detail = indent_detail(&o.stderr);
+            if detail.is_empty() {
+                bail!("not inside a git repository");
+            }
+            bail!("not inside a git repository\n  {detail}");
+        }
     };
     // Relative to the directory git ran in, which `-C` makes `root`.
     let common = PathBuf::from(

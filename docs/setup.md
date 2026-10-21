@@ -17,8 +17,8 @@ answered before any git process runs. The current directory must be inside the p
 repository — any subdirectory will do, including a task folder inside
 `.yman` (`cd $(yman path 14)`), which resolves to the project around it — or
 the command fails with
-`not inside a git repository`. There is no `-C <dir>` flag and no global
-configuration file outside the repository.
+`not inside a git repository`, followed by git's own reason. There is no
+`-C <dir>` flag and no global configuration file outside the repository.
 
 Until `.yman` exists, every command except `init`, `hooks`, `git`, `guide`,
 `completions` and `man` fails with `.yman is not initialized; run: yman init` (`commands.md` §1;

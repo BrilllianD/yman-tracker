@@ -105,7 +105,43 @@ fn init_requires_a_repo() {
     std::fs::create_dir_all(&plain).unwrap();
     let out = fx.yman(&plain).arg("init").output().unwrap();
     assert!(!out.status.success());
-    assert_eq!(stderr(&out).trim(), "error: not inside a git repository");
+    assert!(
+        stderr(&out)
+            .starts_with("error: not inside a git repository\n  fatal: not a git repository"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn discovery_failure_keeps_gits_reason() {
+    let fx = Fx::new();
+    let out = fx.yman(&fx.remote).arg("ls").output().unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert!(out.stdout.is_empty());
+    assert_eq!(
+        stderr(&out),
+        "error: not inside a git repository\n  fatal: this operation must be run in a work tree\n"
+    );
+
+    let out = fx
+        .yman(&fx.a)
+        .env("GIT_TEST_ASSUME_DIFFERENT_OWNER", "1")
+        .arg("ls")
+        .output()
+        .unwrap();
+    if !stderr(&out).contains("dubious ownership") {
+        skip("git ignores GIT_TEST_ASSUME_DIFFERENT_OWNER");
+        return;
+    }
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr(&out).starts_with(
+            "error: not inside a git repository\n  fatal: detected dubious ownership in repository at"
+        ),
+        "{}",
+        stderr(&out)
+    );
 }
 
 #[test]

@@ -9,6 +9,9 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- Outside a work tree (a bare repository, a directory git refuses under
+  `safe.directory`) every command now shows git's reason under "not inside a
+  git repository" instead of hiding it.
 - `comment -e` no longer discards text the editor saved in a non-UTF-8
   encoding as `empty comment`: it fails, names the error and keeps the file;
   `ls` and `show` no longer report 0 comments for a `d.md` that is not valid
