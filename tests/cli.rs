@@ -1,6 +1,6 @@
 mod common;
 
-use common::{Fx, stderr, stdout};
+use common::{Fx, skip, stderr, stdout};
 
 #[test]
 fn init_creates_worktree_and_config() {
@@ -1350,7 +1350,7 @@ fn a_failed_renumber_restores_yman() {
     let meta = fx.task_dir(&fx.a, "3").join("m.yml");
     std::fs::set_permissions(&meta, std::fs::Permissions::from_mode(0o444)).unwrap();
     if std::fs::OpenOptions::new().write(true).open(&meta).is_ok() {
-        eprintln!("skipped: running as root, read-only files are writable");
+        skip("running as root, read-only files are writable");
         return;
     }
     let out = fx.yman(&fx.a).arg("sync").output().unwrap();
@@ -3504,6 +3504,7 @@ fn comment_editor_temp_file_is_private_and_always_removed() {
 fn german_git(fx: &Fx) -> Option<Vec<(&'static str, String)>> {
     let speaks = |env: &[(&str, String)]| {
         let mut cmd = std::process::Command::new("git");
+        fx.sandbox(&mut cmd);
         cmd.current_dir(fx.tmp.path())
             .args(["rev-parse"])
             .env("GIT_CEILING_DIRECTORIES", fx.tmp.path());
@@ -3538,7 +3539,7 @@ fn german_git(fx: &Fx) -> Option<Vec<(&'static str, String)>> {
 fn a_localized_git_does_not_change_behaviour() {
     let fx = Fx::new();
     let Some(env) = german_git(&fx) else {
-        eprintln!("skipped: git cannot be made to speak German here");
+        skip("git cannot be made to speak German here");
         return;
     };
     let yman = |args: &[&str]| {
@@ -4024,7 +4025,7 @@ fn hooks_refuse_unreadable_hook() {
     std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o000)).unwrap();
     if std::fs::read(&hook).is_ok() {
         // Running as root: mode 000 does not stop the read.
-        eprintln!("skipped: {} is still readable", hook.display());
+        skip(&format!("{} is still readable", hook.display()));
         return;
     }
     let check = || {
@@ -8826,7 +8827,7 @@ fn configured_hooks_never_fire_for_yman() {
     }
     fx.git(&fx.a, &["commit", "--allow-empty", "-qm", "probe"]);
     if !log.exists() {
-        eprintln!("skipped: this git has no config-defined hooks");
+        skip("this git has no config-defined hooks");
         return;
     }
     std::fs::remove_file(&log).unwrap();
@@ -9062,4 +9063,99 @@ fn state_conflict_keeps_exit_3() {
         .success();
     let out = fx.yman(&fx.b).arg("state").output().unwrap();
     assert_eq!(stdout(&out), "resolved\n");
+}
+
+// ------------------------------------------- the harness itself
+
+/// The fixture pins the two places `GIT_CONFIG_GLOBAL` does not cover: the XDG
+/// `git/ignore` and `git/attributes`, and the system attributes file.
+#[test]
+fn sandbox_pins_xdg_config_and_system_attributes() {
+    let fx = Fx::new();
+    let mut cmd = std::process::Command::new("sh");
+    cmd.args([
+        "-c",
+        "printf '%s|%s' \"$XDG_CONFIG_HOME\" \"$GIT_ATTR_NOSYSTEM\"",
+    ]);
+    fx.sandbox(&mut cmd);
+    let out = cmd.output().unwrap();
+    let got = stdout(&out);
+    assert_eq!(got, format!("{}|1", fx.home().join(".config").display()));
+    assert!(
+        std::path::Path::new(got.split('|').next().unwrap()).starts_with(fx.tmp.path()),
+        "XDG_CONFIG_HOME is outside the tempdir: {got}"
+    );
+}
+
+/// `LEAKY_ENV` is the source of truth; the fixture and both scripts keep
+/// copies, and a name missing from one lets the developer's environment in.
+#[test]
+fn scrubbed_env_and_script_unsets_cover_leaky_env() {
+    fn leaky_env() -> Vec<String> {
+        let src = include_str!("../src/git.rs");
+        let from = src
+            .find("pub const LEAKY_ENV")
+            .expect("LEAKY_ENV not found");
+        let decl = &src[from..];
+        let decl = &decl[..decl.find("];").expect("LEAKY_ENV has no end")];
+        let decl = &decl[decl.find("= [").expect("LEAKY_ENV has no list") + 3..];
+        let names: Vec<String> = decl
+            .split('"')
+            .skip(1)
+            .step_by(2)
+            .map(str::to_string)
+            .collect();
+        assert!(
+            names.iter().any(|n| n == "GIT_DIR"),
+            "parse broke: {names:?}"
+        );
+        assert!(
+            names.iter().any(|n| n == "GIT_NAMESPACE"),
+            "parse broke: {names:?}"
+        );
+        assert!(names.len() >= 16, "parse broke: {names:?}");
+        names
+    }
+    fn unset_names(script: &str) -> Vec<String> {
+        let mut logical = Vec::new();
+        let mut cur = String::new();
+        for line in script.lines() {
+            match line.strip_suffix('\\') {
+                Some(head) => {
+                    cur.push_str(head);
+                    cur.push(' ');
+                }
+                None => {
+                    cur.push_str(line);
+                    logical.push(std::mem::take(&mut cur));
+                }
+            }
+        }
+        logical
+            .iter()
+            .filter(|l| l.trim_start().starts_with("unset "))
+            .flat_map(|l| l.split_whitespace().skip(1).map(str::to_string))
+            .collect()
+    }
+
+    let leaky = leaky_env();
+    let spike = unset_names(include_str!("../scripts/spike-symref.sh"));
+    let synthetic = unset_names(include_str!("../scripts/synthetic-project.sh"));
+    for name in &leaky {
+        assert!(
+            common::SCRUBBED_ENV.contains(&name.as_str()),
+            "SCRUBBED_ENV misses {name}"
+        );
+    }
+    for (list, names) in [
+        ("spike-symref.sh", &spike),
+        ("synthetic-project.sh", &synthetic),
+    ] {
+        for name in leaky.iter().map(String::as_str).chain(common::SCRUBBED_ENV) {
+            assert!(
+                names.iter().any(|n| n == name),
+                "scripts/{list} unset list misses {name}"
+            );
+        }
+    }
 }

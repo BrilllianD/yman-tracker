@@ -19,6 +19,8 @@ unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CONFIG GIT_CONFIG_PARAMETERS \
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 export GIT_CONFIG_NOSYSTEM=1
+export XDG_CONFIG_HOME="$tmp/xdg"
+export GIT_ATTR_NOSYSTEM=1
 export GIT_CONFIG_GLOBAL="$tmp/gitconfig"
 cat > "$GIT_CONFIG_GLOBAL" <<'CFG'
 [user]

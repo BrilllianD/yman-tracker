@@ -95,9 +95,10 @@ runlog=$report/run.log
 : > "$runlog"
 
 # Same isolation the spike and tests/common/mod.rs each set up for themselves:
-# nothing here touches the network or the developer's real git configuration,
-# and the variables the fixture scrubs (SCRUBBED_ENV plus the two YMAN_ ones)
-# are unset here too.
+# nothing here touches the network or the developer's real git configuration
+# (XDG_CONFIG_HOME and the system attributes file included), and the
+# variables the fixture scrubs (SCRUBBED_ENV plus the two YMAN_ ones) are
+# unset here too.
 home=$out/home
 mkdir -p "$home"
 cat > "$home/.gitconfig" <<'CFG'
@@ -112,12 +113,15 @@ CFG
 HOME=$home
 GIT_CONFIG_GLOBAL=$home/.gitconfig
 GIT_CONFIG_NOSYSTEM=1
+XDG_CONFIG_HOME=$home/.config
+GIT_ATTR_NOSYSTEM=1
 EDITOR=true
 VISUAL=""
 TERM=dumb
 LC_ALL=C
 GIT_CEILING_DIRECTORIES=$(dirname -- "$out")
-export HOME GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM EDITOR VISUAL TERM LC_ALL \
+export HOME GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM XDG_CONFIG_HOME \
+	GIT_ATTR_NOSYSTEM EDITOR VISUAL TERM LC_ALL \
 	GIT_CEILING_DIRECTORIES
 unset YMAN_AUTHOR YMAN_ACTOR
 unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CONFIG GIT_CONFIG_PARAMETERS \
