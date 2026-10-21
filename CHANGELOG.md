@@ -9,6 +9,9 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- Commands that write the task history on one clone now run one at a time,
+  so parallel `yman add` calls (an agent's parallel tool calls) no longer mint
+  the same id; a waiting command prints a note.
 - A clean `sync` merge can no longer publish one task split across two
   folders. The duplicate-id check and the rejoin of attachments left under a
   moved folder now run on every merge before it is committed; a file present
@@ -48,6 +51,10 @@ under [Releasing](README.md#releasing) in the README.
   `state set` or `attach --force` no longer fails when other files in `.yman`
   are untracked or unstaged; a failure while reporting a stopped merge now
   exits 3 instead of 1.
+
+### Changed
+
+- Building needs Rust 1.89 (`std::fs::File::lock`).
 
 ## [0.9.0] - 2026-10-20
 

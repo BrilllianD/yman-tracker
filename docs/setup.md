@@ -8,8 +8,8 @@ semantics, [storage.md](storage.md) for the ref and on-disk contract,
 ## 1. Prerequisites
 
 Git 2.42 or newer; yman does not check the version, and the test suite runs
-against the git of CI's `ubuntu-latest` image. Building needs Rust 1.88
-(`rust-version` in `Cargo.toml`).
+against the git of CI's `ubuntu-latest` image. Building needs Rust 1.89
+(`rust-version` in `Cargo.toml`; the per-clone lock uses `std::fs::File::lock`).
 
 `yman` runs `git` as a subprocess; without it, every command fails with
 `git not found in PATH` except `guide`, `completions` and `man`, which are

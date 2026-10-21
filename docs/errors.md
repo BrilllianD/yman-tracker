@@ -86,6 +86,7 @@ commit.
 | `.yman` is someone else's directory | `.yman exists and is not a yman worktree; move it aside and rerun` |
 | `.yman` is a standalone repo | `.yman is a standalone git repository, not a worktree; move it aside and rerun` |
 | ref already checked out | `refs/yman/local is already checked out in another worktree of this repo; only one .yman per clone is supported` |
+| the lock file cannot be opened or locked | `cannot lock <path>: <why>` — exit 1 |
 | unknown task | `task <id> not found` |
 | task present but unloadable | `task <id> is broken: <dir>: <why>` |
 | duplicate folders for one id | `duplicate task id <id>: <relA>, <relB>` — paths relative to `.yman`, so the two may differ only in their status directory |
@@ -187,6 +188,8 @@ Never fatal, always stderr:
 | Message | When |
 |---|---|
 | `warning: id scheme is "<s>" (from config.toml); --id-scheme ignored` | `init` on an existing history with a conflicting flag |
+| `note: waiting for another yman command in this clone to finish` | a writing command (or `sync`) found the per-clone lock held by another yman; printed once, then it waits with no timeout |
+| `warning: cannot lock <path>: <why>; not serialising with other yman commands` | the filesystem under `.git` does not support file locks; the command runs unserialised |
 | `warning: origin already points at <url>; --remote ignored` | `init --remote <url>` where origin already exists with a different URL; the same URL is accepted silently |
 | `warning: remote already had tasks; adopted remote state` | two clones initialized the tracker at once |
 | `warning: not published to origin (<why>); run: yman sync` | a fresh `init` created the tracker but its push failed (`push failed`, after git's stderr), lost the race three times (`origin keeps moving`) or lost it and then failed the refetch (`fetch failed`, after git's stderr); hooks and the summary still follow, exit 0 |

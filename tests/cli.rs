@@ -10225,3 +10225,123 @@ fn scrubbed_env_and_script_unsets_cover_leaky_env() {
         }
     }
 }
+
+/// Eight `yman add` started at once on one clone: the lock makes each read
+/// the taken-id set after the previous one committed, so the ids are distinct
+/// and every add is its own commit.
+#[test]
+fn parallel_adds_get_distinct_ids_and_commits() {
+    use std::process::Stdio;
+    let fx = Fx::new();
+    let out = fx.yman(&fx.a).arg("init").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let before: usize = fx
+        .git(&fx.a, &["rev-list", "--count", "refs/yman/local"])
+        .parse()
+        .unwrap();
+
+    let children: Vec<_> = (0..8)
+        .map(|i| {
+            let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_yman"));
+            fx.sandbox(&mut cmd);
+            cmd.current_dir(&fx.a)
+                .args(["add", &format!("Parallel {i}")])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap()
+        })
+        .collect();
+    let mut printed = std::collections::BTreeSet::new();
+    for child in children {
+        let out = child.wait_with_output().unwrap();
+        assert!(out.status.success(), "{}", stderr(&out));
+        let text = stdout(&out);
+        assert_eq!(text.lines().count(), 1, "{text}");
+        let rest = text
+            .strip_prefix("added ")
+            .unwrap_or_else(|| panic!("{text}"));
+        printed.insert(rest.split_whitespace().next().unwrap().to_string());
+    }
+    assert_eq!(printed.len(), 8, "ids must be distinct: {printed:?}");
+
+    let after: usize = fx
+        .git(&fx.a, &["rev-list", "--count", "refs/yman/local"])
+        .parse()
+        .unwrap();
+    assert_eq!(after, before + 8);
+
+    let log = fx.git(&fx.a, &["log", "-8", "--format=%H %s", "refs/yman/local"]);
+    let mut logged = std::collections::BTreeSet::new();
+    for line in log.lines() {
+        let (sha, subject) = line.split_once(' ').unwrap();
+        let id = subject
+            .strip_prefix("task(")
+            .and_then(|s| s.split_once("): add \"Parallel "))
+            .unwrap_or_else(|| panic!("{subject}"))
+            .0
+            .to_string();
+        logged.insert(id);
+        let files = fx.git(&fx.a, &["show", "--name-only", "--format=", sha]);
+        let folders: std::collections::BTreeSet<_> = files
+            .lines()
+            .map(|l| l.rsplit_once('/').unwrap().0)
+            .collect();
+        assert_eq!(folders.len(), 1, "one folder per commit: {files}");
+    }
+    assert_eq!(logged, printed);
+    assert_eq!(fx.git(&fx.a, &["-C", ".yman", "status", "--porcelain"]), "");
+}
+
+/// A writer that finds the lock held says so once and waits; a reader never
+/// waits.
+#[test]
+fn a_waiting_writer_says_so_and_readers_do_not_wait() {
+    use std::process::Stdio;
+    use std::time::Duration;
+    let fx = Fx::new();
+    for args in [&["init"][..], &["add", "One"]] {
+        let out = fx.yman(&fx.a).args(args).output().unwrap();
+        assert!(out.status.success(), "{}", stderr(&out));
+    }
+    let gitfile = std::fs::read_to_string(fx.a.join(".yman/.git")).unwrap();
+    let dir = std::path::PathBuf::from(gitfile.trim().strip_prefix("gitdir:").unwrap().trim());
+    let dir = fx.a.join(".yman").join(dir);
+    let held = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(dir.join("yman.lock"))
+        .unwrap();
+    held.lock().unwrap();
+
+    let out = fx
+        .yman(&fx.a)
+        .arg("ls")
+        .timeout(Duration::from_secs(20))
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+
+    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_yman"));
+    fx.sandbox(&mut cmd);
+    let mut child = cmd
+        .current_dir(&fx.a)
+        .args(["add", "Two"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "writer must be blocked"
+    );
+    drop(held);
+    let out = child.wait_with_output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let err = stderr(&out);
+    let note = "note: waiting for another yman command in this clone to finish\n";
+    assert_eq!(err.matches(note).count(), 1, "{err}");
+    assert!(stdout(&out).starts_with("added "), "{}", stdout(&out));
+}

@@ -5,10 +5,19 @@ Normative, as-built. Companion documents: [storage.md](storage.md),
 
 ## 1. What runs before a command body
 
-`main` does three things in order before the body, and one after it (`src/main.rs`):
+`main` does four things in order before the body, and one after it (`src/main.rs`):
 
 1. **Discover** the repository. Failure is `not inside a git repository`.
-2. **Preflight**, for every command except `init`, `hooks` and `git`:
+2. **Lock**, for the mutating commands (listed below) and `sync`: an advisory
+   lock on `yman.lock` in the `.yman` worktree's private git dir, held until
+   the command exits, autosync included. A command that finds it held prints
+   `note: waiting for another yman command in this clone to finish` and
+   waits, with no timeout. Readers never take it, so they never wait (an open
+   editor under `edit`, `add -e` or `comment -e` keeps other writers waiting).
+   A crashed process releases it with the process. A filesystem that cannot
+   lock prints `warning: cannot lock <path>: <why>; not serialising with other
+   yman commands` and the command runs unserialised.
+3. **Preflight**, for every command except `init`, `hooks` and `git`:
    `.yman` must be a linked worktree of this repo; its HEAD must be the
    symbolic ref `refs/yman/local`; for *mutating* commands, an unresolved
    sync merge stops the command with exit 3; then `config.toml` must load and
@@ -16,11 +25,11 @@ Normative, as-built. Companion documents: [storage.md](storage.md),
    `config.toml` still exits 3, and `sync` is let through an unloadable
    config while a merge is pending — `--abort` and `--continue` are how that
    state ends.
-3. **Lazy refresh**, when `yman.refresh` is unset or `lazy`, for every command
+4. **Lazy refresh**, when `yman.refresh` is unset or `lazy`, for every command
    except `init`, `sync`, `refresh`, `status`, `hooks` and `git`. A failure here
    is downgraded to a `warning:` on stderr and never takes the real command
    down.
-4. **Autosync**, after a *mutating* command succeeded, when `yman.autosync` is
+5. **Autosync**, after a *mutating* command succeeded, when `yman.autosync` is
    `push` and there is an `origin`: one push of `refs/yman/local` to
    `refs/tasks/main`, skipped when `LOCAL` already equals `REMOTE`. It never
    fetches or merges. A push reports `note: pushed N task commit(s)`; a push
@@ -30,11 +39,12 @@ Normative, as-built. Companion documents: [storage.md](storage.md),
    `warning: autosync failed: <why>; run: yman sync`. None of these
    change the exit code: the change is already committed.
 
-Mutating commands, for the purposes of step 2: `add`, `edit`, `set`, `start`,
+Mutating commands, for the purposes of step 3: `add`, `edit`, `set`, `start`,
 `done`, `move`, `cancel`, `reopen`, `prio`, `rm`, `attach`, `detach`, `comment`,
 `tags rename`, `tags rm` and `state set`. Bare `yman tags` is a listing and is not
-mutating. `sync` is excluded because it handles `MERGE_HEAD` itself. The
-same list decides when step 4 runs.
+mutating. `sync` is excluded because it handles `MERGE_HEAD` itself (it still takes
+the lock). The
+same list decides when steps 2 and 5 run.
 
 `guide`, `completions` and `man` run none of these steps. They are
 documentation compiled into the binary and are answered before the repository

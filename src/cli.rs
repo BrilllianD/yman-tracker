@@ -607,6 +607,14 @@ impl Cmd {
         }
     }
 
+    /// Commands that take the per-clone lock: the writers, plus `sync`, which
+    /// merges and commits. Readers and `refresh` stay unlocked so they never
+    /// block; git's own `index.lock` still arbitrates a reader's lazy
+    /// fast-forward.
+    pub fn takes_lock(&self) -> bool {
+        self.is_mutating() || matches!(self, Cmd::Sync(_))
+    }
+
     /// Commands that run their own refresh logic, or must not trigger one.
     pub fn skips_lazy_refresh(&self) -> bool {
         matches!(

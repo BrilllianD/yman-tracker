@@ -8,6 +8,7 @@ mod git;
 mod hooks;
 mod ids;
 mod json;
+mod lock;
 mod merge;
 mod plan;
 mod refresh;
@@ -87,6 +88,15 @@ fn run(cli: Cli) -> anyhow::Result<()> {
     }
 
     let mut ctx = repo::discover()?;
+
+    // Before preflight, so the MERGE_HEAD check and the config load see a
+    // state no other yman is changing. Held until `run` returns, which
+    // covers autosync.
+    let _lock = if cli.cmd.takes_lock() {
+        lock::acquire(&ctx)?
+    } else {
+        None
+    };
 
     if !cli.cmd.skips_preflight() {
         ctx.preflight(cli.cmd.is_mutating(), cli.cmd.settles_merge())?;

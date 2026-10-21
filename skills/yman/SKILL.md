@@ -252,6 +252,9 @@ Two consequences worth planning for:
   `sync`. Reading still works.
 - A multi-id verb that exits 4 stopped at the first missing id. The ids before
   it are already committed; do not re-run the whole list blindly.
+- Parallel writing calls on one clone queue instead of colliding. A waiting
+  one prints `note: waiting for another yman command in this clone to finish`
+  on stderr; reads never wait. An editor left open blocks other writers.
 
 ## Recovering from exit 3
 
