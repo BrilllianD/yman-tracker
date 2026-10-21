@@ -653,7 +653,8 @@ Ids are classified by shape, whatever the configured scheme, because a tracker
 may have switched schemes: all digits is `seq`, `prefix-N` with all-digit `N`
 is `author`, and `t-` plus 2 to 16 lowercase hex digits is `random` unless it
 is also `t-N` of an author whose prefix is `t` (no letter, no leading zero),
-which stays `author` so that scheme never re-mints a taken number.
+which stays `author` so that scheme never re-mints a taken number. A number
+past 64 bits is neither `seq` nor `author`; it sorts with the other ids.
 
 A scheme with no id left fails instead of looping or wrapping: `random` once
 every `random_len`-character id is taken, `seq` and `author` past
