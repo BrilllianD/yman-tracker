@@ -2,8 +2,7 @@ use crate::cli::RmArgs;
 use crate::plan;
 use crate::repo::Context;
 use crate::task;
-use anyhow::{Result, bail};
-use std::io::{BufRead, IsTerminal, Write};
+use anyhow::Result;
 
 use super::quote_title;
 
@@ -12,17 +11,7 @@ pub fn run(ctx: &mut Context, a: RmArgs) -> Result<()> {
     let id = t.id().to_string();
 
     if !a.force {
-        if !std::io::stdin().is_terminal() {
-            bail!("refusing to remove without -f");
-        }
-        // stderr: stdout is data, and a prompt is not.
-        eprint!("remove task {id} \"{}\"? [y/N] ", t.title);
-        std::io::stderr().flush()?;
-        let mut answer = String::new();
-        std::io::stdin().lock().read_line(&mut answer)?;
-        if !matches!(answer.trim(), "y" | "Y") {
-            bail!("aborted");
-        }
+        super::confirm_remove(&format!("remove task {id} \"{}\"?", t.title))?;
     }
 
     // The removal is staged first because `git rm` refuses a folder with local
@@ -34,13 +23,7 @@ pub fn run(ctx: &mut Context, a: RmArgs) -> Result<()> {
     let (dropped, waiters, skipped) = drop_related(ctx, &id)?;
     ctx.wt
         .commit(&format!("task({id}): remove \"{}\"", quote_title(&t.title)))?;
-    if !skipped.is_empty() {
-        eprintln!(
-            "warning: skipped {} unreadable task folder(s): {}",
-            skipped.len(),
-            skipped.join(", ")
-        );
-    }
+    super::warn_skipped(&skipped);
     if dropped > 0 {
         eprintln!("note: dropped {dropped} reference(s) to {id}");
     }

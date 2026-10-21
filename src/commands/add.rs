@@ -67,12 +67,7 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
         // from `-s`.
         None if !a.waits_on.is_empty() => BLOCKED.to_string(),
         Some(s) => {
-            if !ctx.config().has_status(&s) {
-                bail!(
-                    "unknown status \"{s}\"; allowed: {}",
-                    ctx.config().statuses_joined()
-                );
-            }
+            ctx.config().check_status(&s)?;
             s
         }
         None => ctx.config().statuses.default.clone(),

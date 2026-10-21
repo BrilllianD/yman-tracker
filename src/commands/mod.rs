@@ -25,7 +25,39 @@ pub mod tags;
 
 use crate::cli::Cmd;
 use crate::repo::Context;
-use anyhow::Result;
+use anyhow::{Result, bail};
+use std::io::{BufRead, IsTerminal, Write};
+
+/// The confirmation `rm` and `tags rm` ask before removing anything: off a
+/// terminal it refuses outright; on one it asks `<question>` plus the yes-or-no
+/// suffix on stderr, and
+/// anything but `y`/`Y` refuses.
+pub fn confirm_remove(question: &str) -> Result<()> {
+    if !std::io::stdin().is_terminal() {
+        bail!("refusing to remove without -f");
+    }
+    // stderr: stdout is data, and a prompt is not.
+    eprint!("{question} [y/N] ");
+    std::io::stderr().flush()?;
+    let mut answer = String::new();
+    std::io::stdin().lock().read_line(&mut answer)?;
+    if !matches!(answer.trim(), "y" | "Y") {
+        bail!("aborted");
+    }
+    Ok(())
+}
+
+/// The stderr warning for task folders a walk over every task could not load;
+/// nothing when `rels` is empty.
+pub fn warn_skipped(rels: &[String]) {
+    if !rels.is_empty() {
+        eprintln!(
+            "warning: skipped {} unreadable task folder(s): {}",
+            rels.len(),
+            rels.join(", ")
+        );
+    }
+}
 
 /// Body text for `add --body-file` and `set --body-file`: a path, or `-` for
 /// stdin. Errors name the source, since "No such file" alone is useless in a

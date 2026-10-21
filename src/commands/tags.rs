@@ -16,8 +16,8 @@ use crate::json;
 use crate::repo::Context;
 use crate::tags;
 use crate::task::{self, Entry, Task};
-use anyhow::{Result, bail};
-use std::io::{BufRead, IsTerminal, Write};
+use anyhow::Result;
+use std::io::IsTerminal;
 
 pub fn run(ctx: &mut Context, a: TagsArgs) -> Result<()> {
     match a.action {
@@ -29,15 +29,9 @@ pub fn run(ctx: &mut Context, a: TagsArgs) -> Result<()> {
 
 fn list(ctx: &mut Context, as_json: bool) -> Result<()> {
     let inv = tags::counts(&ctx.ydir)?;
-    if !inv.broken.is_empty() {
-        // stdout is data: the count belongs on stderr, as in `ls`, where the
-        // broken folders themselves are listed.
-        eprintln!(
-            "warning: skipped {} unreadable task folder(s): {}",
-            inv.broken.len(),
-            inv.broken.join(", ")
-        );
-    }
+    // stdout is data: the count belongs on stderr, as in `ls`, where the
+    // broken folders themselves are listed.
+    super::warn_skipped(&inv.broken);
 
     if as_json {
         let items = inv.counts.iter().map(|(tag, n)| {
@@ -110,13 +104,7 @@ fn walk(
             }
         }
     }
-    if !broken.is_empty() {
-        eprintln!(
-            "warning: skipped {} unreadable task folder(s): {}",
-            broken.len(),
-            broken.join(", ")
-        );
-    }
+    super::warn_skipped(&broken);
     Ok(hits)
 }
 
@@ -186,19 +174,10 @@ fn remove(ctx: &mut Context, a: TagRmArgs) -> Result<()> {
         return Ok(());
     }
     // Asked only once the count is known: confirming "remove ui" without
-    // knowing it touches forty tasks is not consent. Same wording and same
-    // refusal as `rm`.
+    // knowing it touches forty tasks is not consent. `rm` and this both call
+    // `super::confirm_remove`: same wording, same refusal.
     if !a.force {
-        if !std::io::stdin().is_terminal() {
-            bail!("refusing to remove without -f");
-        }
-        eprint!("remove tag \"{tag}\" from {}? [y/N] ", tasks(hits.len()));
-        std::io::stderr().flush()?;
-        let mut answer = String::new();
-        std::io::stdin().lock().read_line(&mut answer)?;
-        if !matches!(answer.trim(), "y" | "Y") {
-            bail!("aborted");
-        }
+        super::confirm_remove(&format!("remove tag \"{tag}\" from {}?", tasks(hits.len())))?;
     }
     apply(ctx, hits, |n| {
         format!("yman: tags remove {tag} ({})", tasks(n))

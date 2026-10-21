@@ -40,12 +40,7 @@ fn apply(ctx: &mut Context, a: SetArgs) -> Result<Option<String>> {
         Some(BLOCKED.to_string())
     };
     if let Some(status) = status {
-        if !ctx.config().has_status(&status) {
-            bail!(
-                "unknown status \"{status}\"; allowed: {}",
-                ctx.config().statuses_joined()
-            );
-        }
+        ctx.config().check_status(&status)?;
         if status != t.meta.status {
             changes.push(Change {
                 token: format!("status={}->{}", t.meta.status, status),

@@ -79,8 +79,7 @@ fn collect(ctx: &mut Context) -> Result<Report> {
         }
     };
 
-    let porcelain = ctx.wt.out(&["status", "--porcelain"])?;
-    let dirty = porcelain.lines().filter(|l| !l.trim().is_empty()).count();
+    let dirty = ctx.wt.dirty_count()?;
 
     let merge = if ctx.merge_in_progress() {
         let unmerged = ctx.wt.out(&["diff", "--name-only", "--diff-filter=U"])?;

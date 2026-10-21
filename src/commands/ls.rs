@@ -4,18 +4,13 @@ use crate::json;
 use crate::repo::Context;
 use crate::tags;
 use crate::task::{self, Entry, Task, format_ts};
-use anyhow::{Result, bail};
+use anyhow::Result;
 use std::cmp::Ordering;
 use std::io::IsTerminal;
 
 pub fn run(ctx: &mut Context, a: LsArgs) -> Result<()> {
     for s in &a.statuses {
-        if !ctx.config().has_status(s) {
-            bail!(
-                "unknown status \"{s}\"; allowed: {}",
-                ctx.config().statuses_joined()
-            );
-        }
+        ctx.config().check_status(s)?;
     }
 
     // Folded on both sides, as `-q` already is: a tag yman wrote is lowercase

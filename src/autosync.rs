@@ -43,12 +43,7 @@ pub fn after_mutation(ctx: &Context) -> Result<()> {
                 Some(r) => format!("{r}..{sha}"),
                 None => sha,
             };
-            let n: usize = ctx
-                .main
-                .out(&["rev-list", "--count", &range])?
-                .trim()
-                .parse()
-                .unwrap_or(0);
+            let n = ctx.main.count(&range)?;
             eprintln!("note: pushed {n} task commit(s)");
         }
         PushResult::UpToDate(_) => {}

@@ -99,12 +99,7 @@ fn fast_forward(ctx: &Context, quiet: bool) -> Result<RefreshReport> {
         ));
     }
 
-    let n: usize = ctx
-        .main
-        .out(&["rev-list", "--count", &format!("{LOCAL}..{REMOTE}")])?
-        .trim()
-        .parse()
-        .unwrap_or(0);
+    let n = ctx.main.count(&format!("{LOCAL}..{REMOTE}"))?;
     ctx.wt.ok(&["merge", "-q", "--ff-only", REMOTE])?;
     if !quiet {
         eprintln!("note: refreshed {n} new commit(s)");

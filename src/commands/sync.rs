@@ -80,12 +80,9 @@ fn resume(ctx: &mut Context, no_push: bool) -> Result<()> {
     check_resolved_tasks(ctx).map_err(still_pending)?;
 
     // What the merge brings in, counted before the commit makes it ours.
-    let pulled = ctx
-        .wt
-        .out(&["rev-list", "--count", "HEAD..MERGE_HEAD"])
-        .map_err(still_pending)?;
+    let pulled = ctx.wt.count("HEAD..MERGE_HEAD").map_err(still_pending)?;
     let mut totals = Totals {
-        pulled: pulled.trim().parse().unwrap_or(0),
+        pulled,
         ..Totals::default()
     };
     ctx.wt
@@ -378,7 +375,7 @@ fn normal(ctx: &mut Context, no_push: bool) -> Result<()> {
                 );
             };
             if base != remote {
-                totals.pulled += count(ctx, &format!("{base}..{remote}"))?;
+                totals.pulled += ctx.main.count(&format!("{base}..{remote}"))?;
                 if base == local {
                     ctx.wt.ok(&["merge", "-q", "--ff-only", &remote])?;
                     ctx.reload_config()?;
@@ -397,8 +394,8 @@ fn normal(ctx: &mut Context, no_push: bool) -> Result<()> {
         match push(ctx)? {
             PushResult::Ok(after) | PushResult::UpToDate(after) => {
                 totals.pushed += match before_push {
-                    Some(before) => count(ctx, &format!("{before}..{after}"))?,
-                    None => count(ctx, &after)?,
+                    Some(before) => ctx.main.count(&format!("{before}..{after}"))?,
+                    None => ctx.main.count(&after)?,
                 };
                 break;
             }
@@ -416,8 +413,7 @@ fn normal(ctx: &mut Context, no_push: bool) -> Result<()> {
 /// Uncommitted edits (hand-edited files, a half-finished `yman edit`) are
 /// committed as they are rather than silently merged over.
 fn snapshot_dirty(ctx: &Context) -> Result<()> {
-    let porcelain = ctx.wt.out(&["status", "--porcelain"])?;
-    let n = porcelain.lines().filter(|l| !l.trim().is_empty()).count();
+    let n = ctx.wt.dirty_count()?;
     if n == 0 {
         return Ok(());
     }
@@ -859,21 +855,12 @@ fn push_with_count(ctx: &Context, totals: &mut Totals) -> Result<()> {
         }
         PushResult::Ok(after) | PushResult::UpToDate(after) => {
             totals.pushed = match before {
-                Some(before) => count(ctx, &format!("{before}..{after}"))?,
-                None => count(ctx, &after)?,
+                Some(before) => ctx.main.count(&format!("{before}..{after}"))?,
+                None => ctx.main.count(&after)?,
             };
             Ok(())
         }
     }
-}
-
-fn count(ctx: &Context, range: &str) -> Result<usize> {
-    Ok(ctx
-        .main
-        .out(&["rev-list", "--count", range])?
-        .trim()
-        .parse()
-        .unwrap_or(0))
 }
 
 fn summary(ctx: &Context, totals: &Totals, no_push: bool) -> Result<()> {

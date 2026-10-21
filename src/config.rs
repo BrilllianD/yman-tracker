@@ -208,6 +208,18 @@ impl Config {
         self.statuses.list.iter().any(|x| x == s)
     }
 
+    /// Refuse a status `statuses.list` does not carry, with the one wording
+    /// every command uses.
+    pub fn check_status(&self, s: &str) -> Result<()> {
+        if !self.has_status(s) {
+            bail!(
+                "unknown status \"{s}\"; allowed: {}",
+                self.statuses_joined()
+            );
+        }
+        Ok(())
+    }
+
     /// Index of a status in the configured order; unknown statuses sort last.
     pub fn status_index(&self, s: &str) -> usize {
         self.statuses
@@ -547,6 +559,24 @@ mod tests {
         cfg.statuses.cancel = None;
         cfg.statuses.terminal = None;
         cfg.render()
+    }
+
+    #[test]
+    fn check_status_names_the_allowed_list() {
+        let cfg = Config::parse(&Config::new(Scheme::Seq).render()).unwrap();
+        assert!(cfg.check_status("todo").is_ok());
+        let err = cfg.check_status("nope").unwrap_err().to_string();
+        assert_eq!(
+            err,
+            format!(
+                r#"unknown status "nope"; allowed: {}"#,
+                cfg.statuses_joined()
+            )
+        );
+        assert_eq!(
+            err,
+            r#"unknown status "nope"; allowed: todo, doing, done, cancelled"#
+        );
     }
 
     #[test]
