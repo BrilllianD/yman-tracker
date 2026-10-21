@@ -108,6 +108,7 @@ commit.
 | `--name` with several files | `--name only works with a single file` |
 | attachment source unusable | `cannot attach <path>: <why>` / `… not a regular file` |
 | attachment name with a separator, or `.` / `..` | `attachment name "<name>" must not contain a path separator` |
+| `detach` of an entry whose hand-edited name is not a plain file name | `task <id> has an attachment named "<name>", which is not a plain file name; edit m.yml by hand` |
 | attachment name a Windows checkout cannot hold | `attachment name "<name>" is not portable: <why>` — `<why>` is `contains '<c>'` (one of `:*?"<>\|`), `contains a control character`, `ends with '.'`, `ends with a space`, `it is a reserved device name` or `it is empty`; `<name>` has control characters escaped |
 | `add` onto an existing folder | `folder already exists: <dir>` |
 | empty summary text (`state set`) | `empty state` |

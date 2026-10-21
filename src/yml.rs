@@ -730,14 +730,17 @@ fn attachments_value(rest: &str, lines: &[&str], i: &mut usize) -> Result<Vec<At
                 .find(|(k, _)| k == name)
                 .map(|(_, v)| v.clone())
         };
-        let (Some(path), Some(name)) = (get("path"), get("name")) else {
+        let (Some(_), Some(name)) = (get("path"), get("name")) else {
             bail!("an attachment is missing `path` or `name`");
         };
         let Some(added) = get("added") else {
             bail!("attachment {name} is missing `added`");
         };
+        // `path` must be present but is not read: storage.md says it is always
+        // `f/<name>` and every reader locates the file by `name`. Refusing a
+        // mismatch would turn a cosmetic hand edit into a broken task.
         out.push(Attachment {
-            path,
+            path: format!("{}/{}", crate::task::FILES_DIR, name),
             name,
             added: timestamp(&added, "added")?,
             by: get("by").unwrap_or_default(),
@@ -917,6 +920,22 @@ mod tests {
     }
 
     #[test]
+    fn an_attachment_path_is_derived_from_its_name() {
+        let doc = |path: &str| {
+            let mut text = render(&meta());
+            text = text.replace("path: f/screenshot.png", &format!("path: {path}"));
+            parse(&text).unwrap()
+        };
+        for path in ["f/other.png", "elsewhere/screenshot.png"] {
+            let m = doc(path);
+            assert_eq!(m.attachments[0].path, "f/screenshot.png");
+            assert!(render(&m).contains("- path: f/screenshot.png"));
+        }
+        let text = render(&meta());
+        assert_eq!(render(&parse(&text).unwrap()), text);
+    }
+
+    #[test]
     fn renders_the_documented_shape() {
         assert_eq!(
             render(&meta()),
@@ -1007,6 +1026,7 @@ mod tests {
             // A blank assignee reads back as unassigned by design.
             m.assignee = (!crate::task::is_unassigned(value)).then(|| value.to_string());
             m.attachments[0].name = value.to_string();
+            m.attachments[0].path = format!("f/{value}");
             m.links = vec![value.to_string()];
             let text = render(&m);
             let back = parse(&text).unwrap_or_else(|e| panic!("{value:?}: {e:#}\n{text}"));

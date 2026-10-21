@@ -531,6 +531,77 @@ fn attach_force_case_change_reaches_the_index() {
     assert_eq!(fx.git(&fx.a, &["-C", ".yman", "status", "--porcelain"]), "");
 }
 
+/// Two clones attaching one name in two cases conflict: the merge driver keys
+/// attachments the way `attach` does, so it cannot merge them into two entries.
+#[test]
+fn two_clones_attaching_one_name_in_two_cases_conflict() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v1_config(&fx.a);
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    let upper = fx.a.join("A.png");
+    fx.write(&upper, "one");
+    fx.yman(&fx.a)
+        .args(["attach", "1", upper.to_str().unwrap()])
+        .assert()
+        .success();
+    let lower = fx.b.join("a.png");
+    fx.write(&lower, "two");
+    fx.yman(&fx.b)
+        .args(["attach", "1", lower.to_str().unwrap()])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("note: unmerged files:\n  5.1.fix-login/m.yml\n"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+/// A hand edit can set an attachment `name` that is not a plain file name.
+/// `detach` refuses it rather than `git rm` a path outside `f/`, and `show`
+/// reports it missing instead of looking outside `f/`.
+#[test]
+fn detach_refuses_an_attachment_name_that_escapes_f() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let src = fx.tmp.path().join("a.png");
+    fx.write(&src, "one");
+    fx.yman(&fx.a)
+        .args(["attach", "1", src.to_str().unwrap()])
+        .assert()
+        .success();
+    let meta = fx.a.join(".yman/5.1.fix-login/m.yml");
+    let text = std::fs::read_to_string(&meta).unwrap();
+    assert!(text.contains("name: a.png"), "{text}");
+    std::fs::write(&meta, text.replace("name: a.png", "name: ../t.md")).unwrap();
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["detach", "1", "../t.md"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(
+        stderr(&out)
+            .contains("task 1 has an attachment named \"../t.md\", which is not a plain file name"),
+        "{}",
+        stderr(&out)
+    );
+    assert!(fx.a.join(".yman/5.1.fix-login/t.md").exists());
+    let shown = stdout(&fx.yman(&fx.a).args(["show", "1"]).output().unwrap());
+    assert!(
+        shown.contains("../t.md") && shown.contains("(missing)"),
+        "{shown}"
+    );
+}
+
 /// `detach` compares names ignoring case, as `attach` does, and removes the
 /// file under the spelling it was stored with, not the one typed.
 #[test]

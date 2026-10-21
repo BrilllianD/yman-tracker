@@ -94,7 +94,7 @@ fn print_text(
         println!("\nattachments:");
         for at in &t.meta.attachments {
             // The entry outlives the file if someone deletes it outside yman.
-            let missing = if t.attachment_path(at).exists() {
+            let missing = if t.attachment_path(at).is_some_and(|p| p.exists()) {
                 ""
             } else {
                 " (missing)"
@@ -142,7 +142,10 @@ fn print_json(t: &Task, related_by: &[String], entries: &[discussion::Entry], to
             .str("name", &at.name)
             .str("added", &format_ts(&at.added))
             .str("by", &at.by)
-            .raw("missing", (!t.attachment_path(at).exists()).to_string())
+            .raw(
+                "missing",
+                (!t.attachment_path(at).is_some_and(|p| p.exists())).to_string(),
+            )
             .finish()
     }));
     let discussion = json::array(entries.iter().map(|e| {

@@ -52,9 +52,16 @@ pub struct Unknown {
     pub text: String,
 }
 
+/// How attachment names compare: ignoring case, because `a.png` and `A.png` are one
+/// file on macOS and Windows. `attach`, `detach` and the `m.yml` merge driver all use it.
+pub fn fold_name(name: &str) -> String {
+    name.to_lowercase()
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Attachment {
-    /// Relative to the task folder, always `f/<name>`.
+    /// Relative to the task folder, always `f/<name>`: the reader derives it
+    /// from `name`, so `name` is the identity.
     pub path: String,
     pub name: String,
     pub added: DateTime<Utc>,
@@ -514,8 +521,14 @@ impl Task {
 
     /// The file behind an entry in `m.yml`. It can be absent: nothing stops a
     /// user deleting it, and the entry outlives it until `detach` runs.
-    pub fn attachment_path(&self, at: &Attachment) -> PathBuf {
-        self.dir.join(FILES_DIR).join(&at.name)
+    ///
+    /// `None` when `name` is not a single plain file name (empty, `.`, `..`,
+    /// or containing `/` or `\`): a hand edit can put anything there, and
+    /// joining it would reach outside the task's `f/`.
+    pub fn attachment_path(&self, at: &Attachment) -> Option<PathBuf> {
+        let n = at.name.as_str();
+        let plain = !matches!(n, "" | "." | "..") && !n.contains(['/', '\\']);
+        plain.then(|| self.dir.join(FILES_DIR).join(n))
     }
 }
 
@@ -776,6 +789,31 @@ mod tests {
         assert_eq!(t.rel(), "5.1.fix-login");
         t.parent = Some("done".to_string());
         assert_eq!(t.rel(), "done/5.1.fix-login");
+    }
+
+    #[test]
+    fn attachment_path_stays_inside_f() {
+        let t = Task {
+            folder: FolderName::parse("5.1.fix-login").unwrap(),
+            parent: None,
+            dir: PathBuf::from("/tmp/.yman/5.1.fix-login"),
+            title: "Fix login".to_string(),
+            body: String::new(),
+            meta: Meta::new("todo".to_string(), Vec::new()),
+        };
+        let at = |name: &str| Attachment {
+            path: format!("f/{name}"),
+            name: name.to_string(),
+            added: now(),
+            by: String::new(),
+        };
+        for bad in ["", ".", "..", "../t.md", "a/b.png", "a\\b.png"] {
+            assert_eq!(t.attachment_path(&at(bad)), None, "{bad}");
+        }
+        assert_eq!(
+            t.attachment_path(&at("a.png")),
+            Some(PathBuf::from("/tmp/.yman/5.1.fix-login/f/a.png"))
+        );
     }
 
     #[test]

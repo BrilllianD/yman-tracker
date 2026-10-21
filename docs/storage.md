@@ -252,8 +252,12 @@ behave differently off Linux and is not checked:
   prefixes are not lowercased, though. `attach` compares names ignoring case,
   so it never creates `A.png` beside `a.png`, and `attach --force a.png` over
   an existing `A.png` replaces the file, the entry and the index path (the old
-  spelling is dropped from the index first, so a case-only change reaches every clone). A hand edit or a
-  merge can still bring two such files together. Two prefixes that differ only in case (`IV` and `iv`) mint
+  spelling is dropped from the index first, so a case-only change reaches every clone). A hand edit can
+  still bring two such entries together; a merge cannot, since the `m.yml`
+  driver treats them as one entry and conflicts (see
+  [Merging `m.yml`](#merging-myml)). The files themselves still merge side by
+  side under `f/`, so after resolving the conflict the dropped spelling's file
+  is left unlisted until removed. Two prefixes that differ only in case (`IV` and `iv`) mint
   ids that name distinct folders on Linux and can fold into one elsewhere.
 - **Unicode normalization.** HFS+ stores names in NFD; APFS, the macOS default
   since 2017, keeps whatever form it is given. A Cyrillic slug minted on Linux
@@ -309,7 +313,12 @@ related:
 - Every field but `status`, `created` and `updated` defaults to empty.
 - Timestamps are RFC 3339, UTC, **second precision** (`task::now()` zeroes the
   nanoseconds), serialized with a `Z` suffix.
-- `attachments[].path` is always `f/<name>`.
+- `attachments[].path` is always `f/<name>`. The reader enforces it: `path`
+  is derived from `name` and whatever a hand edit wrote there is ignored, so
+  `name` is an attachment's identity and the next write corrects the file. A
+  `name` that is not a single plain file name (empty, `.`, `..`, or containing
+  `/` or `\`) is kept as read, but `show` reports it missing and `detach`
+  refuses it, so nothing outside `f/` is ever touched.
 - `tags` entries written by yman are trimmed, lowercased and free of
   whitespace, commas and control characters (see
   [commands.md §4](commands.md#add)). The reader enforces none of that: a
@@ -405,10 +414,12 @@ A list is merged one entry at a time, so a tag added on each clone keeps both.
 Each entry is the same three-way decision as a scalar, over "is it there, and
 with what value": added on one side stays, removed on one side goes, and only an
 entry *changed* differently on both sides conflicts. Entries are identified by
-themselves for `tags`, `links` and `related`, by `path` for `attachments`, and
+themselves for `tags`, `links` and `related`, by `name` ignoring case (the comparison `attach` uses) for `attachments`, and
 by the top-level key for an unknown block — so two clones attaching different
-files under one name, or writing the same unknown key with different text, do
-conflict.
+files under one name, two clones attaching `A.png` and `a.png`, or writing the same unknown key with different text, do
+conflict. A task that already holds both spellings in one list, which only a
+hand edit or a yman older than case-folding `attach` could produce, keeps them
+as two entries keyed by exact name; `detach` one of them to clean it up.
 
 The result's **order** is the one thing the driver cannot take from either side.
 Git hands `%A` and `%B` over the other way round on the other clone, so anything

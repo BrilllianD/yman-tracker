@@ -585,7 +585,7 @@ taken from the source, must also be portable: no `:` `*` `?` `"` `<` `>` `|`
 or control character, no trailing `.` or space, not empty, not a reserved
 device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`, any
 case, with or without an extension) — the names a
-Windows checkout cannot hold. Names compare ignoring case throughout, since
+Windows checkout cannot hold. Names compare ignoring case throughout, in the `m.yml` merge driver too, so two clones attaching one name in two cases conflict on `sync` (exit 3), since
 `a.png` and `A.png` are one file on macOS and Windows. Two sources that would
 land under the same name are refused with `attachment "<name>" given more than
 once`, `--force` or not. Every source is checked before any is copied, so a
@@ -600,7 +600,7 @@ name differs only in case is removed, so the task keeps one of each. Files over 
 attachment listed in `m.yml` whose file is already gone can still be detached —
 the entry is simply dropped. `detach` finds the entry ignoring case (an exact
 match wins if a task holds both spellings) and removes, reports and commits it
-under the name stored in `m.yml`, so `detach 3 A.png` drops an `a.png`. Each copied file is staged with `git add -f`, so a
+under the name stored in `m.yml`, so `detach 3 A.png` drops an `a.png`. An entry whose `name` a hand edit made something other than a plain file name (`../t.md`, `a/b.png`) is refused. Each copied file is staged with `git add -f`, so a
 name matching `.yman/.gitignore` (`*.swp`, `*~`, `.#*`, `*.orig`) is committed
 like any other: naming a file to attach overrides the ignore rule.
 
