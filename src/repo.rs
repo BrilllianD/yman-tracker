@@ -244,21 +244,33 @@ impl Context {
     pub fn exclude_add(&self) -> Result<bool> {
         let line = format!("{YDIR_NAME}/");
         let path = self.common.join("info").join("exclude");
-        let existing = std::fs::read_to_string(&path).unwrap_or_default();
+        let existing = match std::fs::read(&path) {
+            Ok(b) => b,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(e) => bail!("cannot read {}: {e}", path.display()),
+        };
         if existing
-            .lines()
-            .any(|l| l.trim() == line || l.trim() == YDIR_NAME)
+            .split(|&b| b == b'\n')
+            .any(|l| l.trim_ascii() == line.as_bytes() || l.trim_ascii() == YDIR_NAME.as_bytes())
         {
             return Ok(false);
         }
         std::fs::create_dir_all(path.parent().expect("info/exclude has a parent"))?;
-        let mut text = existing;
-        if !text.is_empty() && !text.ends_with('\n') {
-            text.push('\n');
+        let mut add = Vec::new();
+        if !existing.is_empty() && !existing.ends_with(b"\n") {
+            add.push(b'\n');
         }
-        text.push_str(&line);
-        text.push('\n');
-        std::fs::write(&path, text)?;
+        add.extend_from_slice(line.as_bytes());
+        add.push(b'\n');
+        // Append only: the bytes already there are never rewritten.
+        let write = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .and_then(|mut f| std::io::Write::write_all(&mut f, &add));
+        if let Err(e) = write {
+            bail!("cannot write {}: {e}", path.display());
+        }
         Ok(true)
     }
 

@@ -162,6 +162,9 @@ commit.
 | `hooks install`, `remove` or `status` with `core.hooksPath` set to the empty string | `core.hooksPath is empty, which turns git hooks off; unset it or point it at a directory` |
 | `hooks install` met a hook it does not own | `<n> hook(s) not installed: <names>`, after `note: hook <name> exists; add this line to it:` and the line itself on stderr for each |
 | `hooks install` met a hook it cannot read (permission denied, not UTF-8, a dangling symlink) | the same `<n> hook(s) not installed: <names>`, after `warning: hook <name>: cannot read <path>: <why>; not replacing it` on stderr for each; `<why>` is `not valid UTF-8`, `dangling symlink` or the OS error |
+| `init --hooks` met a hook it does not own or cannot read | the same lines on stderr, then `warning: <n> hook(s) not installed: <names>`; `init` still prints its summary with `hooks:    not installed` and exits 0 |
+| `init` over a fresh `init` that failed part-way (history still only the empty root commit) | `note: finishing an interrupted yman init` on stderr; the rerun completes and exits 0 |
+| `init` cannot read or append to `COMMON/info/exclude` | `cannot read <path>: <why>` or `cannot write <path>: <why>` |
 | `man --dir` cannot write | `cannot create <dir>: <why>` / `cannot write man pages to <dir>: <why>` |
 | `state` or `state set` cannot access `.yman/state.md` | `cannot read <path>: <why>` / `cannot write <path>: <why>`, with the full path of the file |
 | `m.yml` merge driver could not fall back | `git merge-file failed`, with git's stderr printed above — reaches the user through git's own merge output |

@@ -2771,6 +2771,119 @@ fn init_names_the_broken_history() {
     );
 }
 
+#[test]
+fn init_keeps_a_non_utf8_info_exclude() {
+    let fx = Fx::new();
+    let before: &[u8] = b"*.log\n# caf\xe9\n";
+    let path = fx.a.join(".git/info/exclude");
+    std::fs::write(&path, before).unwrap();
+    fx.write(&fx.a.join("build.log"), "x\n");
+    fx.yman(&fx.a).arg("init").assert().success();
+    let mut want = before.to_vec();
+    want.extend_from_slice(b".yman/\n");
+    assert_eq!(std::fs::read(&path).unwrap(), want);
+    assert_eq!(fx.git(&fx.a, &["status", "--porcelain"]), "");
+    fx.yman(&fx.a).arg("init").assert().success();
+    assert_eq!(std::fs::read(&path).unwrap(), want);
+}
+
+#[test]
+fn init_finishes_after_worktree_add_failed() {
+    let fx = Fx::new();
+    let out = fx
+        .yman_shimmed(
+            &fx.a,
+            r#"[ "$sub" = worktree ] && case " $* " in *" add "*) exit 1;; esac"#,
+        )
+        .arg("init")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("git worktree add failed"),
+        "{}",
+        stderr(&out)
+    );
+    let out = fx.yman(&fx.a).arg("init").output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("note: finishing an interrupted yman init"),
+        "{}",
+        stderr(&out)
+    );
+    assert!(
+        stdout(&out).starts_with("initialized .yman"),
+        "{}",
+        stdout(&out)
+    );
+    fx.yman(&fx.a).args(["add", "After"]).assert().success();
+    let ls = fx.yman(&fx.a).arg("ls").output().unwrap();
+    assert!(stdout(&ls).contains("After"), "{}", stdout(&ls));
+    fx.yman(&fx.a).arg("sync").assert().success();
+    assert_eq!(
+        fx.git(&fx.remote, &["rev-parse", "refs/tasks/main"]),
+        fx.git(&fx.a, &["rev-parse", "refs/yman/local"])
+    );
+}
+
+#[test]
+fn init_finishes_after_its_commit_failed() {
+    let fx = Fx::new();
+    let out = fx
+        .yman_shimmed(&fx.a, r#"[ "$sub" = commit ] && exit 1"#)
+        .arg("init")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(fx.a.join(".yman").exists());
+    let out = fx.yman(&fx.a).arg("init").output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("note: finishing an interrupted yman init"),
+        "{}",
+        stderr(&out)
+    );
+    assert!(
+        stdout(&out).starts_with("initialized .yman"),
+        "{}",
+        stdout(&out)
+    );
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["status", "--porcelain"]), "");
+    fx.git(&fx.a.join(".yman"), &["cat-file", "-e", "HEAD:config.toml"]);
+    fx.yman(&fx.a).args(["add", "After"]).assert().success();
+}
+
+#[test]
+fn init_hooks_with_a_foreign_hook_still_finishes() {
+    let fx = Fx::new();
+    let hook = fx.a.join(".git/hooks/post-merge");
+    std::fs::write(&hook, "#!/bin/sh\necho mine\n").unwrap();
+    for (n, first) in [(0, "initialized .yman"), (1, "already initialized .yman")] {
+        let out = fx.yman(&fx.a).args(["init", "--hooks"]).output().unwrap();
+        assert_eq!(out.status.code(), Some(0), "run {n}: {}", stderr(&out));
+        assert!(stdout(&out).contains(first), "run {n}: {}", stdout(&out));
+        assert!(
+            stdout(&out).contains("  hooks:    not installed"),
+            "run {n}: {}",
+            stdout(&out)
+        );
+        let e = stderr(&out);
+        assert!(
+            e.contains(
+                "note: hook post-merge exists; add this line to it:\n    yman refresh --quiet"
+            ),
+            "run {n}: {e}"
+        );
+        assert!(
+            e.contains("warning: 1 hook(s) not installed: post-merge"),
+            "run {n}: {e}"
+        );
+        assert!(!e.contains("error:"), "run {n}: {e}");
+        assert_eq!(std::fs::read(&hook).unwrap(), b"#!/bin/sh\necho mine\n");
+    }
+    fx.git(&fx.remote, &["rev-parse", "refs/tasks/main"]);
+}
+
 /// The refetch after a lost race fails: `init` still finishes, with a warning
 /// that it is unpublished, hooks and summary done, and exit 0.
 #[test]

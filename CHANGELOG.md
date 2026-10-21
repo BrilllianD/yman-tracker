@@ -9,6 +9,13 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- `yman init` no longer rewrites a `.git/info/exclude` it cannot decode as UTF-8
+  down to the single line `.yman/`; it appends and keeps every other byte.
+- A `yman init` that failed after creating `refs/yman/local` (`git worktree
+  add` failed, its commit failed) no longer leaves every rerun refusing with
+  "refs/yman/local is not a yman history"; the rerun finishes it.
+- `yman init --hooks` with a hook yman does not own (husky, lefthook) now
+  finishes with exit 0 and its summary, reporting the hook on stderr.
 - Commands run in a linked worktree of the project (`git worktree add`) now
   use the main clone's `.yman` instead of asking for `yman init`, and yman's
   hooks stay silent there.

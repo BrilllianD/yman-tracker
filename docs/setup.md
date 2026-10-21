@@ -85,11 +85,24 @@ because attaching it would let the next snapshot revert the ref. A `.yman`
 that is a plain directory or a standalone repository is never touched; the
 command says so and stops.
 
+A fresh `init` that failed part-way (`git worktree add` failed, or its own
+commit did) leaves `refs/yman/local` as the empty root commit and nothing
+more. A rerun recognises that, says `note: finishing an interrupted yman init`
+and finishes the job, on both the fresh and the repair path. A history that has
+commits but no loadable `config.toml` is still refused with
+`refs/yman/local is not a yman history`. A problem with `--hooks` does not undo
+an `init` either: it is a warning on stderr
+(`warning: <n> hook(s) not installed: <names>`), the summary reports
+`hooks: not installed` and the exit code is 0; the standalone
+`yman hooks install` still exits 1.
+
 ## 3. What `init` changes
 
 In the **main repo**, all local and none of it committed:
 
-- `.yman/` added to `COMMON/info/exclude`;
+- `.yman/` appended to `COMMON/info/exclude`; the file's other bytes are never
+  rewritten, and a file that exists but cannot be read stops `init` with
+  `cannot read <path>: <why>`;
 - the fetch refspec `+refs/tasks/main:refs/yman/remote` appended to
   `remote.origin.fetch`, when there is an `origin`;
 - `yman.refresh`, `yman.autosync` when `--autosync` was given, and
