@@ -52,9 +52,11 @@ with `sync`, when step 2 runs.
 When a mutating command fails, nothing it staged stays staged. If `.yman` had no
 uncommitted changes when the command started, the files it wrote are put back to
 the last commit (commits it already made stay). If `.yman` already had uncommitted
-changes, or the command is `edit`, its files are only unstaged and left on disk. If
-the undo itself fails, `warning: could not undo the failed change: <why>; run: yman
-status` is printed and the exit code stays the failure's.
+changes, or the command is `edit`, its files are only unstaged and left on disk,
+with these exceptions: `add` still removes its new folder, `attach` still puts
+back `m.yml` and `f/`, and `rm` leaves its folder deleted but unstaged. If the
+undo itself fails, this is printed and the exit code stays the failure's:
+`warning: could not undo the failed change: <why>; run: yman status`
 
 `guide`, `completions` and `man` run none of these steps. They are
 documentation compiled into the binary and are answered before the repository
@@ -81,8 +83,8 @@ for every such name, read once per command with `git config --get-regexp` and
 only when a `.yman` call is made. The `update-ref`, `fetch` and `push` yman
 runs in the main repo on its own refs get the same treatment, so a
 `reference-transaction` hook never sees `refs/yman/*` or `refs/tasks/main`. GPG signing is deliberately left
-to the user's configuration. A failed signature exits 1 with nothing staged, like any
-failed commit.
+to the user's configuration. A failed signature exits 1 with nothing staged,
+like any failed commit.
 
 | Command | Subject |
 |---|---|
@@ -157,19 +159,20 @@ absent. `dir` is relative to `.yman` and names the status directory for a closed
 `m.yml` alone: an entry whose file has been deleted outside yman still counts,
 because `ls` stats nothing under `f/`. Use `show` to see which one is gone. The
 writer is `src/json.rs`: the escaping is hand-rolled and there is no
-`serde_json` dependency. The `comments` count reads each `d.md` as `show` does: invalid
-UTF-8 is counted with U+FFFD and a warning on stderr, an unreadable file counts
-as 0 with a warning, and only a missing `d.md` is silently 0.
+`serde_json` dependency. The `comments` count reads each `d.md` as `show`
+does: invalid UTF-8 is counted with U+FFFD and a warning on stderr, an
+unreadable file counts as 0 with a warning, and only a missing `d.md` is
+silently 0.
 
 ### `show`
-
-A `d.md` that is not valid UTF-8 is shown with U+FFFD for the bad bytes and a
-warning on stderr; one that exists but cannot be read counts as no discussion,
-also with a warning. Only a missing `d.md` is silently empty.
 
 Prints the header block, then the body, then `attachments` and `discussion`.
 Empty sections are omitted entirely, including `links`, `related` and
 `related by`.
+
+A `d.md` that is not valid UTF-8 is shown with U+FFFD for the bad bytes and a
+warning on stderr; one that exists but cannot be read counts as no discussion,
+also with a warning. Only a missing `d.md` is silently empty.
 
 `related by:` is the other end of the one-way `related` field: the ids of
 every task whose `related` carries this one, in id order, closed tasks
@@ -655,9 +658,11 @@ but one: after the comment is committed, when the editor fails
 (`editor exited with status N; comment not added`), and when the text is
 empty. When the editor's text cannot be read back (it saved Latin-1, say) the
 command fails with `cannot read the comment from <path>: <why>; the file is
-kept`, names the file, keeps it and commits nothing. A refused editor creates no file at all. The author is `$YMAN_ACTOR` (trimmed,
-non-empty), else `git config user.name`, else `unknown`. This is the display
-name written into `d.md` only; the git committer is whatever git resolves.
+kept`, names the file, keeps it and commits nothing. A temp file the editor
+removed counts as empty text (`empty comment`). A refused editor creates no
+file at all. The author is `$YMAN_ACTOR` (trimmed, non-empty), else
+`git config user.name`, else `unknown`. This is the display name written into
+`d.md` only; the git committer is whatever git resolves.
 
 ## 5. Refresh
 

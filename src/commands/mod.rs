@@ -132,7 +132,8 @@ pub fn actor(ctx: &Context) -> Result<String> {
 ///
 /// The hard reset and the clean only ever run when `.yman` was clean before this command
 /// started (read here, after the per-clone lock is held and the lazy refresh has run), so
-/// the only changes they discard are the ones this failed command wrote. Commits the
+/// the only changes they discard are the ones this failed command wrote. (On a filesystem
+/// that cannot lock, the command runs unlocked and the reset still runs.) Commits the
 /// command already made (a multi-id verb, `add --sections`) are kept. `git clean` is run
 /// without `-x`, so ignored files are never touched. `edit` is excluded from the hard
 /// reset because its file holds the user's own text: it is only unstaged.

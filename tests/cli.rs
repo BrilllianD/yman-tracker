@@ -10498,7 +10498,138 @@ fn a_failed_signature_leaves_nothing_behind() {
         names.lines().all(|l| !l.starts_with(&rel)),
         "HEAD touches the first task: {names}"
     );
-    assert!(names.contains("y"), "{names}");
+    let y = fx.task_rel(&fx.a, "2");
+    assert!(
+        names.lines().all(|l| l.starts_with(&y)),
+        "HEAD touches more than the new task: {names}"
+    );
+}
+
+/// With `.yman` already dirty, a failed commit still takes back the folder
+/// `add` made (the generic cleanup only unstages there); the user's own edit stays.
+#[test]
+fn a_failed_add_in_a_dirty_tracker_leaves_no_folder() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "One"]).assert().success();
+    let rel = fx.task_rel(&fx.a, "1");
+    let md = fx.task_dir(&fx.a, "1").join("t.md");
+    let mut text = std::fs::read_to_string(&md).unwrap();
+    text.push_str("hand edit\n");
+    std::fs::write(&md, text).unwrap();
+    fail_signing(&fx);
+
+    let out = fx.yman(&fx.a).args(["add", "X"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(!fx.has_task(&fx.a, "2"));
+    let porcelain = fx.git(&fx.a.join(".yman"), &["status", "--porcelain"]);
+    assert_eq!(porcelain.trim_end(), format!(" M {rel}/t.md"));
+}
+
+/// `attach --force` over an existing file, then a failed commit: the replaced
+/// file is back as it was and only the earlier dirt remains.
+#[test]
+fn a_failed_forced_attach_restores_the_replaced_file() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "One"]).assert().success();
+    let src = fx.tmp.path().join("a.png");
+    fx.write(&src, "old");
+    fx.yman(&fx.a)
+        .args(["attach", "1", src.to_str().unwrap()])
+        .assert()
+        .success();
+    let dir = fx.task_dir(&fx.a, "1");
+    let rel = fx.task_rel(&fx.a, "1");
+    let meta = std::fs::read(dir.join("m.yml")).unwrap();
+    let md = dir.join("t.md");
+    let mut text = std::fs::read_to_string(&md).unwrap();
+    text.push_str("hand edit\n");
+    std::fs::write(&md, text).unwrap();
+    fx.write(&src, "new");
+    fail_signing(&fx);
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["attach", "1", src.to_str().unwrap(), "--force"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "");
+    assert_eq!(std::fs::read_to_string(dir.join("f/a.png")).unwrap(), "old");
+    assert_eq!(std::fs::read(dir.join("m.yml")).unwrap(), meta);
+    let porcelain = fx.git(&fx.a.join(".yman"), &["status", "--porcelain"]);
+    assert_eq!(porcelain.trim_end(), format!(" M {rel}/t.md"));
+}
+
+/// When the command fails and the undo fails too (a held `index.lock` stops
+/// `git add`, and then `git reset`; `comment` has already written `d.md`), the
+/// exit code is the command's and the warning says what to run.
+#[test]
+fn a_failed_undo_warns_and_keeps_the_exit_code() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "One"]).assert().success();
+    let gitfile = std::fs::read_to_string(fx.a.join(".yman/.git")).unwrap();
+    let dir = std::path::PathBuf::from(gitfile.trim().strip_prefix("gitdir:").unwrap().trim());
+    let lock = fx.a.join(".yman").join(dir).join("index.lock");
+    std::fs::write(&lock, "").unwrap();
+
+    // `comment` writes `d.md` before `git add` hits the lock, so the tree is
+    // dirty and the undo has a reset to run.
+    let out = fx
+        .yman(&fx.a)
+        .args(["comment", "1", "-m", "hi"])
+        .output()
+        .unwrap();
+    let err = stderr(&out);
+    std::fs::remove_file(&lock).unwrap();
+    assert_eq!(out.status.code(), Some(1), "{err}");
+    assert!(
+        err.contains("warning: could not undo the failed change: "),
+        "{err}"
+    );
+    assert!(err.contains("; run: yman status\n"), "{err}");
+}
+
+/// A `d.md` that exists but cannot be read (here a directory) counts as no
+/// discussion, with the pinned warning, once per command.
+#[cfg(unix)]
+#[test]
+fn an_unreadable_discussion_warns_and_counts_zero() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "One"]).assert().success();
+    std::fs::create_dir(fx.task_dir(&fx.a, "1").join("d.md")).unwrap();
+    let w = format!("warning: cannot read {}/d.md: ", fx.task_rel(&fx.a, "1"));
+
+    let out = fx.yman(&fx.a).args(["ls", "--json"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert!(stdout(&out).contains("\"comments\":0"), "{}", stdout(&out));
+    assert_eq!(stderr(&out).matches(&w).count(), 1, "{}", stderr(&out));
+
+    let out = fx.yman(&fx.a).args(["show", "1"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stderr(&out).matches(&w).count(), 1, "{}", stderr(&out));
+}
+
+/// An editor that deletes the temp file wrote nothing: `empty comment`, as
+/// before read errors were reported.
+#[cfg(unix)]
+#[test]
+fn comment_e_with_a_deleted_temp_file_is_an_empty_comment() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "One"]).assert().success();
+    let editor = fx.script("rmfile", "rm \"$1\"\n");
+    let out = fx
+        .yman(&fx.a)
+        .env("EDITOR", &editor)
+        .args(["comment", "1", "-e"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(stderr(&out), "error: empty comment\n");
 }
 
 /// `rm` of a task with a hand edit is refused by `git rm`; it must stop before

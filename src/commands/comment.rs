@@ -83,6 +83,8 @@ pub fn run(ctx: &mut Context, a: CommentArgs) -> Result<()> {
         run_editor(tmp.path(), "comment not added")?;
         match std::fs::read_to_string(tmp.path()) {
             Ok(text) => text,
+            // The editor removed the file: nothing was written.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
             Err(e) => {
                 let p = tmp.keep();
                 bail!(
