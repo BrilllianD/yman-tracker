@@ -144,7 +144,7 @@ commit.
 | `t.md` unparsable | `t.md must start with "# Title"` |
 | `t.md` unparsable after an edit | `t.md invalid after edit: <why>; fix the file then run: yman edit <id>` |
 | `t.md` unparsable after `add -e` | `t.md invalid after edit: <why>; task not added` — the new folder is removed |
-| invalid config | `invalid .yman/config.toml: <why>` |
+| invalid config | `invalid .yman/config.toml: <why>` (during a pending merge, only for commands other than `sync` and the read-only commands: `status`, `ls`, `show`, `plan`, `log`, `path`, and `state` and `tags` without an action) |
 | the history `init` checks out has no loadable `config.toml` | `<source> is not a yman history (missing or invalid config.toml): <why>` — `<source>` is `refs/tasks/main on origin` when `init` adopted origin's tasks, `refs/yman/local` when it found or repaired a local history |
 | `sync` with no `origin` | `no "origin" remote; tasks are local only. Connect one: yman init --remote <url>` |
 | unrelated histories | `task history unrelated to origin refs/tasks/main; re-init from remote:  rm -rf .yman && git update-ref -d refs/yman/local && yman init` |
@@ -181,6 +181,7 @@ commit.
 | `--continue` with a conflict that has no markers | `still unmerged: <files>; no markers to remove in <files>, stage the version to keep: yman git checkout --ours\|--theirs -- <file> && yman git add <file>` |
 | `--continue` with an unloadable task | `conflict markers or invalid task in <dir>: <why>` |
 | `--continue` with an unloadable `config.toml` | `invalid .yman/config.toml: <why>` |
+| a clean merge left a `config.toml` that does not load | `invalid .yman/config.toml: <why>; the merge is still in progress; fix that, then: yman sync --continue  (or: yman sync --abort)` |
 
 `sync --continue` or `--abort` with nothing to finish reports
 `no merge in progress` with exit code 1, not 3: there is no merge pending.
@@ -201,7 +202,16 @@ Never fatal, always stderr:
 | `warning: <name> is N MiB; git is not great at large binaries` | attaching a file over 5 MiB |
 | `warning: installing into core.hooksPath=<p>` | hooks redirected away from `.git/hooks` (a whitespace-only value included, untrimmed); `<p>` is the directory as git resolves it (`~/` expanded, a relative value joined onto the toplevel) |
 | `warning: cannot read <path>: <why>` | `hooks status` or `hooks remove` met a hook it cannot read; it reports the hook as `unreadable` and leaves it alone |
-| `warning: refresh failed: <why>` | the lazy refresh before a command failed; the command still runs |
+| `warning: .yman/config.toml: unknown key <key> ignored` | a key `config.toml` does not define; one line per key, dotted and sorted, from every command that loads the config except `refresh --quiet` (so not `init`, `hooks`, `git`, `guide`, `completions`, `man` or `merge-driver`) |
+| `note: sync merge in progress; using config.toml as committed at HEAD` | a read-only command (`status`, `ls`, `show`, `plan`, `log`, `path`, `state` or `tags` without an action) ran during a sync merge whose `config.toml` does not load |
+| `warning: git config yman.refresh "<v>" is not lazy or manual; using manual` | `yman.refresh` holds another value (matching is exact, so `Lazy` too); it acts as `manual`; from every command that reads the policy, `status` and the `init` summary included |
+| `warning: git config yman.autosync "<v>" is not off or push; using off` | `yman.autosync` holds another value (`Push` too); it acts as `off`; from `status` and after every mutating command |
+| `warning: merge driver merge.ymanmeta.driver is not set; run: yman init` | `yman status` found no merge driver (or an empty one) in this clone's git config |
+| `warning: merge driver merge.ymanmeta.driver runs <program>, which does not exist; run: yman init` | `yman status` found a merge driver whose program is missing (a package upgrade moved the binary) |
+| `warning: merge driver merge.ymanmeta.driver runs <program>, which is not executable; run: yman init` | `yman status` found a merge driver whose program is a file without the exec bit; a `~`, `$` or `"` program or a relative path is not judged |
+| `note: hook <name> carries the yman marker but was edited; delete it by hand: <path>` | `hooks remove` met a marked hook that differs from the script yman writes; it prints `hook <name>: edited, left alone` and exits 0 |
+| `warning: yman is not on PATH, so the installed hooks do nothing` | `hooks status`, `hooks install` or `status` with hooks installed and no executable `yman` on `PATH` |
+| `warning: refresh failed: <why>` | the lazy refresh before a command failed; the command still runs (a refresh that succeeded but brought a `config.toml` that does not load fails the command with exit 1 instead) |
 | `warning: origin has new task commits; run: yman sync` | `yman.autosync = push` and the push after a change was rejected; nothing is merged, the change stays committed |
 | `warning: autosync failed: <why>; run: yman sync` | `yman.autosync = push` and the push after a change failed (offline, auth); the command's exit code is unchanged |
 | `warning: could not undo the failed change: <why>; run: yman status` | a mutating command failed and putting `.yman` back (unstaging, or restoring the last commit) failed too; the exit code is the original failure's |

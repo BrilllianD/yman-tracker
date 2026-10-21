@@ -1,6 +1,7 @@
 //! Discovery of the surrounding repository and the state of `.yman`.
 
-use crate::config::Config;
+use crate::cli::{AutosyncPolicy, RefreshPolicy};
+use crate::config::{CONFIG_FILE, Config};
 use crate::errors::MergePending;
 use crate::git::{Git, indent_detail};
 use anyhow::{Result, bail};
@@ -29,6 +30,18 @@ fn read_gitdir_file(ydir: &Path) -> Option<PathBuf> {
         ydir.join(pointed)
     };
     Some(pointed.canonicalize().unwrap_or(pointed))
+}
+
+/// What `Context::preflight` does when a sync merge is pending and the
+/// working `config.toml` does not load (it conflicted, or a hand edit broke it).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MergeConfig {
+    /// Fail with the load error, as for any command outside a merge.
+    Strict,
+    /// Load nothing: the command settles the merge and loads the config itself (`sync`).
+    Skip,
+    /// Load the config committed at HEAD and print a note (the read-only commands).
+    Committed,
 }
 
 pub struct Context {
@@ -237,6 +250,28 @@ impl Context {
         self.get_cfg("remote.origin.url")
     }
 
+    /// `yman.refresh` as this clone holds it: unset is lazy, a value that is
+    /// not a policy name acts as manual.
+    pub fn refresh_policy(&self) -> Result<Policy<RefreshPolicy>> {
+        Ok(Policy::read(
+            "yman.refresh",
+            self.get_cfg("yman.refresh")?,
+            RefreshPolicy::Lazy,
+            RefreshPolicy::Manual,
+        ))
+    }
+
+    /// `yman.autosync` as this clone holds it: unset or a value that is not a
+    /// policy name acts as off.
+    pub fn autosync_policy(&self) -> Result<Policy<AutosyncPolicy>> {
+        Ok(Policy::read(
+            "yman.autosync",
+            self.get_cfg("yman.autosync")?,
+            AutosyncPolicy::Off,
+            AutosyncPolicy::Off,
+        ))
+    }
+
     pub fn get_cfg(&self, key: &str) -> Result<Option<String>> {
         let out = self.main.run(&["config", "--get", key])?;
         if out.ok() {
@@ -355,10 +390,12 @@ impl Context {
     ///
     /// The merge check comes before the config load: a sync merge that
     /// conflicted in `config.toml` leaves it unparseable, and that must still
-    /// read as exit 3. `settles_merge` commands (`sync`) get past an
-    /// unloadable config while merging, since getting out of that state is
-    /// their job and they read no config until it is over.
-    pub fn preflight(&mut self, mutating: bool, settles_merge: bool) -> Result<()> {
+    /// read as exit 3 for a command that writes. For the rest, `merge_config`
+    /// says what happens while a merge is pending and the config does not
+    /// load: `sync` gets past it without a config (settling the merge is its
+    /// job), the read-only commands use the config committed at `HEAD`, and
+    /// every other command fails with the load error.
+    pub fn preflight(&mut self, mutating: bool, merge_config: MergeConfig) -> Result<()> {
         if self.ydir_state() != YdirState::Worktree {
             bail!("{YDIR_NAME} is not initialized; run: yman init");
         }
@@ -372,8 +409,32 @@ impl Context {
         }
         match Config::load(&self.ydir) {
             Ok(cfg) => self.config = Some(cfg),
-            Err(_) if merging && settles_merge => {}
+            Err(_) if merging && merge_config == MergeConfig::Skip => {}
+            Err(_) if merging && merge_config == MergeConfig::Committed => {
+                self.config = Some(self.head_config()?);
+                eprintln!("note: sync merge in progress; using config.toml as committed at HEAD");
+            }
             Err(e) => return Err(e),
+        }
+        Ok(())
+    }
+
+    /// `config.toml` as committed at `HEAD`. During a sync merge `HEAD` is
+    /// this clone's side, committed before the merge started, so it is the
+    /// config the readers used a moment earlier.
+    fn head_config(&self) -> Result<Config> {
+        Config::parse(
+            &self
+                .wt
+                .out(&["cat-file", "blob", &format!("HEAD:{CONFIG_FILE}")])?,
+        )
+    }
+
+    /// Load `config.toml` again after `.yman` moved. A no-op when preflight
+    /// loaded none (a merge it let through).
+    pub fn reload_config(&mut self) -> Result<()> {
+        if self.config.is_some() {
+            self.config = Some(Config::load(&self.ydir)?);
         }
         Ok(())
     }
@@ -383,6 +444,85 @@ impl Context {
         match dir.strip_prefix(&self.root) {
             Ok(rel) => rel.to_string_lossy().into_owned(),
             Err(_) => dir.to_string_lossy().into_owned(),
+        }
+    }
+}
+
+/// A per-clone `yman.*` policy, as this clone's git config holds it.
+pub struct Policy<T> {
+    /// What yman does.
+    pub value: T,
+    /// The raw value, when it is set but names no policy yman knows.
+    pub invalid: Option<String>,
+    key: &'static str,
+    fallback: T,
+}
+
+impl<T: clap::ValueEnum + Copy> Policy<T> {
+    /// `unset` when the key is absent, `fallback` when its value is not a
+    /// variant name (exact, case-sensitive match).
+    fn read(key: &'static str, raw: Option<String>, unset: T, fallback: T) -> Policy<T> {
+        let (value, invalid) = match raw {
+            None => (unset, None),
+            Some(v) => match T::from_str(&v, false) {
+                Ok(t) => (t, None),
+                Err(_) => (fallback, Some(v)),
+            },
+        };
+        Policy {
+            value,
+            invalid,
+            key,
+            fallback,
+        }
+    }
+
+    /// Print the `warning: git config <key> "<v>" is not <a> or <b>; using
+    /// <fallback>` line when the value is invalid.
+    pub fn warn(&self) {
+        let Some(v) = &self.invalid else { return };
+        let name = |t: &T| {
+            t.to_possible_value()
+                .map(|p| p.get_name().to_string())
+                .unwrap_or_default()
+        };
+        let names: Vec<String> = T::value_variants().iter().map(name).collect();
+        eprintln!(
+            "warning: git config {} \"{v}\" is not {}; using {}",
+            self.key,
+            names.join(" or "),
+            name(&self.fallback)
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn refresh(raw: Option<&str>) -> Policy<RefreshPolicy> {
+        Policy::read(
+            "yman.refresh",
+            raw.map(str::to_string),
+            RefreshPolicy::Lazy,
+            RefreshPolicy::Manual,
+        )
+    }
+
+    #[test]
+    fn policy_read_unset_and_valid_names() {
+        assert_eq!(refresh(None).value, RefreshPolicy::Lazy);
+        assert_eq!(refresh(Some("lazy")).value, RefreshPolicy::Lazy);
+        assert_eq!(refresh(Some("manual")).value, RefreshPolicy::Manual);
+        assert!(refresh(Some("manual")).invalid.is_none());
+    }
+
+    #[test]
+    fn policy_read_is_exact_and_empty_is_invalid() {
+        for raw in ["Lazy", ""] {
+            let p = refresh(Some(raw));
+            assert_eq!(p.value, RefreshPolicy::Manual, "{raw:?}");
+            assert_eq!(p.invalid.as_deref(), Some(raw));
         }
     }
 }

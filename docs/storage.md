@@ -107,11 +107,11 @@ file answers. `tests/cli.rs` pins both numbers.
 |---|---|---|
 | `COMMON/info/exclude` | `.yman/` | keeps the code worktree's `git status` clean |
 | `remote.origin.fetch` (appended) | `+refs/tasks/main:refs/yman/remote` | a plain `git fetch` carries task commits; only added when `origin` exists |
-| `yman.refresh` | `lazy` \| `manual` | see [commands.md §5](commands.md#5-refresh) |
-| `yman.autosync` | `off` \| `push` | only when `--autosync` is given; unset means `off`; see [commands.md §1](commands.md#1-what-runs-before-a-command-body) |
+| `yman.refresh` | `lazy` \| `manual` | any other value acts as `manual`, with a warning; see [commands.md §5](commands.md#5-refresh) |
+| `yman.autosync` | `off` \| `push` | only when `--autosync` is given; unset means `off`, any other value acts as `off` with a warning; see [commands.md §1](commands.md#1-what-runs-before-a-command-body) |
 | `yman.author` | prefix string | only meaningful for the `author` id scheme |
 | `merge.ymanmeta.name` | `yman m.yml field-wise merge` | shown by git when the driver runs |
-| `merge.ymanmeta.driver` | `'<yman>' merge-driver %O %A %B` — the binary's path single-quoted for `sh`, a `'` in it written `'\''` | see [Merging `m.yml`](#merging-myml) |
+| `merge.ymanmeta.driver` | `'<yman>' merge-driver %O %A %B` — the binary's path single-quoted for `sh`, a `'` in it written `'\''` | `yman status` warns when it is unset or its program does not exist (a package upgrade moved the binary); `yman init` rewrites it; see [Merging `m.yml`](#merging-myml) |
 | `.yman/.gitattributes` | `**/d.md merge=union`, `**/m.yml merge=ymanmeta` | committed, so every clone inherits it |
 
 `remote.origin.push` is **never** set: that would hijack the user's plain
@@ -556,6 +556,11 @@ Validated on every load; each failure is reported as
 | `ids.random_len` in `2..=16` |
 
 `[priorities]` and `[slug]` may be omitted entirely.
+
+A key outside this file's schema is ignored and reported as
+`warning: .yman/config.toml: unknown key <key> ignored`, so a typo such as
+`strat` for `start` is visible instead of silently restoring the positional
+default.
 
 ### Status roles
 

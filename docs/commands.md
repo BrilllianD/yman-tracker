@@ -23,17 +23,33 @@ Normative, as-built. Companion documents: [storage.md](storage.md),
    symbolic ref `refs/yman/local`; for *mutating* commands, an unresolved
    sync merge stops the command with exit 3; then `config.toml` must load and
    validate. The merge check comes first so that a merge which conflicted in
-   `config.toml` still exits 3, and `sync` is let through an unloadable
-   config while a merge is pending — `--abort` and `--continue` are how that
-   state ends.
+   `config.toml` still exits 3. While a merge is pending and `config.toml`
+   does not load, `sync` is let through without a config, because `--abort`
+   and `--continue` are how that state ends. The read-only commands (`status`,
+   `ls`, `show`, `plan`, `log`, `path`, and `state` and `tags` without an
+   action) run on the config committed at `HEAD` and print `note: sync merge
+   in progress; using config.toml as committed at HEAD` on stderr. Every other
+   command fails with the load error. A key `config.toml` does not define is
+   ignored and reported once per command that loads the config (not `init`,
+   `hooks`, `git`, `guide`, `completions`, `man`, `merge-driver`) as
+   `warning: .yman/config.toml: unknown key <key> ignored` (never under
+   `refresh --quiet`).
 4. **Lazy refresh**, when `yman.refresh` is unset or `lazy`, for every command
    except `init`, `sync`, `refresh`, `status`, `hooks` and `git`. A failure here
-   is downgraded to a `warning:` on stderr and never takes the real command
-   down.
+   is downgraded to a `warning:` on stderr and the real command still runs.
+   Any other `yman.refresh` value acts as `manual`, and wherever the policy
+   is read yman prints `warning: git config yman.refresh "<v>" is not lazy or
+   manual; using manual`.
+   When it fast-forwards, `config.toml` is loaded again, so the command runs
+   on the rules of the history it now stands on; a config that arrived and
+   does not load is not downgraded: the command fails with exit 1 and
+   `invalid .yman/config.toml: <why>`.
 5. **Autosync**, after a mutating command made at least one commit, including
    one that then failed part-way (a multi-id verb stopping at a missing id,
    `add --sections` stopping at a bad task), when `yman.autosync` is `push`
-   and there is an `origin`; the push runs before the error is printed, and
+   and there is an `origin` (any other `yman.autosync` value acts as `off`,
+   with `warning: git config yman.autosync "<v>" is not off or push; using
+   off`); the push runs before the error is printed, and
    the exit code stays the failure's: one push of `refs/yman/local` to
    `refs/tasks/main`, skipped when `LOCAL` already equals `REMOTE`. It never
    fetches or merges. A push reports `note: pushed N task commit(s)`; a push
@@ -249,9 +265,19 @@ An unknown id is exit 4, as everywhere.
 Reports and never changes anything: the local ref and its short head, the
 remote ref with `ahead`/`behind` when it has been fetched, the refresh policy,
 the autosync setting (the text form names it only when it is not `off`),
-whether the hooks are installed, the number of uncommitted changes under
+whether the hooks are installed (the refresh policy and autosync setting
+shown are the ones in effect: an invalid value shows its fallback, with the
+warning above on stderr), the number of uncommitted changes under
 `.yman`, an unresolved merge with its unmerged files, and the task counts per
-configured status.
+configured status. A merge driver that is not set (or empty), or whose program
+does not exist or is not executable, is reported on stderr as `warning: merge
+driver merge.ymanmeta.driver is not set; run: yman init` or `warning: merge
+driver merge.ymanmeta.driver runs <program>, which does not exist; run: yman
+init` (`which is not executable` for a file without the exec bit). A program
+written with a leading `~`, `$` or `"`, or as a relative path, is not judged:
+git's shell resolves those differently from `yman`. With the hooks installed
+and no `yman` on `PATH` it prints `warning: yman is not on PATH, so the
+installed hooks do nothing`.
 
 `--json` emits one object —
 `{local: {ref, head}, remote: {ref, fetched, head, ahead, behind, origin}, refresh,
@@ -711,6 +737,17 @@ command -v yman >/dev/null 2>&1 && yman refresh --quiet
 exit 0
 ```
 
+A hook without the marker that already runs `yman refresh` (a non-comment
+line containing it) is `chained`: never touched, counted as installed, and
+`install` reports `hook <name>: already runs yman refresh`. `remove` deletes a
+marked hook only when it is exactly the script above; one the user edited is
+left with `hook <name>: edited, left alone` and a note naming its path.
+`status` reports `installed`, `chained`, `foreign`, `unreadable` or `absent`.
+
+The script needs `yman` on `PATH`; `install`, `status` and `yman status` warn
+with `warning: yman is not on PATH, so the installed hooks do nothing` when it
+is not.
+
 The target directory is `core.hooksPath` when set, as git resolves it with
 `rev-parse --git-path hooks` (`~/` expanded, a relative value relative to the
 toplevel), and the install warning names the resolved path; otherwise
@@ -757,7 +794,11 @@ exit 1.
    returned, so a `git fetch` running alongside cannot move them.
 5. No merge base → fatal: the histories are unrelated, and the message spells
    out the re-init recipe.
-6. `base == remote` → nothing to merge. `base == local` → `merge --ff-only`.
+6. `base == remote` → nothing to merge. `base == local` → `merge --ff-only`
+   and loads `config.toml` again. If the config the fast-forward brought does
+   not load, `sync` exits 1 with `invalid .yman/config.toml: <why>`;
+   `refs/yman/local` has already moved to origin's commit, and no push and no
+   `synced` summary follow.
 7. Otherwise **renumber collisions** (below), then
    `merge --no-commit --no-ff --no-edit --no-verify` with
    `merge.directoryRenames=true`. `m.yml`
@@ -767,10 +808,12 @@ exit 1.
    merge. Conflicts print `note: unmerged files:`, then each file indented by
    two spaces, and exit 3; if yman cannot list or record them, it still exits 3,
    with `merge stopped with conflicts, but yman could not list them: <why>`. A
-   clean merge stays uncommitted while the **rejoin**, the **drop** and the
-   duplicate-id check (all below) run on it, and is then committed with its
-   `-m` subject. Any failure from that point leaves the merge in progress with
-   exit 3, and `sync --continue` reruns the repairs and the check.
+   clean merge stays uncommitted while the merged `config.toml` is loaded and
+   the **rejoin**, the **drop** and the duplicate-id check (all below) run on
+   it, and is then committed with its `-m` subject. A `config.toml` that does
+   not load stops it there, like any failure from that point: the merge stays
+   in progress with exit 3, and `sync --continue` reruns the repairs and the
+   check.
 8. Push, unless `--no-push`: resolve `LOCAL` once and push that commit,
    `<sha>:refs/tasks/main`, with `--porcelain`, and read git's verdict from
    the `refs/tasks/main` line on stdout. Four reasons on a `!` line mean

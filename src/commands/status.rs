@@ -1,4 +1,5 @@
 use crate::cli::StatusArgs;
+use crate::commands::init;
 use crate::hooks;
 use crate::json;
 use crate::repo::{Context, LOCAL, REMOTE, REMOTE_REF};
@@ -44,13 +45,17 @@ pub fn run(ctx: &mut Context, a: StatusArgs) -> Result<()> {
 
 fn collect(ctx: &mut Context) -> Result<Report> {
     let head = ctx.main.out(&["rev-parse", "--short", LOCAL])?;
-    let policy = ctx
-        .get_cfg("yman.refresh")?
-        .unwrap_or_else(|| "lazy".to_string());
-    let autosync = ctx
-        .get_cfg("yman.autosync")?
-        .unwrap_or_else(|| "off".to_string());
+    let refresh = ctx.refresh_policy()?;
+    refresh.warn();
+    let policy = refresh.value.as_str().to_string();
+    let autosync = ctx.autosync_policy()?;
+    autosync.warn();
+    let autosync = autosync.value.as_str().to_string();
+    if let Some(why) = init::merge_driver_problem(ctx)? {
+        eprintln!("warning: {why}; run: yman init");
+    }
     let hooks_installed = hooks::all_installed(ctx)?;
+    hooks::warn_if_yman_missing(hooks_installed);
     let origin = ctx.origin_url()?.is_some();
 
     let remote = match ctx.main.rev_parse(REMOTE)? {

@@ -9,6 +9,10 @@ use std::path::{Path, PathBuf};
 pub const MARKER: &str = "# yman-hook v1";
 pub const HOOKS: [&str; 2] = ["post-merge", "post-checkout"];
 
+// `install` and `remove` compare a hook file with these exact bytes. Changing
+// SCRIPT makes every hook written from the old text read as edited, so `remove`
+// would leave it forever: keep each past version in a list and compare against
+// all of them (or bump MARKER) in the same change.
 const SCRIPT: &str = "#!/bin/sh\n\
                       # yman-hook v1\n\
                       command -v yman >/dev/null 2>&1 && yman refresh --quiet\n\
@@ -20,6 +24,9 @@ pub enum HookState {
     Installed,
     /// Someone else's hook; we never touch it.
     Foreign,
+    /// Someone else's hook that already runs `yman refresh`, as the install
+    /// note tells users to add; never touched, counted as installed.
+    Chained,
     /// Something is there but we cannot tell whose it is: unreadable,
     /// not UTF-8, or a dangling symlink. Treated like `Foreign`, never
     /// replaced. Carries the reason.
@@ -32,6 +39,7 @@ impl HookState {
         match self {
             HookState::Installed => "installed",
             HookState::Foreign => "foreign",
+            HookState::Chained => "chained",
             HookState::Unreadable(_) => "unreadable",
             HookState::Absent => "absent",
         }
@@ -74,6 +82,7 @@ pub fn state(dir: &Path, name: &str) -> HookState {
     match std::fs::read(&path) {
         Ok(bytes) => match String::from_utf8(bytes) {
             Ok(text) if text.lines().any(|l| l.trim() == MARKER) => HookState::Installed,
+            Ok(text) if runs_refresh(&text) => HookState::Chained,
             Ok(_) => HookState::Foreign,
             Err(_) => HookState::Unreadable("not valid UTF-8".to_string()),
         },
@@ -84,6 +93,41 @@ pub fn state(dir: &Path, name: &str) -> HookState {
             Err(_) => HookState::Absent,
         },
         Err(e) => HookState::Unreadable(e.to_string()),
+    }
+}
+
+/// Does a non-comment line of `text` run `yman refresh`?
+fn runs_refresh(text: &str) -> bool {
+    text.lines().any(|l| {
+        let l = l.trim();
+        !l.starts_with('#') && l.contains("yman refresh")
+    })
+}
+
+/// The first executable `name` in the directories of `PATH`.
+pub fn on_path(name: &str) -> Option<PathBuf> {
+    std::env::split_paths(&std::env::var_os("PATH")?)
+        .map(|dir| dir.join(name))
+        .find(|p| is_executable(p))
+}
+
+#[cfg(unix)]
+pub(crate) fn is_executable(p: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    p.metadata()
+        .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+pub(crate) fn is_executable(p: &Path) -> bool {
+    p.is_file()
+}
+
+/// Warn when hooks are installed but `yman` is not on `PATH`, so they do
+/// nothing.
+pub fn warn_if_yman_missing(installed: bool) {
+    if installed && on_path("yman").is_none() {
+        eprintln!("warning: yman is not on PATH, so the installed hooks do nothing");
     }
 }
 
@@ -98,10 +142,18 @@ pub fn install(ctx: &Context) -> Result<()> {
     }
     std::fs::create_dir_all(&dir)?;
     let mut refused: Vec<&str> = Vec::new();
+    let mut any_installed = false;
     for name in HOOKS {
         let path = dir.join(name);
         match state(&dir, name) {
-            HookState::Installed => println!("hook {name}: already installed"),
+            HookState::Installed => {
+                any_installed = true;
+                println!("hook {name}: already installed");
+            }
+            HookState::Chained => {
+                any_installed = true;
+                println!("hook {name}: already runs yman refresh");
+            }
             HookState::Foreign => {
                 eprintln!(
                     "note: hook {name} exists; add this line to it:\n    yman refresh --quiet"
@@ -118,10 +170,12 @@ pub fn install(ctx: &Context) -> Result<()> {
             HookState::Absent => {
                 write_new(&path)?;
                 set_executable(&path)?;
+                any_installed = true;
                 println!("hook {name}: installed");
             }
         }
     }
+    warn_if_yman_missing(any_installed);
     if !refused.is_empty() {
         bail!(
             "{} hook(s) not installed: {}",
@@ -147,7 +201,7 @@ fn warn_unreadable(path: &Path, why: &str) {
     eprintln!("warning: cannot read {}: {why}", path.display());
 }
 
-/// Delete only the hooks carrying our marker.
+/// Delete only the hooks that are exactly the script we write.
 pub fn remove(ctx: &Context) -> Result<()> {
     let Some((dir, _)) = hooks_dir(ctx)? else {
         bail!(EMPTY_HOOKS_PATH)
@@ -155,10 +209,29 @@ pub fn remove(ctx: &Context) -> Result<()> {
     for name in HOOKS {
         match state(&dir, name) {
             HookState::Installed => {
-                std::fs::remove_file(dir.join(name))?;
-                println!("hook {name}: removed");
+                let path = dir.join(name);
+                match std::fs::read(&path) {
+                    Ok(bytes) if bytes == SCRIPT.as_bytes() => {
+                        std::fs::remove_file(&path)?;
+                        println!("hook {name}: removed");
+                    }
+                    Ok(_) => {
+                        eprintln!(
+                            "note: hook {name} carries the yman marker but was edited; \
+                             delete it by hand: {}",
+                            path.display()
+                        );
+                        println!("hook {name}: edited, left alone");
+                    }
+                    Err(e) => {
+                        warn_unreadable(&path, &e.to_string());
+                        println!("hook {name}: unreadable, left alone");
+                    }
+                }
             }
-            HookState::Foreign => println!("hook {name}: not ours, left alone"),
+            HookState::Foreign | HookState::Chained => {
+                println!("hook {name}: not ours, left alone")
+            }
             HookState::Unreadable(why) => {
                 warn_unreadable(&dir.join(name), &why);
                 println!("hook {name}: unreadable, left alone");
@@ -173,22 +246,27 @@ pub fn report(ctx: &Context) -> Result<()> {
     let Some((dir, _)) = hooks_dir(ctx)? else {
         bail!(EMPTY_HOOKS_PATH)
     };
+    let mut any_installed = false;
     for name in HOOKS {
         let st = state(&dir, name);
         if let HookState::Unreadable(why) = &st {
             warn_unreadable(&dir.join(name), why);
         }
+        any_installed |= matches!(st, HookState::Installed | HookState::Chained);
         println!("hook {name}: {}", st.as_str());
     }
+    warn_if_yman_missing(any_installed);
     Ok(())
 }
 
-/// Are both hooks ours? Used for the one-word summary in `init` and `status`.
+/// Does every hook run yman, ours or chained? Used for the one-word summary in `init` and `status`.
 pub fn all_installed(ctx: &Context) -> Result<bool> {
     let Some((dir, _)) = hooks_dir(ctx)? else {
         return Ok(false);
     };
-    Ok(HOOKS.iter().all(|n| state(&dir, n) == HookState::Installed))
+    Ok(HOOKS
+        .iter()
+        .all(|n| matches!(state(&dir, n), HookState::Installed | HookState::Chained)))
 }
 
 #[cfg(unix)]
