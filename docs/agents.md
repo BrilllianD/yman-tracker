@@ -60,12 +60,12 @@ stdout carries data only. Errors (`error: ...`), warnings and notes go to stderr
     0  ok
     1  error, stderr says what
     2  usage error, from the argument parser
-    3  a sync merge is unresolved
+    3  a sync merge is unresolved; mutating commands exit 3 till then
     4  no task has that id
 
-On 3: `yman status` names the unmerged files under `.yman/`; remove the markers
-(delete a folder a `duplicate task id` names; `yman git add` the side to keep of
-a file with no markers), then `yman sync --continue` or `--abort`; mutating exits 3 till then.
+On 3: read stderr, the cause comes first. `yman status` names unmerged files: remove the markers, or
+`yman git add` the side to keep of a no-marker file. With none, delete the folder the message names
+(`duplicate task id`, `task <id> is split`, `holds file(s)`), then `yman sync --continue` or `--abort`.
 
 ## Cost and attribution
 

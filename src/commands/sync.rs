@@ -2,128 +2,11 @@ use crate::cli::SyncArgs;
 use crate::config::{Config, Scheme};
 use crate::errors::MergePending;
 use crate::ids;
-use crate::repo::{Context, FETCH_REFSPEC, LOCAL, REMOTE, REMOTE_REF};
-use crate::task::{self, FolderName};
+use crate::repo::{Context, LOCAL, REMOTE, REMOTE_REF};
+use crate::task;
+use crate::transport::{self, PUSH_ATTEMPTS, PushResult, push};
 use anyhow::{Context as _, Result, bail};
 use std::collections::{HashMap, HashSet};
-
-/// A successful push carries the commit it published: the caller counts and
-/// reports from that, never from a fresh read of `LOCAL`, which a concurrent
-/// command may have moved since.
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum PushResult {
-    Ok(String),
-    UpToDate(String),
-    Rejected,
-}
-
-/// How many times `sync` (and `init`, publishing a fresh tracker) pushes
-/// into a moving origin before giving up.
-pub const PUSH_ATTEMPTS: u32 = 3;
-
-/// `git push origin refs/yman/local:refs/tasks/main`, always explicit — we
-/// never set `remote.origin.push`, which would hijack the user's plain
-/// `git push`.
-///
-/// `--porcelain` gives one machine-readable line per ref on stdout, so the
-/// outcome is read from git's verdict on `refs/tasks/main` rather than guessed
-/// from the human-readable stderr, which also carries whatever origin's hooks
-/// printed.
-///
-/// `LOCAL` is resolved once and that commit is pushed by sha. Pushing the ref
-/// by name and then running `update-ref REMOTE LOCAL` read `LOCAL` twice, so
-/// a commit made in between was recorded as published when it was not, and
-/// autosync's `REMOTE == LOCAL` check then skipped it for good.
-pub fn push(ctx: &Context) -> Result<PushResult> {
-    let Some(sha) = ctx.resolve_ref(LOCAL)? else {
-        bail!("nothing to push: {LOCAL} does not exist");
-    };
-    let refspec = format!("{sha}:{REMOTE_REF}");
-    // Git also moves `refs/yman/remote` here, through `remote.origin.fetch`;
-    // the user's `reference-transaction` hook is not for that.
-    let out = ctx.main.without_hooks().run(&[
-        "push",
-        "--porcelain",
-        "--no-verify",
-        "origin",
-        &refspec,
-    ])?;
-    let status = ref_status(&out.stdout);
-    if out.ok() {
-        // Mirror what origin now has, so `status` and `refresh` agree.
-        ctx.main.without_hooks().ok(&["update-ref", REMOTE, &sha])?;
-        return Ok(match status {
-            Some(('=', _)) => PushResult::UpToDate(sha),
-            _ => PushResult::Ok(sha),
-        });
-    }
-    if let Some(('!', summary)) = status
-        && is_race(summary)
-    {
-        return Ok(PushResult::Rejected);
-    }
-    eprint!("{}", out.stderr);
-    if let Some(('!', summary)) = status {
-        // In porcelain mode git's reason goes to stdout; put it back where
-        // the user looks, in the shape git's own report has, indented like any
-        // continuation line.
-        let line = match summary.split_once(" (") {
-            Some((kind, reason)) => format!("{kind} {LOCAL} -> {REMOTE_REF} ({reason}"),
-            None => format!("{summary} {LOCAL} -> {REMOTE_REF}"),
-        };
-        eprintln!("  ! {line}");
-    }
-    bail!("push failed")
-}
-
-/// The flag and summary of the `refs/tasks/main` line in `push --porcelain`
-/// output: `<flag>\t<from>:<to>\t<summary>`, e.g.
-/// `!\t<sha>:refs/tasks/main\t[rejected] (fetch first)`. `<from>` is the
-/// pushed sha (older code pushed `refs/yman/local` by name).
-fn ref_status(stdout: &str) -> Option<(char, &str)> {
-    stdout.lines().find_map(|line| {
-        let mut parts = line.splitn(3, '\t');
-        let flag = parts.next()?;
-        let (_, to) = parts.next()?.split_once(':')?;
-        let summary = parts.next()?;
-        let mut chars = flag.chars();
-        let c = chars.next()?;
-        (chars.next().is_none() && to == REMOTE_REF).then_some((c, summary))
-    })
-}
-
-/// Does a rejected push's summary mean origin's ref moved under us — the race
-/// a refetch and merge settles — rather than origin refusing the push?
-///
-/// Four reasons say exactly that and nothing else:
-/// - `[rejected] (fetch first)`: origin's ref points at a commit we do not
-///   have; someone pushed after our fetch.
-/// - `[rejected] (non-fast-forward)`: the same, when we happen to hold that
-///   commit already.
-/// - `[remote rejected] (incorrect old value provided)`: the ref moved on the
-///   server between its advertisement and its update, so receive-pack's own
-///   compare-and-swap failed. A narrower window, but the same race.
-/// - `[remote rejected] (reference already exists)`: the same compare-and-swap
-///   when we push to create the ref (`init`, or after it vanished) and
-///   someone created it first.
-///
-/// Everything else is a refusal, and retrying it would only repeat it and end
-/// in a misleading `origin keeps moving`: `pre-receive hook declined`,
-/// protected or denied refs, and the ambiguous `failed to update ref` and
-/// `failed to lock`, which older servers report for a moved ref but also for
-/// a full disk, a permission problem or a stale lock file.
-fn is_race(summary: &str) -> bool {
-    const RACE_REASONS: [&str; 4] = [
-        "fetch first",
-        "non-fast-forward",
-        "incorrect old value provided",
-        "reference already exists",
-    ];
-    summary
-        .rsplit_once(" (")
-        .and_then(|(_, reason)| reason.strip_suffix(')'))
-        .is_some_and(|reason| RACE_REASONS.contains(&reason))
-}
 
 pub fn run(ctx: &mut Context, a: SyncArgs) -> Result<()> {
     if a.abort {
@@ -189,30 +72,67 @@ fn resume(ctx: &mut Context, no_push: bool) -> Result<()> {
     // Staged into the merge commit itself, and before the checks, which
     // would otherwise read the left-behind folder as a duplicate id, or a
     // removed task's remnant as an unloadable task.
-    rejoin_split_folders(ctx)?;
-    if let Some(base) = ctx.wt.merge_base("HEAD", "MERGE_HEAD")? {
-        drop_deleted_remnants(ctx, &base, "HEAD", "MERGE_HEAD")?;
-    }
-    check_resolved_tasks(ctx)?;
+    let base = ctx
+        .wt
+        .merge_base("HEAD", "MERGE_HEAD")
+        .map_err(still_pending)?;
+    repair_merge(ctx, base.as_deref()).map_err(still_pending)?;
+    check_resolved_tasks(ctx).map_err(still_pending)?;
 
     // What the merge brings in, counted before the commit makes it ours.
+    let pulled = ctx
+        .wt
+        .out(&["rev-list", "--count", "HEAD..MERGE_HEAD"])
+        .map_err(still_pending)?;
     let mut totals = Totals {
-        pulled: ctx
-            .wt
-            .out(&["rev-list", "--count", "HEAD..MERGE_HEAD"])?
-            .trim()
-            .parse()
-            .unwrap_or(0),
+        pulled: pulled.trim().parse().unwrap_or(0),
         ..Totals::default()
     };
-    ctx.wt.ok(&["add", "-A"])?;
-    ctx.wt.commit_merge()?;
+    ctx.wt
+        .ok(&["add", "-A"])
+        .map(|_| ())
+        .and_then(|()| ctx.wt.commit_merge())
+        .map_err(still_pending)?;
     forget_marked(ctx);
 
     if !no_push {
         push_with_count(ctx, &mut totals)?;
     }
     summary(ctx, &totals, no_push)
+}
+
+/// Rejoin split folders, then drop removed tasks' remnants, staged into
+/// the merge in progress. Both read their work off the disk and the
+/// trees, so a rerun after a failure part-way finishes what is left.
+fn repair_merge(ctx: &Context, base: Option<&str>) -> Result<()> {
+    rejoin_split_folders(ctx)?;
+    if let Some(base) = base {
+        drop_deleted_remnants(ctx, base, "HEAD", "MERGE_HEAD")?;
+    }
+    Ok(())
+}
+
+/// A clean merge is left uncommitted so the repairs go into the merge
+/// commit and the duplicate-id gate sees the final tree. Anything that
+/// fails here leaves MERGE_HEAD in place: exit 3, and `--continue`
+/// reruns every step.
+fn finish_clean_merge(ctx: &Context, base: &str) -> Result<()> {
+    repair_merge(ctx, Some(base))
+        .and_then(|()| duplicate_ids_gate(ctx))
+        .and_then(|()| ctx.wt.commit_merge())
+        .map_err(still_pending)
+}
+
+/// Exit 3 for any failure while a merge is in progress: a plain error
+/// would exit 1 and leave the user mid-merge with no hint how to leave.
+fn still_pending(e: anyhow::Error) -> anyhow::Error {
+    if e.downcast_ref::<MergePending>().is_some() {
+        return e;
+    }
+    MergePending::new(format!(
+        "{e:#}; the merge is still in progress; fix that, then: yman sync --continue  (or: yman sync --abort)"
+    ))
+    .into()
 }
 
 /// Every task folder the merge touched must load, and must not still carry
@@ -260,10 +180,10 @@ fn check_resolved_tasks(ctx: &Context) -> Result<()> {
 /// command can touch that task again. This is the only thing that catches it.
 fn duplicate_ids_gate(ctx: &Context) -> Result<()> {
     let mut seen: HashMap<String, String> = HashMap::new();
-    for entry in task::list(&ctx.ydir)? {
-        let rel = entry.rel();
-        let Some(f) = FolderName::parse(&entry.dir_name()) else {
-            continue;
+    for (parent, name, f) in task::task_dirs(&ctx.ydir)? {
+        let rel = match parent {
+            Some(p) => format!("{p}/{name}"),
+            None => name,
         };
         if let Some(first) = seen.insert(f.id.clone(), rel.clone()) {
             return Err(MergePending::new(format!(
@@ -443,12 +363,14 @@ fn normal(ctx: &mut Context, no_push: bool) -> Result<()> {
     let mut attempt = 0;
     loop {
         attempt += 1;
-        let had_remote = ctx.main.rev_parse(REMOTE)?.is_some();
-        fetch(ctx, had_remote)?;
+        transport::fetch(ctx, "fetch failed")?;
 
+        // Read once: every later step names this sha, never `REMOTE`, so a
+        // `git fetch` running alongside (the refspec `init` appends) cannot
+        // bring in ids the renumber never saw.
         if let Some(remote) = ctx.main.rev_parse(REMOTE)? {
             let local = ctx.main.rev_parse(LOCAL)?.unwrap_or_default();
-            let Some(base) = ctx.main.merge_base(LOCAL, REMOTE)? else {
+            let Some(base) = ctx.main.merge_base(LOCAL, &remote)? else {
                 bail!(
                     "task history unrelated to origin {REMOTE_REF}; re-init from remote:  rm -rf .yman && git update-ref -d {LOCAL} && yman init"
                 );
@@ -456,24 +378,11 @@ fn normal(ctx: &mut Context, no_push: bool) -> Result<()> {
             if base != remote {
                 totals.pulled += count(ctx, &format!("{base}..{remote}"))?;
                 if base == local {
-                    ctx.wt.ok(&["merge", "-q", "--ff-only", REMOTE])?;
+                    ctx.wt.ok(&["merge", "-q", "--ff-only", &remote])?;
                 } else {
-                    totals.renumbered += renumber_collisions(ctx, &base)?;
-                    merge_remote(ctx)?;
-                    // Pinned before the rejoin, whose commit moves HEAD off
-                    // the merge: `HEAD^2` would then name nothing.
-                    let Some(merge) = ctx.wt.rev_parse("HEAD")? else {
-                        bail!("merge left no HEAD in .yman");
-                    };
-                    if rejoin_split_folders(ctx)? > 0 {
-                        ctx.wt
-                            .commit("yman: rejoin files left under a moved folder")?;
-                    }
-                    let (ours, theirs) = (format!("{merge}^1"), format!("{merge}^2"));
-                    if drop_deleted_remnants(ctx, &base, &ours, &theirs)? > 0 {
-                        ctx.wt
-                            .commit("yman: drop files left under a removed task")?;
-                    }
+                    totals.renumbered += renumber_collisions(ctx, &base, &remote)?;
+                    merge_remote(ctx, &remote)?;
+                    finish_clean_merge(ctx, &base)?;
                 }
             }
         }
@@ -515,32 +424,9 @@ fn snapshot_dirty(ctx: &Context) -> Result<()> {
     Ok(())
 }
 
-fn fetch(ctx: &Context, had_remote: bool) -> Result<()> {
-    // `--no-write-fetch-head`: `FETCH_HEAD` in the main repository is the
-    // user's, left by their own last fetch.
-    // The user's hooks, a `reference-transaction` one included, are not for
-    // yman's own refs.
-    let out = ctx.main.without_hooks().run(&[
-        "fetch",
-        "--no-write-fetch-head",
-        "origin",
-        FETCH_REFSPEC,
-    ])?;
-    if out.ok() {
-        return Ok(());
-    }
-    if out.stderr.contains("couldn't find remote ref") {
-        if had_remote {
-            ctx.main.without_hooks().ok(&["update-ref", "-d", REMOTE])?;
-            eprintln!("warning: {REMOTE_REF} disappeared from origin; will recreate it");
-        }
-        return Ok(());
-    }
-    eprint!("{}", out.stderr);
-    bail!("fetch failed")
-}
-
-fn merge_remote(ctx: &Context) -> Result<()> {
+/// Merge `remote` (a pinned sha) without committing: on success the merge is
+/// staged and `MERGE_HEAD` exists, so the repairs go into the merge commit.
+fn merge_remote(ctx: &Context, remote: &str) -> Result<()> {
     // A retitle or a close moves a task's whole folder. A file the other side
     // added under the old folder — a first comment's `d.md`, an attachment —
     // belongs in the new one, and git's default for that is to stop and ask.
@@ -548,11 +434,13 @@ fn merge_remote(ctx: &Context) -> Result<()> {
         "-c",
         "merge.directoryRenames=true",
         "merge",
+        "--no-commit",
+        "--no-ff",
         "--no-edit",
         "--no-verify",
         "-m",
         &format!("yman: merge origin {REMOTE_REF}"),
-        REMOTE,
+        remote,
     ])?;
     if out.ok() {
         return Ok(());
@@ -642,8 +530,11 @@ fn report_split_closes(ctx: &Context) -> Result<()> {
 /// folder. An attachment on its own is `f/<name>`, one level down, and stays
 /// behind under the old name, in a folder with no `m.yml`: the task is split
 /// in two and the merge reports success. Move whatever was left behind into
-/// the folder that carries the task. Staged, not committed.
-fn rejoin_split_folders(ctx: &Context) -> Result<usize> {
+/// the folder that carries the task, staged into the merge in progress. A
+/// file the live folder already has is not moved over it; once every other
+/// file has moved, that collision stops the merge (exit 3), because the old
+/// folder would otherwise be published beside the live one.
+fn rejoin_split_folders(ctx: &Context) -> Result<()> {
     let mut by_id: HashMap<String, Vec<String>> = HashMap::new();
     for (parent, name, folder) in task::task_dirs(&ctx.ydir)? {
         let rel = match parent {
@@ -652,8 +543,15 @@ fn rejoin_split_folders(ctx: &Context) -> Result<usize> {
         };
         by_id.entry(folder.id).or_default().push(rel);
     }
-    let mut moved = 0;
-    for rels in by_id.values().filter(|r| r.len() > 1) {
+    let mut ids: Vec<&String> = by_id.keys().collect();
+    ids.sort_by(|a, b| task::cmp_id(a, b));
+    // (id, old, live), one per folder that kept a file back.
+    let mut blocked: Vec<(&String, &String, &String)> = Vec::new();
+    for id in ids {
+        let rels = &by_id[id];
+        if rels.len() < 2 {
+            continue;
+        }
         let (live, left): (Vec<&String>, Vec<&String>) = rels
             .iter()
             .partition(|rel| ctx.ydir.join(rel).join(task::META_FILE).exists());
@@ -665,13 +563,20 @@ fn rejoin_split_folders(ctx: &Context) -> Result<usize> {
         for old in left {
             let files = ctx.wt.out(&["ls-files", "--", old])?;
             let mut n = 0;
+            let mut kept_back = false;
             for file in files.lines().filter(|l| !l.trim().is_empty()) {
                 let Some(sub) = file.strip_prefix(old.as_str()) else {
                     continue;
                 };
+                // Under `--continue` the user may have deleted it by hand;
+                // `add -A` stages that.
+                if ctx.ydir.join(file).symlink_metadata().is_err() {
+                    continue;
+                }
                 let dest = format!("{live}{sub}");
                 if ctx.ydir.join(&dest).exists() {
                     eprintln!("warning: {file} not moved; {dest} already exists");
+                    kept_back = true;
                     continue;
                 }
                 if let Some(dir) = ctx.ydir.join(&dest).parent() {
@@ -687,10 +592,19 @@ fn rejoin_split_folders(ctx: &Context) -> Result<usize> {
             if n > 0 {
                 eprintln!("note: moved {n} file(s) left under {old} into {live}");
             }
-            moved += n;
+            if kept_back {
+                blocked.push((id, old, live));
+            }
         }
     }
-    Ok(moved)
+    blocked.sort_by(|a, b| a.1.cmp(b.1));
+    if let Some((id, old, live)) = blocked.first() {
+        return Err(MergePending::new(format!(
+            "task {id} is split: {old} holds file(s) {live} already has; keep one copy of each in {live}, delete {old}, then: yman sync --continue  (or: yman sync --abort)"
+        ))
+        .into());
+    }
+    Ok(())
 }
 
 /// A task removed on one side while the other added a file to it — a first
@@ -724,14 +638,24 @@ fn drop_deleted_remnants(ctx: &Context, base: &str, ours: &str, theirs: &str) ->
         if !base_ids.contains(&id) || (our_ids.contains(&id) && their_ids.contains(&id)) {
             continue;
         }
-        let files = ctx.wt.out(&["ls-files", "--", &rel])?;
-        let n = files.lines().filter(|l| !l.trim().is_empty()).count();
+        let files = ctx.wt.out(&["ls-files", "-s", "-z", "--", &rel])?;
+        let n = files.split('\0').filter(|l| !l.is_empty()).count();
+        if n > 0 && !only_merged_in(ctx, &rel, &files, [base, ours, theirs])? {
+            return Err(MergePending::new(format!(
+                "{rel} holds file(s) that are in no commit or that you staged by hand; \
+                 delete {rel} to let the removal of task {id} win, then: \
+                 yman sync --continue  (or: yman sync --abort)"
+            ))
+            .into());
+        }
         // `yman rm` leaves ignored and untracked files behind (`*.swp`, a note
         // dropped in by hand), so the folder can outlive the task with nothing
         // tracked in it. `git rm` would fail on that pathspec, and there is
         // nothing for it to do, nor anything the other side lost to report.
         if n > 0 {
-            ctx.wt.ok(&["rm", "-r", "-q", "--", &rel])?;
+            // `-f`: the merge staged the other side's new files, and plain
+            // `git rm` refuses a file whose index entry differs from HEAD.
+            ctx.wt.ok(&["rm", "-r", "-q", "-f", "--", &rel])?;
         }
         // `git rm` leaves the emptied directories; anything untracked stays.
         let dir = ctx.ydir.join(&rel);
@@ -747,6 +671,35 @@ fn drop_deleted_remnants(ctx: &Context, base: &str, ours: &str, theirs: &str) ->
         dropped += 1;
     }
     Ok(dropped)
+}
+
+/// Is everything tracked under `rel` something the merge itself staged, so
+/// that `git rm -f` loses nothing? That is a file the base never had (not a
+/// modify/delete conflict the user settled by keeping it), whose index entry
+/// is exactly one side's blob (not hand-resolved content) and whose worktree
+/// copy matches the index (no edit in no commit). `staged` is the
+/// `ls-files -s` listing of `rel`.
+fn only_merged_in(ctx: &Context, rel: &str, staged: &str, revs: [&str; 3]) -> Result<bool> {
+    let [base, ours, theirs] = revs;
+    if !ctx.wt.run(&["diff", "--quiet", "--", rel])?.ok() {
+        return Ok(false);
+    }
+    for line in staged.split('\0').filter(|l| !l.is_empty()) {
+        let Some((meta, path)) = line.split_once('\t') else {
+            return Ok(false);
+        };
+        let mut f = meta.split_whitespace();
+        let (_mode, oid, stage) = (f.next(), f.next().unwrap_or(""), f.next());
+        if stage != Some("0") || ctx.wt.rev_parse(&format!("{base}:{path}"))?.is_some() {
+            return Ok(false);
+        }
+        let ours_oid = ctx.wt.rev_parse(&format!("{ours}:{path}"))?;
+        let theirs_oid = ctx.wt.rev_parse(&format!("{theirs}:{path}"))?;
+        if ours_oid.as_deref() != Some(oid) && theirs_oid.as_deref() != Some(oid) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// Every task id in `rev`'s tree, read from the folder names alone.
@@ -770,7 +723,7 @@ fn tree_ids(ctx: &Context, rev: &str) -> Result<HashSet<String>> {
 
 /// Two people offline with the same id scheme will mint the same id. Ours
 /// moves, because theirs is already published.
-fn renumber_collisions(ctx: &mut Context, base: &str) -> Result<usize> {
+fn renumber_collisions(ctx: &mut Context, base: &str, remote: &str) -> Result<usize> {
     // A candidate is a task *created* here since the base: an id that the
     // local side has and the base did not. Reading that off the trees is the
     // whole point. The earlier version asked `git diff --diff-filter=A -M`
@@ -782,7 +735,7 @@ fn renumber_collisions(ctx: &mut Context, base: &str) -> Result<usize> {
     // is in the folder name at both ends, so comparing id sets settles it
     // without consulting the rename detector at all.
     let base_ids = tree_ids(ctx, base)?;
-    let remote_ids = tree_ids(ctx, REMOTE)?;
+    let remote_ids = tree_ids(ctx, remote)?;
 
     let mut colliding: Vec<String> = tree_ids(ctx, LOCAL)?
         .into_iter()
@@ -795,7 +748,7 @@ fn renumber_collisions(ctx: &mut Context, base: &str) -> Result<usize> {
 
     let mut taken: HashSet<String> = ids::fs_ids(&ctx.ydir)?;
     taken.extend(remote_ids.iter().cloned());
-    taken.extend(ids::ever_assigned(ctx, &[LOCAL, REMOTE])?);
+    taken.extend(ids::assigned_in(ctx, &[LOCAL, remote])?);
 
     // Plan first: every lookup that can fail (a task that does not load, an
     // exhausted id space) fails here, before the first `git mv`.
@@ -970,37 +923,5 @@ mod tests {
         assert!(is_marker("||||||| 66a9ddb"));
         assert!(is_marker("|||||||"));
         assert!(!is_marker("|| x"));
-    }
-
-    #[test]
-    fn ref_status_finds_the_tasks_ref() {
-        let out = "To /tmp/r.git\n=\trefs/yman/local:refs/tasks/main\t[up to date]\nDone\n";
-        assert_eq!(ref_status(out), Some(('=', "[up to date]")));
-        let out = "To /tmp/r.git\n \trefs/yman/local:refs/tasks/main\tabc..def\nDone\n";
-        assert_eq!(ref_status(out), Some((' ', "abc..def")));
-        let sha = "0123456789abcdef0123456789abcdef01234567";
-        let out = format!("To /tmp/r.git\n!\t{sha}:refs/tasks/main\t[rejected] (fetch first)\n");
-        assert_eq!(ref_status(&out), Some(('!', "[rejected] (fetch first)")));
-        assert_eq!(ref_status("To /tmp/r.git\nDone\n"), None);
-        assert_eq!(
-            ref_status("!\tHEAD:refs/heads/main\t[rejected] (fetch first)\n"),
-            None
-        );
-    }
-
-    #[test]
-    fn only_a_moved_ref_counts_as_a_race() {
-        assert!(is_race("[rejected] (fetch first)"));
-        assert!(is_race("[rejected] (non-fast-forward)"));
-        assert!(is_race("[remote rejected] (incorrect old value provided)"));
-        assert!(is_race("[remote rejected] (reference already exists)"));
-        assert!(!is_race("[remote rejected] (pre-receive hook declined)"));
-        assert!(!is_race("[remote rejected] (failed to update ref)"));
-        assert!(!is_race("[remote rejected] (failed to lock)"));
-        assert!(!is_race("[remote rejected] (deny updating a hidden ref)"));
-        assert!(!is_race("[rejected] (stale info)"));
-        assert!(!is_race(
-            "[remote failure] (remote failed to report status)"
-        ));
     }
 }

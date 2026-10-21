@@ -1471,6 +1471,40 @@ fn sync_leaves_fetch_head_alone() {
     assert_eq!(fx.read(&fx.b.join(".git/FETCH_HEAD")), "sentinel\n");
 }
 
+/// `init` fetches the way `sync` does: a `refs/yman/remote` that origin has
+/// since deleted is dropped, not adopted as the new tracker.
+#[test]
+fn init_drops_a_remote_ref_origin_deleted() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+
+    fx.git(&fx.remote, &["update-ref", "-d", "refs/tasks/main"]);
+    std::fs::remove_dir_all(fx.b.join(".yman")).unwrap();
+    fx.git(&fx.b, &["worktree", "prune"]);
+    fx.git(&fx.b, &["update-ref", "-d", "refs/yman/local"]);
+    assert!(
+        fx.git_try(&fx.b, &["rev-parse", "--verify", "-q", "refs/yman/remote"])
+            .0
+    );
+
+    let out = fx.yman(&fx.b).arg("init").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stderr(&out)
+            .contains("warning: refs/tasks/main disappeared from origin; will recreate it\n"),
+        "{}",
+        stderr(&out)
+    );
+    assert!(fx.task_dirs(&fx.b).is_empty());
+    assert_eq!(
+        fx.git(&fx.remote, &["rev-list", "--count", "refs/tasks/main"]),
+        "2"
+    );
+}
+
 /// A committed symlink loop under a task folder must not send the marker
 /// scan of `sync --continue` round in circles; the summary counts what the
 /// merge pulled.
@@ -1587,10 +1621,196 @@ fn a_removed_task_does_not_leave_its_new_files_behind() {
     }
 }
 
-/// A rejoin commits on top of the merge, so HEAD is no longer the merge when
-/// the remnant check runs. That check has to read the merge's own parents —
-/// `HEAD^2` names nothing then — or sync dies before the push and the next
-/// one, seeing nothing to merge, publishes the unloadable remnant.
+/// Under `--continue` the drop runs on a tree the user has touched. A
+/// modify/delete conflict on `d.md` that the user settled by keeping the file
+/// must not be undone by the drop: the command stops with exit 3 and the
+/// kept file is still there.
+#[test]
+fn continue_does_not_drop_a_d_md_the_user_kept() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["comment", "1", "-m", "first"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    fx.yman(&fx.b).args(["rm", "-f", "1"]).assert().success();
+    fx.yman(&fx.b).arg("sync").assert().success();
+
+    // d.md edited by hand on A: m.yml stays put, so only d.md conflicts.
+    let ydir = fx.a.join(".yman");
+    let d = "5.1.fix-login/d.md";
+    fx.write(
+        &ydir.join(d),
+        "## 2026-10-05T10:00:00Z — Test A\n\nkeep me\n\n",
+    );
+    let out = fx.yman(&fx.a).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    fx.yman(&fx.a).args(["git", "add", d]).assert().success();
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains(
+            "error: 5.1.fix-login holds file(s) that are in no commit or that you staged \
+             by hand; delete 5.1.fix-login to let the removal of task 1 win, then: \
+             yman sync --continue  (or: yman sync --abort)"
+        ),
+        "{}",
+        stderr(&out)
+    );
+    assert!(fx.read(&ydir.join(d)).contains("keep me"));
+}
+
+/// Sets up a stopped merge: task 1 removed on B, its `d.md` conflicting on A.
+fn stopped_on_removed_task_d_md(fx: &Fx) -> std::path::PathBuf {
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["comment", "1", "-m", "first"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    fx.yman(&fx.b).args(["rm", "-f", "1"]).assert().success();
+    fx.yman(&fx.b).arg("sync").assert().success();
+    let ydir = fx.a.join(".yman");
+    fx.write(
+        &ydir.join("5.1.fix-login/d.md"),
+        "## 2026-10-05T10:00:00Z — Test A\n\nkeep me\n\n",
+    );
+    let out = fx.yman(&fx.a).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    ydir
+}
+
+const HOLDS_FILES: &str = "error: 5.1.fix-login holds file(s) that are in no commit or that you \
+     staged by hand; delete 5.1.fix-login to let the removal of task 1 win, then: \
+     yman sync --continue  (or: yman sync --abort)";
+
+/// An edit made after `git add` is in no commit and not in the index, so the
+/// drop under `--continue` must stop instead of discarding it.
+#[test]
+fn continue_does_not_drop_an_unstaged_edit_in_the_leftover() {
+    let fx = Fx::new();
+    let ydir = stopped_on_removed_task_d_md(&fx);
+    let d = "5.1.fix-login/d.md";
+    fx.yman(&fx.a).args(["git", "add", d]).assert().success();
+    fx.write(
+        &ydir.join(d),
+        "## 2026-10-05T10:00:00Z — Test A\n\nlater\n\n",
+    );
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert!(stderr(&out).contains(HOLDS_FILES), "{}", stderr(&out));
+    assert!(fx.read(&ydir.join(d)).contains("later"));
+}
+
+/// A blob the user staged that is in neither side's tree is theirs to keep.
+#[test]
+fn continue_does_not_drop_a_blob_staged_by_hand() {
+    let fx = Fx::new();
+    let ydir = stopped_on_removed_task_d_md(&fx);
+    let d = "5.1.fix-login/d.md";
+    let note = "5.1.fix-login/note.txt";
+    fx.write(&ydir.join(note), "mine\n");
+    fx.yman(&fx.a)
+        .args(["git", "add", d, note])
+        .assert()
+        .success();
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert!(stderr(&out).contains(HOLDS_FILES), "{}", stderr(&out));
+    assert_eq!(fx.read(&ydir.join(note)), "mine\n");
+}
+
+/// `ls-files` quotes a path holding `"` unless told `-z`; a normal sync must
+/// still recognise the other side's attachment as merged in and drop it.
+#[test]
+fn a_remnant_holding_a_quoted_attachment_name_is_dropped() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    fx.yman(&fx.b).args(["rm", "-f", "1"]).assert().success();
+    fx.yman(&fx.b).arg("sync").assert().success();
+    let ydir = fx.a.join(".yman");
+    fx.write(&ydir.join("5.1.fix-login/f/a\"b.png"), "x");
+    fx.git(&ydir, &["add", "-A"]);
+    fx.git(&ydir, &["commit", "-q", "-m", "attach"]);
+
+    let out = fx.yman(&fx.a).arg("sync").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(!ydir.join("5.1.fix-login").exists());
+}
+
+/// A remnant under `--continue` that holds only the other side's plain new
+/// file is still dropped, as it is in a clean merge.
+#[test]
+fn continue_still_drops_a_plain_remnant() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).args(["add", "Other"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    fx.yman(&fx.b).args(["rm", "-f", "1"]).assert().success();
+    let bin = "5.2.other/f/log.bin";
+    for (clone, bytes) in [(&fx.a, "from a\0"), (&fx.b, "from b\0")] {
+        let ydir = clone.join(".yman");
+        fx.write(&ydir.join(bin), bytes);
+        fx.git(&ydir, &["add", "--", bin]);
+        fx.git(&ydir, &["commit", "-q", "-m", "attach"]);
+    }
+    fx.write(
+        &fx.a.join(".yman/5.1.fix-login/d.md"),
+        "## 2026-10-05T10:00:00Z — Test A\n\nhi\n\n",
+    );
+    fx.yman(&fx.b).arg("sync").assert().success();
+    let out = fx.yman(&fx.a).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    fx.yman(&fx.a)
+        .args(["git", "checkout", "--ours", "--", bin])
+        .assert()
+        .success();
+    fx.yman(&fx.a).args(["git", "add", bin]).assert().success();
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains(
+            "note: dropped 5.1.fix-login: task 1 was removed on one side; \
+             1 file(s) added on the other are gone"
+        ),
+        "{}",
+        stderr(&out)
+    );
+    assert!(!fx.a.join(".yman/5.1.fix-login").exists());
+}
+
+/// The rejoin and the remnant drop are staged into the merge commit, not
+/// committed on top of it, so one sync does both and still pushes.
 #[test]
 fn rejoin_and_drop_in_one_sync_still_push() {
     let fx = Fx::new();
@@ -1632,7 +1852,7 @@ fn rejoin_and_drop_in_one_sync_still_push() {
         ),
         "{err}"
     );
-    assert!(stdout(&out).contains("pushed 5,"), "{}", stdout(&out));
+    assert!(stdout(&out).contains("pushed 3,"), "{}", stdout(&out));
     assert_eq!(
         origin_tasks(&fx),
         fx.git(&fx.b, &["rev-parse", "refs/yman/local"])
@@ -9206,8 +9426,32 @@ fn origin_moving_while_a_merge_is_finished_is_reported() {
     assert_eq!(fx.title(&fx.b, "2"), "Meanwhile");
 }
 
+/// Distinct folders holding id 1 in origin's published tree.
+fn id1_folders(fx: &Fx) -> usize {
+    let tree = fx.git(
+        &fx.remote,
+        &["ls-tree", "-r", "--name-only", "refs/tasks/main"],
+    );
+    let mut folders: Vec<String> = Vec::new();
+    for line in tree.lines() {
+        let parts: Vec<&str> = line.split('/').collect();
+        let folder = if parts[0].starts_with("5.1.") {
+            parts[0]
+        } else if parts.len() > 1 && parts[1].starts_with("5.1.") {
+            parts[1]
+        } else {
+            continue;
+        };
+        if !folders.iter().any(|f| f == folder) {
+            folders.push(folder.to_string());
+        }
+    }
+    folders.len()
+}
+
 /// A file a merge left under a moved folder is not moved over one of the
-/// same name the other side already put there: the warning names both.
+/// same name the other side already put there: the warning names both, and
+/// the collision stops the merge (exit 3) instead of pushing a split task.
 #[test]
 fn a_left_behind_file_is_not_moved_over_an_existing_one() {
     let fx = Fx::new();
@@ -9230,13 +9474,16 @@ fn a_left_behind_file_is_not_moved_over_an_existing_one() {
         .assert()
         .success();
     fx.yman(&fx.a).arg("sync").assert().success();
+    let published = origin_tasks(&fx);
 
     let out = fx.yman(&fx.b).arg("sync").output().unwrap();
-    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
     assert_eq!(
         stderr(&out),
-        "warning: 5.1.fix-login/f/trace.txt not moved; 5.1.repair-login/f/trace.txt already exists\n"
+        "warning: 5.1.fix-login/f/trace.txt not moved; 5.1.repair-login/f/trace.txt already exists\nerror: task 1 is split: 5.1.fix-login holds file(s) 5.1.repair-login already has; keep one copy of each in 5.1.repair-login, delete 5.1.fix-login, then: yman sync --continue  (or: yman sync --abort)\n"
     );
+    assert_eq!(origin_tasks(&fx), published);
+    assert_eq!(id1_folders(&fx), 1);
     // Neither copy is lost: B's stays where the merge left it.
     assert_eq!(
         fx.read(&fx.b.join(".yman/5.1.repair-login/f/trace.txt")),
@@ -9246,6 +9493,208 @@ fn a_left_behind_file_is_not_moved_over_an_existing_one() {
         fx.read(&fx.b.join(".yman/5.1.fix-login/f/trace.txt")),
         "from B\n"
     );
+
+    // The user keeps A's copy.
+    std::fs::remove_file(fx.b.join(".yman/5.1.fix-login/f/trace.txt")).unwrap();
+    let out = fx
+        .yman(&fx.b)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(id1_folders(&fx), 1);
+    let tree = fx.git(
+        &fx.remote,
+        &["ls-tree", "-r", "--name-only", "refs/tasks/main"],
+    );
+    assert!(tree.contains("5.1.repair-login/f/trace.txt"), "{tree}");
+    assert!(!tree.contains("5.1.fix-login/"), "{tree}");
+    assert_eq!(
+        fx.task_dirs(&fx.b),
+        [std::path::PathBuf::from("5.1.repair-login")]
+    );
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.a).args(["show", "1"]).assert().success();
+}
+
+/// A clean merge is checked for two folders for one id before it is
+/// committed, as `--continue` always did.
+#[test]
+fn a_clean_merge_with_two_folders_for_one_id_is_not_pushed() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+
+    let src = fx.b.join(".yman/5.1.fix-login");
+    let copy = fx.b.join(".yman/5.1.copy");
+    fx.write(&copy.join("t.md"), &fx.read(&src.join("t.md")));
+    fx.write(&copy.join("m.yml"), &fx.read(&src.join("m.yml")));
+    fx.yman(&fx.a).args(["add", "Other"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    let published = origin_tasks(&fx);
+
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains(
+            "duplicate task id 1: 5.1.copy, 5.1.fix-login; delete one folder, then: yman sync --continue"
+        ),
+        "{}",
+        stderr(&out)
+    );
+    assert_eq!(origin_tasks(&fx), published);
+
+    std::fs::remove_dir_all(&copy).unwrap();
+    let out = fx
+        .yman(&fx.b)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let tree = fx.git(
+        &fx.remote,
+        &["ls-tree", "-r", "--name-only", "refs/tasks/main"],
+    );
+    assert!(tree.contains("5.2.other/"), "{tree}");
+    assert!(!tree.contains("5.1.copy/"), "{tree}");
+}
+
+/// Past the fetch, sync names the remote by the sha it read, never by
+/// `refs/yman/remote`, so a fetch running alongside cannot move what the
+/// renumber and the merge look at.
+#[test]
+fn sync_names_refs_yman_remote_only_to_pin_it() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "A one"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "A two"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).args(["add", "B two"]).assert().success();
+
+    let log = fx.tmp.path().join("git-calls");
+    let out = fx
+        .yman_shimmed(
+            &fx.b,
+            &format!("printf '%s\\n' \"$*\" >> '{}'", log.display()),
+        )
+        .args(["sync", "--no-push"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stdout(&out).contains("renumbered 2 -> 3"),
+        "{}",
+        stdout(&out)
+    );
+    let calls = fx.read(&log);
+    let lines: Vec<&str> = calls.lines().collect();
+    let fetch = lines.iter().position(|l| l.contains(" fetch ")).unwrap();
+    let after = &lines[fetch + 1..];
+    let named: Vec<&&str> = after
+        .iter()
+        .filter(|l| l.contains("refs/yman/remote"))
+        .collect();
+    assert_eq!(named.len(), 1, "{named:?}");
+    assert!(
+        named[0].ends_with("rev-parse -q --verify refs/yman/remote"),
+        "{named:?}"
+    );
+    assert!(after.iter().any(|l| l.contains(" merge ")), "{after:?}");
+}
+
+/// A rejoin that fails part-way leaves the merge in progress (exit 3). Plain
+/// `sync` refuses to touch it, and `--continue` finishes the move, so origin
+/// never sees a task folder without `m.yml`.
+#[test]
+fn a_rejoin_that_fails_once_is_finished_by_continue() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["set", "1", "--title", "Repair login"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    for name in ["a.txt", "b.txt"] {
+        let src = fx.b.join(name);
+        fx.write(&src, "x\n");
+        fx.yman(&fx.b)
+            .args(["attach", "1", src.to_str().unwrap()])
+            .assert()
+            .success();
+    }
+    let published = origin_tasks(&fx);
+
+    let count = fx.tmp.path().join("mv-count");
+    let body = format!(
+        "if [ \"$sub\" = mv ]; then\n\
+         n=$(cat '{c}' 2>/dev/null || echo 0); n=$((n+1)); echo $n > '{c}'\n\
+         if [ $n = 2 ]; then echo 'shim: mv refused' >&2; exit 1; fi\n\
+         fi",
+        c = count.display()
+    );
+    let out = fx.yman_shimmed(&fx.b, &body).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("git mv failed: shim: mv refused; the merge is still in progress; fix that, then: yman sync --continue  (or: yman sync --abort)"),
+        "{}",
+        stderr(&out)
+    );
+    assert_eq!(origin_tasks(&fx), published);
+    fx.git(
+        &fx.b.join(".yman"),
+        &["rev-parse", "-q", "--verify", "MERGE_HEAD"],
+    );
+
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert!(
+        stderr(&out)
+            .contains("merge in progress; resolve then: yman sync --continue  (or --abort)"),
+        "{}",
+        stderr(&out)
+    );
+    assert_eq!(origin_tasks(&fx), published);
+
+    let out = fx
+        .yman(&fx.b)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stderr(&out)
+            .contains("note: moved 1 file(s) left under 5.1.fix-login into 5.1.repair-login"),
+        "{}",
+        stderr(&out)
+    );
+    let tree = fx.git(
+        &fx.remote,
+        &["ls-tree", "-r", "--name-only", "refs/tasks/main"],
+    );
+    assert!(tree.contains("5.1.repair-login/f/a.txt"), "{tree}");
+    assert!(tree.contains("5.1.repair-login/f/b.txt"), "{tree}");
+    assert!(!tree.contains("5.1.fix-login/"), "{tree}");
+    let paths: Vec<&str> = tree.lines().collect();
+    let mut folders: Vec<&str> = paths
+        .iter()
+        .filter(|p| p.starts_with("5."))
+        .map(|p| p.split('/').next().unwrap())
+        .collect();
+    folders.dedup();
+    for f in folders {
+        assert!(
+            paths.contains(&format!("{f}/m.yml").as_str()),
+            "{f}: {tree}"
+        );
+    }
+    assert_eq!(fx.git(&fx.b.join(".yman"), &["status", "--porcelain"]), "");
 }
 
 /// The `m.yml` merge driver run by hand, outside any repository: a field-wise

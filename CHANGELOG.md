@@ -9,6 +9,20 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- A clean `sync` merge can no longer publish one task split across two
+  folders. The duplicate-id check and the rejoin of attachments left under a
+  moved folder now run on every merge before it is committed; a file present
+  on both sides stops the merge (exit 3) instead of being left behind; a fetch
+  running alongside can no longer slip unrenumbered ids into the merge; and a
+  failure part-way leaves the merge for `sync --continue` instead of having
+  the next sync commit half of it. The separate rejoin and drop commits are
+  gone; those repairs are part of the merge commit. `sync --continue` stops
+  with exit 3, instead of removing it, when a removed task's folder holds a
+  file you kept or staged by hand or an uncommitted edit.
+- A failure after `sync --continue` started its work exits 3 instead of 1.
+- `init` in a clone with no local tracker no longer adopts a
+  `refs/yman/remote` that origin has since deleted; like `sync`, it drops the
+  stale ref with a warning and creates a fresh tracker.
 - Two clones attaching the same name in different case (`A.png` and `a.png`)
   now conflict on `sync` instead of merging into two entries that `attach`
   itself would refuse, and an attachment `path` that a hand edit changed is

@@ -123,7 +123,11 @@ cloning the project does not bring the tasks with it. `init` covers both cases:
 
 - `refs/yman/local` already exists → keep it;
 - otherwise `refs/tasks/main` was fetched from `origin` → **adopt it**
-  (`update-ref refs/yman/local refs/yman/remote`). This is the clone path;
+  (`update-ref refs/yman/local refs/yman/remote`). This is the clone path.
+  `init` fetches the same way `sync` does, so when origin no longer has
+  `refs/tasks/main`, a `refs/yman/remote` left by an earlier fetch is deleted
+  with `warning: refs/tasks/main disappeared from origin; will recreate it`,
+  and `init` writes a fresh tracker instead of adopting the deleted one;
 - otherwise create an empty root commit and write a fresh tracker.
 
 Because the second case reuses a history that already has an id scheme,

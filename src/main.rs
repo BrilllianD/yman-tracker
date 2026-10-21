@@ -16,6 +16,7 @@ mod repo;
 mod sections;
 mod tags;
 mod task;
+mod transport;
 mod yml;
 
 use clap::Parser;
