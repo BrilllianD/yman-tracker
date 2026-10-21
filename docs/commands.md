@@ -157,9 +157,15 @@ absent. `dir` is relative to `.yman` and names the status directory for a closed
 `m.yml` alone: an entry whose file has been deleted outside yman still counts,
 because `ls` stats nothing under `f/`. Use `show` to see which one is gone. The
 writer is `src/json.rs`: the escaping is hand-rolled and there is no
-`serde_json` dependency.
+`serde_json` dependency. The `comments` count reads each `d.md` as `show` does: invalid
+UTF-8 is counted with U+FFFD and a warning on stderr, an unreadable file counts
+as 0 with a warning, and only a missing `d.md` is silently 0.
 
 ### `show`
+
+A `d.md` that is not valid UTF-8 is shown with U+FFFD for the bad bytes and a
+warning on stderr; one that exists but cannot be read counts as no discussion,
+also with a warning. Only a missing `d.md` is silently empty.
 
 Prints the header block, then the body, then `attachments` and `discussion`.
 Empty sections are omitted entirely, including `links`, `related` and
@@ -644,10 +650,12 @@ Under `-e` the editor is resolved first (the rule under `edit`), then handed a
 new, empty file in the temp dir (on unix `$TMPDIR`, else `/tmp`) named
 `yman-comment-<id>-<pid>-<nanos>-<n>.md`. It is created exclusively, mode 0600
 on unix: an existing path, a symlink included, is never opened, truncated or
-followed — another name is tried instead. The file is removed on every path:
-after the comment is committed, when the editor fails
+followed — another name is tried instead. The file is removed on every path
+but one: after the comment is committed, when the editor fails
 (`editor exited with status N; comment not added`), and when the text is
-empty. A refused editor creates no file at all. The author is `$YMAN_ACTOR` (trimmed,
+empty. When the editor's text cannot be read back (it saved Latin-1, say) the
+command fails with `cannot read the comment from <path>: <why>; the file is
+kept`, names the file, keeps it and commits nothing. A refused editor creates no file at all. The author is `$YMAN_ACTOR` (trimmed,
 non-empty), else `git config user.name`, else `unknown`. This is the display
 name written into `d.md` only; the git committer is whatever git resolves.
 

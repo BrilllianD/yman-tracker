@@ -138,6 +138,7 @@ commit.
 | editor failed during `edit` | `editor exited with status N; file left as is` (or `editor was killed by a signal; …`) |
 | editor failed during `add -e` | `editor exited with status N; task not added` (or `editor was killed by a signal; …`) — the new folder is removed |
 | editor failed during `comment -e` | `editor exited with status N; comment not added` (or `editor was killed by a signal; …`) — the temp file is removed, nothing is committed |
+| `comment -e` cannot read what the editor saved | `cannot read the comment from <path>: <why>; the file is kept` (`<why>` is the OS error, for example `stream did not contain valid UTF-8`) — the temp file is kept, nothing is committed |
 | neither `$VISUAL` nor `$EDITOR` set, stdin not a terminal | `no terminal for vi; set $EDITOR, or use -m / --body-file` |
 | `rm` or `tags rm` prompt declined | `aborted` |
 | `t.md` unparsable | `t.md must start with "# Title"` |
@@ -203,6 +204,8 @@ Never fatal, always stderr:
 | `warning: could not undo the failed change: <why>; run: yman status` | a mutating command failed and putting `.yman` back (unstaging, or restoring the last commit) failed too; the exit code is the original failure's |
 | `warning: task <id> does not exist here; relating anyway` | `add --relate`/`--waits-on` or `set --relate`/`--waits-on` naming an id no folder here carries |
 | `warning: <id> closed with open tasks relating to it: <ids>` | a close (as for the note below) of a task tagged `epic` while tasks relating to it are still open; the close is committed |
+| `warning: <rel>/d.md is not valid UTF-8; invalid bytes shown as U+FFFD` | `ls` or `show` read a `d.md` with invalid bytes; the comments in it are still counted and shown |
+| `warning: cannot read <rel>/d.md: <why>` | `ls` or `show` could not read a `d.md` that exists; it counts as no discussion |
 | `warning: skipped N unreadable task folder(s): <rels>` | `tags`, `tags rename`, `tags rm` and `rm` walking every task |
 | `warning: <path> not moved; <dest> already exists` | `sync` rejoining a split folder found the same file on both sides; the merge stops with `task <id> is split` (exit 3) |
 | `note: no project state yet; write one with yman state set -m <text>` | bare `state` found no `.yman/state.md` |

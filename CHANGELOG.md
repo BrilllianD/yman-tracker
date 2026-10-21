@@ -9,6 +9,10 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- `comment -e` no longer discards text the editor saved in a non-UTF-8
+  encoding as `empty comment`: it fails, names the error and keeps the file;
+  `ls` and `show` no longer report 0 comments for a `d.md` that is not valid
+  UTF-8 or cannot be read, they warn on stderr.
 - A mutating command whose commit fails (a failing GPG signature, a held
   `index.lock`) no longer leaves its files staged for the next command to commit
   under its own subject; `.yman` is put back as the last commit left it, `add` no

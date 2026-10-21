@@ -10559,3 +10559,103 @@ fn a_failed_edit_keeps_the_users_text() {
     );
     assert_eq!(staged, "");
 }
+
+/// An editor that saves Latin-1 must not be read as "empty comment": the read
+/// error is reported and the temp file, which holds the only copy, is kept.
+#[cfg(unix)]
+#[test]
+fn comment_e_fails_on_unreadable_editor_text() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "One"]).assert().success();
+    let wt = fx.a.join(".yman");
+    let before = fx.git(&fx.a, &["rev-parse", "refs/yman/local"]);
+
+    let editor = fx.script("latin1", "printf 'caf\\351\\n' > \"$1\"\n");
+    let tmpdir = fx.tmp.path().join("t");
+    std::fs::create_dir_all(&tmpdir).unwrap();
+    let out = fx
+        .yman(&fx.a)
+        .env("EDITOR", &editor)
+        .env("TMPDIR", &tmpdir)
+        .args(["comment", "1", "-e"])
+        .output()
+        .unwrap();
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(1), "{err}");
+    assert!(
+        err.starts_with("error: cannot read the comment from "),
+        "{err}"
+    );
+    assert!(err.contains("stream did not contain valid UTF-8"), "{err}");
+    assert!(err.ends_with("; the file is kept\n"), "{err}");
+
+    let kept: Vec<_> = std::fs::read_dir(&tmpdir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| {
+            p.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("yman-comment-1-")
+        })
+        .collect();
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert_eq!(std::fs::read(&kept[0]).unwrap(), b"caf\xe9\n");
+    assert_eq!(fx.git(&fx.a, &["rev-parse", "refs/yman/local"]), before);
+    assert_eq!(fx.git(&wt, &["status", "--porcelain"]), "");
+}
+
+/// A `d.md` with a stray non-UTF-8 byte still counts and shows its comments,
+/// with one warning per command on stderr.
+#[test]
+fn a_non_utf8_discussion_warns_and_keeps_its_comments() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "One"]).assert().success();
+    for m in ["first", "second"] {
+        fx.yman(&fx.a)
+            .args(["comment", "1", "-m", m])
+            .assert()
+            .success();
+    }
+    {
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(fx.task_dir(&fx.a, "1").join("d.md"))
+            .unwrap();
+        f.write_all(b"\xe9\n").unwrap();
+    }
+    let w = format!(
+        "warning: {}/d.md is not valid UTF-8; invalid bytes shown as U+FFFD\n",
+        fx.task_rel(&fx.a, "1")
+    );
+
+    let out = fx.yman(&fx.a).args(["ls", "--json"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    assert!(stdout(&out).contains("\"comments\":2"), "{}", stdout(&out));
+    assert_eq!(stderr(&out).matches(&w).count(), 1, "{}", stderr(&out));
+
+    let out = fx.yman(&fx.a).arg("ls").output().unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(stderr(&out).matches(&w).count(), 1, "{}", stderr(&out));
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["show", "1", "--json"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    assert!(
+        stdout(&out).contains("\"discussion_total\":2"),
+        "{}",
+        stdout(&out)
+    );
+    assert_eq!(stderr(&out).matches(&w).count(), 1, "{}", stderr(&out));
+
+    let out = fx.yman(&fx.a).args(["show", "1"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    assert!(stdout(&out).contains("second"), "{}", stdout(&out));
+    assert_eq!(stderr(&out).matches(&w).count(), 1, "{}", stderr(&out));
+}

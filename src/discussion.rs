@@ -6,7 +6,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
-use crate::task::format_ts;
+use crate::task::{DISCUSSION_FILE, format_ts};
 
 #[derive(Debug, PartialEq)]
 pub enum Entry {
@@ -18,6 +18,27 @@ pub enum Entry {
     /// A chunk we could not parse; kept verbatim so `show` never fails on a
     /// hand-edited or union-merged file.
     Raw(String),
+}
+
+/// `d.md` as text for display. Missing: empty, silent. Not UTF-8: decoded with
+/// `String::from_utf8_lossy` after a warning. Any other read error: a warning and empty.
+pub fn read_for_display(path: &Path, rel: &str) -> String {
+    match std::fs::read(path) {
+        Ok(bytes) => match String::from_utf8(bytes) {
+            Ok(text) => text,
+            Err(e) => {
+                eprintln!(
+                    "warning: {rel}/{DISCUSSION_FILE} is not valid UTF-8; invalid bytes shown as U+FFFD"
+                );
+                String::from_utf8_lossy(e.as_bytes()).into_owned()
+            }
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => {
+            eprintln!("warning: cannot read {rel}/{DISCUSSION_FILE}: {e}");
+            String::new()
+        }
+    }
 }
 
 /// `## {rfc3339} — {author}\n\n{text}\n\n`
@@ -187,6 +208,16 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("d.md");
         (dir, path)
+    }
+
+    #[test]
+    fn read_for_display_missing_valid_and_invalid() {
+        let (_dir, tmp) = tmpfile();
+        assert_eq!(read_for_display(&tmp, "5.1.x"), "");
+        std::fs::write(&tmp, "plain \u{e9}\n").unwrap();
+        assert_eq!(read_for_display(&tmp, "5.1.x"), "plain \u{e9}\n");
+        std::fs::write(&tmp, b"a\xe9b").unwrap();
+        assert_eq!(read_for_display(&tmp, "5.1.x"), "a\u{fffd}b");
     }
 
     #[test]
