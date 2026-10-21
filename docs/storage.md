@@ -360,9 +360,9 @@ related:
   indented further keep their breaks. One difference from libyaml: a
   whitespace-only line is read as a blank line even when it has more spaces
   than the block indent (libyaml keeps it as more-indented content). An
-  explicit block indentation indicator larger than the text's indentation (`|3` over two spaces) is a parse error.
-  A key repeated at
-  the top level or inside an `attachments` item keeps its **last** occurrence,
+  explicit block indentation indicator larger than the text's indentation
+  (`|3` over two spaces) is a parse error. A key repeated at the top level
+  or inside an `attachments` item keeps its **last** occurrence,
   which is the half of a conflict a person usually means to keep. An
   `assignee` that is blank or `-` reads as absent, so a hand edit to `''` and
   the `-` an older `set -a -` stored both mean unassigned.

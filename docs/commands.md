@@ -584,16 +584,17 @@ single file only, and must not contain a path separator. Every name, given or
 taken from the source, must also be portable: no `:` `*` `?` `"` `<` `>` `|`
 or control character, no trailing `.` or space, not empty, not a reserved
 device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`, any
-case, with or without an extension) — the names a
-Windows checkout cannot hold. Names compare ignoring case throughout (`a.png`
-and `A.png` are one file on macOS and Windows), in the `m.yml` merge driver
-too, so two clones attaching one name in two cases conflict on `sync`
-(exit 3). Two sources that would land under the same name are refused with
-`attachment "<name>" given more than once`, `--force` or not. Every source is checked before any is copied, so a
-refusal leaves nothing behind: no file under `f/`, no `m.yml` entry, no
-commit. A copy that fails anyway (a full disk) is rolled back: files already
-copied are removed, files `--force` was replacing are restored, and `m.yml`,
-written only after every copy has landed, is left as it was. The `by` recorded in `m.yml` is
+case, with or without an extension) — the names a Windows checkout cannot
+hold. Names compare ignoring case throughout (`a.png` and `A.png` are one
+file on macOS and Windows), in the `m.yml` merge driver too, so two clones
+attaching one name in two cases conflict on `sync` (exit 3). Two sources
+that would land under the same name are refused with `attachment "<name>"
+given more than once`, `--force` or not. Every source is checked before any
+is copied, so a refusal leaves nothing behind: no file under `f/`, no
+`m.yml` entry, no commit. A copy that fails anyway (a full disk) is rolled
+back: files already copied are removed, files `--force` was replacing are
+restored, and `m.yml`, written only after every copy has landed, is left as
+it was. The `by` recorded in `m.yml` is
 the actor (see `comment`). An existing attachment of the same
 name needs `--force` — an `m.yml` entry, even one whose file is gone, or a file
 under `f/`. With `--force` the entry is replaced in place, and a file whose
