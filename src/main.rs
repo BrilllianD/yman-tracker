@@ -88,7 +88,17 @@ fn run(cli: Cli) -> anyhow::Result<()> {
         };
     }
 
-    let mut ctx = repo::discover()?;
+    // The hooks run `refresh --quiet` in every checkout, including repos with
+    // no tracker (a global `core.hooksPath`), and `--quiet` promises silence.
+    let quiet_refresh = matches!(&cli.cmd, Cmd::Refresh(a) if a.quiet);
+    let mut ctx = match repo::discover() {
+        Ok(ctx) => ctx,
+        Err(_) if quiet_refresh => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    if quiet_refresh && ctx.ydir_state() != repo::YdirState::Worktree {
+        return Ok(());
+    }
 
     // Before preflight, so the MERGE_HEAD check and the config load see a
     // state no other yman is changing. Held until `run` returns, which

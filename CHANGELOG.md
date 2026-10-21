@@ -9,6 +9,11 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- Commands run in a linked worktree of the project (`git worktree add`) now
+  use the main clone's `.yman` instead of asking for `yman init`, and yman's
+  hooks stay silent there.
+- `yman refresh --quiet`, which the hooks run, no longer prints an error in a
+  repository without a tracker (for example under a global `core.hooksPath`).
 - Outside a work tree (a bare repository, a directory git refuses under
   `safe.directory`) every command now shows git's reason under "not inside a
   git repository" instead of hiding it.

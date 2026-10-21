@@ -15,7 +15,9 @@ against the git of CI's `ubuntu-latest` image. Building needs Rust 1.89
 `git not found in PATH` except `guide`, `completions` and `man`, which are
 answered before any git process runs. The current directory must be inside the project's git
 repository — any subdirectory will do, including a task folder inside
-`.yman` (`cd $(yman path 14)`), which resolves to the project around it — or
+`.yman` (`cd $(yman path 14)`), which resolves to the project around it, and
+a linked worktree of the project (`git worktree add`), which uses the main
+clone's `.yman` — or
 the command fails with
 `not inside a git repository`, followed by git's own reason. There is no
 `-C <dir>` flag and no global configuration file outside the repository.
@@ -138,8 +140,8 @@ whose `refs/tasks/main` is not a yman history fails with
 config.toml)`; a kept or repaired local history with no loadable
 `config.toml` fails the same way, naming `refs/yman/local` instead.
 
-One `.yman` per clone. A second attempt — typically `init` run from a linked
-worktree of the project, where the toplevel differs — fails with
+One `.yman` per clone. A second attempt, with the ref already checked out by
+some other worktree, fails with
 `refs/yman/local is already checked out in another worktree of this repo`
 before anything is changed; see [storage.md §2](storage.md#2-the-ref-namespace).
 

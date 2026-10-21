@@ -7,7 +7,7 @@ Companion documents: [commands.md](commands.md), [errors.md](errors.md).
 
 | Term | Meaning | Source |
 |---|---|---|
-| `ROOT` | main repo toplevel | `git rev-parse --path-format=absolute --show-toplevel --git-common-dir`, first line |
+| `ROOT` | main repo toplevel | `git rev-parse --path-format=absolute --show-toplevel --git-common-dir --git-dir`, first line; from a linked worktree (`.yman` included), whose `--git-dir` differs from `--git-common-dir`, the first record of `git worktree list --porcelain -z` |
 | `COMMON` | main repo common git dir, absolute | the same call, second line |
 | `YDIR` | `ROOT/.yman` | |
 | `WT_GITDIR` | private git dir of the `.yman` worktree | read from `YDIR/.git` |
@@ -27,9 +27,9 @@ Two git runners exist, both over the same object store and refs
 Git derives a linked worktree's private directory name from the basename and
 sanitizes it, so `.yman` becomes `COMMON/worktrees/-yman` — with a leading
 hyphen, not the literal name. `repo::read_gitdir_file` follows the `gitdir:`
-line in `YDIR/.git` to the real path; `ydir_state` then classifies `.yman` as a
-worktree only when that path lives under `COMMON/worktrees/` and contains a
-`gitdir` file. Building the path from the directory name breaks every command
+line in `YDIR/.git` to the real path; `our_worktree_gitdir` is the single test
+for "this `.yman` is our worktree" (discovery, `ydir_state`, `init`): the path
+must live under `COMMON/worktrees/` and contain a `gitdir` file. Building the path from the directory name breaks every command
 with `.yman is not initialized`.
 
 ## 2. The ref namespace
@@ -63,14 +63,18 @@ Only one `.yman` per clone is supported. The worktree is added with
 does not rely on git refusing: before creating `.yman` it reads
 `git worktree list --porcelain`, and when any worktree is on
 `branch refs/yman/local` it stops with `refs/yman/local is already checked out
-in another worktree of this repo; …`. That is the case from a linked worktree
-of the project, whose toplevel differs from the main one.
+in another worktree of this repo; …`. That is the case when some worktree
+other than ours holds the ref.
 
-Discovery runs `rev-parse --show-toplevel`, which inside `.yman` answers
-`.yman` itself. When that toplevel is named `.yman` and its `.git` file points
-under `COMMON/worktrees/`, the project root is taken to be its parent, so
-commands run from a task folder work and `init` there takes the repair path
-rather than nesting a second worktree.
+Discovery runs one `rev-parse`. In the main worktree its `--show-toplevel`
+is `ROOT`. In a linked worktree of the project, whose `--git-dir` differs from
+`--git-common-dir`, `ROOT` is the first record of `git worktree list
+--porcelain -z` (one more process), so commands there use the main clone's
+`.yman` and `init` takes the repair path rather than nesting a second
+worktree. Inside `.yman` itself the toplevel is `.yman`; when it is named
+`.yman` and `our_worktree_gitdir` accepts it, `ROOT` is its parent, read off
+disk. A bare main repository has no toplevel, so there the current toplevel
+stands (or the `.yman` parent just described).
 
 ### Refs are read from disk, with `git` as the fallback
 

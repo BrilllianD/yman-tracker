@@ -684,6 +684,11 @@ file at all. The author is `$YMAN_ACTOR` (trimmed, non-empty), else
 
 `yman refresh` additionally prints `up to date` when there was nothing to do.
 
+`yman refresh --quiet` where there is no tracker (not in a repository, or
+`.yman` missing or not a yman worktree) exits 0 and prints nothing; the hooks
+run it in every checkout. Plain `yman refresh` there fails with
+`.yman is not initialized; run: yman init`.
+
 | `yman.refresh` | Effect |
 |---|---|
 | `lazy` (default) | every non-exempt command fast-forwards first |

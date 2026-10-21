@@ -4386,11 +4386,74 @@ fn commands_work_from_inside_a_task_folder() {
     assert!(!dir.join(".yman").exists());
 }
 
-/// git guards only branches against a second checkout, and `.yman` is added
-/// with `--detach`, so from a linked worktree of the project nothing but
-/// `init` itself stands between the user and a second `.yman`.
+/// Run raw `git <args>` in `dir` with the built `yman` first on `PATH`, so
+/// the hooks yman installed find it.
+fn git_with_yman_on_path(fx: &Fx, dir: &std::path::Path, args: &[&str]) -> std::process::Output {
+    let yman_dir = std::path::Path::new(env!("CARGO_BIN_EXE_yman"))
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    let path = format!(
+        "{}:{}",
+        yman_dir.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let mut cmd = std::process::Command::new("git");
+    fx.sandbox(&mut cmd)
+        .current_dir(dir)
+        .args(args)
+        .env("PATH", path)
+        .output()
+        .unwrap()
+}
+
+/// `ROOT` is the main toplevel, so a linked worktree of the project finds the
+/// main clone's `.yman` instead of asking for an `init` that cannot work.
 #[test]
-fn init_refuses_a_second_yman_from_a_linked_worktree() {
+fn commands_in_a_linked_worktree_use_the_main_yman() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).args(["init", "--hooks"]).assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let wt = fx.tmp.path().join("wt");
+    fx.git(
+        &fx.a,
+        &["worktree", "add", "-q", "-b", "side", wt.to_str().unwrap()],
+    );
+
+    let out = fx.yman(&wt).arg("ls").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(stdout(&out).contains("Fix login"), "{}", stdout(&out));
+
+    fx.yman(&wt).args(["add", "From wt"]).assert().success();
+    assert!(fx.has_task(&fx.a, "2"));
+
+    let out = fx.yman(&wt).args(["path", "1"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let printed = std::path::PathBuf::from(stdout(&out).trim())
+        .canonicalize()
+        .unwrap();
+    assert!(
+        printed.starts_with(fx.a.join(".yman").canonicalize().unwrap()),
+        "{}",
+        printed.display()
+    );
+
+    let out = fx.yman(&wt).args(["refresh", "--quiet"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "");
+    assert_eq!(stderr(&out), "");
+    assert!(!wt.join(".yman").exists());
+
+    // yman's hooks fire on checkout and must add nothing to git's own output.
+    let out = git_with_yman_on_path(&fx, &wt, &["checkout", "-q", "-b", "x"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stderr(&out), "");
+}
+
+/// From a linked worktree `init` sees the main `.yman` and repairs it; it must
+/// never make a second one.
+#[test]
+fn init_from_a_linked_worktree_repairs_the_main_yman() {
     let fx = Fx::new();
     fx.yman(&fx.a).arg("init").assert().success();
     let wt = fx.tmp.path().join("wt");
@@ -4400,12 +4463,86 @@ fn init_refuses_a_second_yman_from_a_linked_worktree() {
     );
 
     let out = fx.yman(&wt).arg("init").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stdout(&out).starts_with("already initialized .yman"),
+        "{}",
+        stdout(&out)
+    );
+    assert!(!wt.join(".yman").exists());
+}
+
+/// git guards only branches against a second checkout, and `.yman` is added
+/// with `--detach`, so `init` itself has to refuse when some other worktree
+/// already holds `refs/yman/local`.
+#[test]
+fn init_refuses_when_another_worktree_holds_the_ref() {
+    let fx = Fx::new();
+    fx.git(&fx.b, &["update-ref", "refs/yman/local", "HEAD"]);
+    let other = fx.tmp.path().join("other");
+    fx.git(
+        &fx.b,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "--detach",
+            other.to_str().unwrap(),
+            "refs/yman/local",
+        ],
+    );
+    fx.git(&other, &["symbolic-ref", "HEAD", "refs/yman/local"]);
+
+    let out = fx.yman(&fx.b).args(["init", "--offline"]).output().unwrap();
     assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
     assert_eq!(
         stderr(&out).trim(),
         "error: refs/yman/local is already checked out in another worktree of this repo; only one .yman per clone is supported"
     );
-    assert!(!wt.join(".yman").exists());
+    assert!(!fx.b.join(".yman").exists());
+}
+
+/// The hooks run `refresh --quiet` in every checkout, including repos with no
+/// tracker; `--quiet` promises silence there. Plain `refresh` still reports.
+#[test]
+fn refresh_quiet_without_a_tracker_says_nothing() {
+    let fx = Fx::new();
+    let out = fx
+        .yman(&fx.b)
+        .args(["refresh", "--quiet"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "");
+    assert_eq!(stderr(&out), "");
+
+    let out = fx.yman(&fx.b).arg("refresh").output().unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        stderr(&out).trim(),
+        "error: .yman is not initialized; run: yman init"
+    );
+
+    let plain = fx.tmp.path().join("plain");
+    std::fs::create_dir_all(&plain).unwrap();
+    let out = fx
+        .yman(&plain)
+        .args(["refresh", "--quiet"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "");
+    assert_eq!(stderr(&out), "");
+
+    // A global core.hooksPath fires yman's hook in a repo without a tracker.
+    fx.global_config(&format!(
+        "[core]\n\thooksPath = {}\n",
+        fx.home().join("hooks").display()
+    ));
+    fx.yman(&fx.a).args(["hooks", "install"]).assert().success();
+    let out = git_with_yman_on_path(&fx, &fx.b, &["checkout", "-q", "-b", "y"]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stderr(&out), "");
 }
 
 /// Preflight tells the user to run `init` when `.yman` lost its symbolic
