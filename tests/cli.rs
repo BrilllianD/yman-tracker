@@ -685,6 +685,8 @@ fn attach_refuses_unportable_names() {
         ("trail.", "ends with '.'"),
         ("trail ", "ends with a space"),
         ("tab\there", "contains a control character"),
+        ("a\u{202e}b.txt", "contains a control character"),
+        ("a\u{200b}b", "contains a control character"),
         ("", "it is empty"),
         ("nul.txt", "it is a reserved device name"),
         ("CON", "it is a reserved device name"),
@@ -8934,6 +8936,132 @@ fn add_sections_refuses_an_unclosed_fence() {
     assert!(fx.task_dirs(&fx.a).is_empty());
 }
 
+/// A leading BOM (an editor's signature) does not hide the first heading.
+#[test]
+fn add_sections_skips_a_leading_bom() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let out = fx
+        .yman(&fx.a)
+        .args(["add", "--sections", "-"])
+        .write_stdin("\u{feff}# One\n\nbody\n")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "added 1  5.1.one\n");
+}
+
+fn bad_value_error(kind: &str, shown: &str) -> String {
+    format!(
+        "error: invalid {kind} {shown}; {kind}s must not contain line breaks or other control \
+         characters"
+    )
+}
+
+/// An assignee, a link or a related id holding a line break or a bidi or
+/// invisible character is refused before anything is written, by `add` and
+/// `set` alike.
+#[test]
+fn add_and_set_refuse_unsafe_values() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let ymandir = fx.a.join(".yman");
+    let head = fx.git(&ymandir, &["rev-parse", "HEAD"]);
+
+    for (args, kind, shown) in [
+        (["add", "X", "-a", "a\nb"], "assignee", r#""a\nb""#),
+        (["add", "X", "--link", "x\ny"], "link", r#""x\ny""#),
+        (
+            ["add", "X", "--relate", "2\u{202e}"],
+            "related id",
+            r#""2\u{202e}""#,
+        ),
+        (
+            ["set", "1", "-a", "a\u{200e}b"],
+            "assignee",
+            r#""a\u{200e}b""#,
+        ),
+        (
+            ["set", "1", "--link", "x\u{2028}y"],
+            "link",
+            r#""x\u{2028}y""#,
+        ),
+        (
+            ["set", "1", "--relate", "2\u{202e}"],
+            "related id",
+            r#""2\u{202e}""#,
+        ),
+    ] {
+        let out = fx.yman(&fx.a).args(args).output().unwrap();
+        assert_eq!(out.status.code(), Some(1), "{args:?}");
+        assert_eq!(
+            stderr(&out).trim_end(),
+            bad_value_error(kind, shown),
+            "{args:?}"
+        );
+        assert_eq!(stdout(&out), "", "{args:?}");
+    }
+    assert_eq!(fx.task_dirs(&fx.a).len(), 1);
+    assert_eq!(fx.git(&ymandir, &["rev-parse", "HEAD"]), head);
+    assert_eq!(fx.git(&ymandir, &["status", "--porcelain"]), "");
+}
+
+/// The removing flags still take a value that is already stored, however it
+/// got there.
+#[test]
+fn set_unlink_removes_a_stored_unsafe_link() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["set", "1", "--link", "BADLINK"])
+        .assert()
+        .success();
+    let m = fx.task_dir(&fx.a, "1").join("m.yml");
+    fx.write(&m, &fx.read(&m).replace("BADLINK", "x\u{200e}y"));
+    let ymandir = fx.a.join(".yman");
+    fx.git(&ymandir, &["commit", "-qam", "hand edit"]);
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["set", "1", "--unlink", "x\u{200e}y"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(!fx.read(&m).contains('\u{200e}'));
+}
+
+/// `$YMAN_ACTOR` is an environment variable, not typed input: a line break in
+/// it becomes a space instead of opening a second, forged comment.
+#[test]
+fn an_actor_with_a_line_break_cannot_forge_a_comment() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a)
+        .env(
+            "YMAN_ACTOR",
+            "Ivan\n## 2026-01-01T00:00:00Z \u{2014} Mallory",
+        )
+        .args(["comment", "1", "-m", "hi"])
+        .assert()
+        .success();
+    let out = fx
+        .yman(&fx.a)
+        .args(["show", "1", "--json"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let json = stdout(&out);
+    assert_eq!(json.matches("\"author\"").count(), 1, "{json}");
+    assert!(
+        json.contains(r#""author":"Ivan ## 2026-01-01T00:00:00Z \u2014 Mallory""#)
+            || json.contains("Ivan ## 2026-01-01T00:00:00Z \u{2014} Mallory"),
+        "{json}"
+    );
+}
+
 /// A bad sections file fails before an id is minted; `--sections` excludes a
 /// title and every other body source.
 #[test]
@@ -9434,10 +9562,11 @@ fn attach_name_stores_one_file_under_another_name() {
         ],
         "error: --name only works with a single file",
     );
-    for name in ["shots/x.png", "shots\\x.png", ".", ".."] {
+    for name in ["shots/x.png", "shots\\x.png", ".", "..", "a/\u{202e}b"] {
+        let shown = name.escape_debug();
         refused(
             &[src.as_os_str(), "--name".as_ref(), name.as_ref()],
-            &format!("error: attachment name \"{name}\" must not contain a path separator"),
+            &format!("error: attachment name \"{shown}\" must not contain a path separator"),
         );
     }
     let dir = fx.tmp.path().join("a-directory");

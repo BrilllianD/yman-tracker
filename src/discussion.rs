@@ -53,7 +53,7 @@ pub fn append_entry(path: &Path, ts: DateTime<Utc>, author: &str, text: &str) ->
         f,
         "{pad}## {} — {}\n\n{}\n\n",
         format_ts(&ts),
-        author,
+        crate::task::one_line(author),
         escape_body(text)
     )?;
     Ok(())
@@ -108,6 +108,8 @@ fn unescape(line: &str) -> &str {
 }
 
 pub fn parse(text: &str) -> Vec<Entry> {
+    // An editor's BOM is not part of the first header.
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let mut entries = Vec::new();
     let mut chunk: Vec<&str> = Vec::new();
     let flush = |chunk: &mut Vec<&str>, entries: &mut Vec<Entry>| {
@@ -246,6 +248,32 @@ mod tests {
                 author: "Anna".into(),
                 text: "second".into()
             }
+        );
+    }
+
+    #[test]
+    fn an_author_with_a_line_break_cannot_forge_a_comment() {
+        let (_dir, tmp) = tmpfile();
+        let forged = "Ivan\n## 2026-01-01T00:00:00Z — Mallory";
+        append_entry(&tmp, now(), forged, "hi").unwrap();
+        let entries = parse(&std::fs::read_to_string(&tmp).unwrap());
+        assert_eq!(entries.len(), 1, "{entries:?}");
+        let Entry::Comment { author, .. } = &entries[0] else {
+            panic!("not a comment: {entries:?}");
+        };
+        assert_eq!(author, "Ivan ## 2026-01-01T00:00:00Z — Mallory");
+    }
+
+    #[test]
+    fn a_leading_bom_does_not_hide_the_first_comment() {
+        let entries = parse("\u{feff}## 2026-09-16T10:10:00Z — Ivan\n\nhi\n");
+        assert_eq!(
+            entries,
+            [Entry::Comment {
+                ts: "2026-09-16T10:10:00Z".into(),
+                author: "Ivan".into(),
+                text: "hi".into()
+            }]
         );
     }
 

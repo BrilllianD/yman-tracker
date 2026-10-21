@@ -29,6 +29,8 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
     // Before the editor, before stdin, before an id is minted: a bad tag must
     // not cost the user a burned id or a half-written folder.
     let tags = tags::normalize_all(&a.tags)?;
+    super::check_links(&a.links)?;
+    let assignee = a.assignee.map(super::assignee_arg).transpose()?.flatten();
     if !a.waits_on.is_empty() {
         plan::require_blocked(ctx.config())?;
     }
@@ -73,8 +75,6 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
         None => ctx.config().statuses.default.clone(),
     };
     let priority = a.priority.unwrap_or(ctx.config().priorities.default);
-
-    let assignee = a.assignee.and_then(super::assignee_arg);
 
     let spec = Spec {
         status,

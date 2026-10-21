@@ -392,8 +392,9 @@ typo costs neither an id nor a half-written folder. `-t UI -t ui` is one tag.
 The title is trimmed and refused, at the same point, when it is empty
 (`title must not be empty`) or still contains a control character — a newline,
 a carriage return, a tab, an escape, anything `char::is_control` matches, and
-also the Unicode line and paragraph separators U+2028 and U+2029 and the bidi
-controls U+202A-U+202E and U+2066-U+2069 — with
+also the Unicode line and paragraph separators U+2028 and U+2029, the bidi
+controls U+202A-U+202E and U+2066-U+2069 and the invisible marks U+061C,
+U+200B, U+200E, U+200F, U+2060-U+2064 and U+FEFF (not ZWNJ or ZWJ) — with
 `invalid title "<t>"; titles must not contain line breaks or other control
 characters`, `<t>` being the trimmed title with those characters escaped
 (`\n`, `\t`, `\u{1b}`, `\u{202e}`). Tags apply the same rule and show a refused
@@ -402,7 +403,10 @@ title and the rest as body, and split the commit subject. `set --title` and
 every `--sections` heading apply the same rule with the same message.
 `-a/--assignee` is trimmed; blank or `-` means unassigned (`-` is the
 sentinel `ls --assignee -` uses, so nobody can be assigned under that name).
-`--relate` and
+An assignee, a `--link` or a `--relate`/`--waits-on` value with a character of
+that set is refused before anything is written, with
+`invalid <kind> "<v>"; <kind>s must not contain line breaks or other control
+characters`. `--relate` and
 `--waits-on` values are trimmed and a blank one is refused (`related id must
 not be empty`); `set` also refuses the task's own id. `--relate` to an id no
 folder here carries warns exactly as `set --relate` does, before the id is
@@ -423,8 +427,10 @@ spent, and what was typed in the editor is lost with the folder.
 
 `--sections PATH` (`-` reads stdin) creates one task per section of a markdown
 file instead of one from a title; it excludes the title, `-m`, `--body-file`
-and `-e`, and every other flag applies to each task. A line that is `#` or
-starts with `# ` opens a section and is its title, trimmed; the body is
+and `-e`, and every other flag applies to each task. A line that, after any
+leading whitespace, is `#` alone or `#` followed by whitespace opens a section
+and is its title, trimmed (the `t.md` heading rule); a leading BOM is skipped;
+the body is
 everything up to the next such line, with blank lines at either end dropped.
 Inside a fenced block — opened by a line starting, after any indentation, with
 three or more backticks or `~` (a backtick run whose info string holds a
@@ -493,7 +499,9 @@ typo rather than something waiting to be removed. `--title` is trimmed and
 refused exactly as `add` refuses a title — empty, or carrying a control
 character — before anything is written. `-a/--assignee` is trimmed the same
 way `add` trims it, and a blank or `-` value clears the assignee like
-`--no-assignee`. When
+`--no-assignee`. An assignee, `--link` or `--relate` value is refused as `add`
+refuses it, while `--no-assignee`, `--unlink` and `--unrelate` still remove a
+value already stored, whatever it holds. When
 nothing at all changed, `set` prints `no changes` and commits nothing. `-m`
 always counts as a change; an empty message is the `empty comment` error.
 
@@ -641,7 +649,8 @@ stays 0.
 Each source must be an existing, readable regular file. `--name` applies to a
 single file only, and must not contain a path separator. Every name, given or
 taken from the source, must also be portable: no `:` `*` `?` `"` `<` `>` `|`
-or control character, no trailing `.` or space, not empty, not a reserved
+or control character (the set a title may not carry), no trailing `.` or
+space, not empty, not a reserved
 device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`, any
 case, with or without an extension) — the names a Windows checkout cannot
 hold. Names compare ignoring case throughout (`a.png` and `A.png` are one
@@ -690,9 +699,11 @@ command fails with
 `cannot read the comment from <path>: <why>; the file is kept`,
 names the file, keeps it and commits nothing. A temp file the editor
 removed counts as empty text (`empty comment`). A refused editor creates no
-file at all. The author is `$YMAN_ACTOR` (trimmed, non-empty), else
-`git config user.name`, else `unknown`. This is the display name written into
-`d.md` only; the git committer is whatever git resolves.
+file at all. The author is `$YMAN_ACTOR` (non-empty after trimming), else
+`git config user.name`, else `unknown`; line breaks and other control
+characters in it become single spaces, so the author is always one line. This
+is the display name written into `d.md` only; the git committer is whatever git
+resolves.
 
 ## 5. Refresh
 

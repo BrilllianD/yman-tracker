@@ -237,8 +237,10 @@ A task in a terminal status (§7) is stored at
 ### `slugify(title, max_bytes)`
 
 1. Unicode lowercase.
-2. Alphanumerics (`char::is_alphanumeric`) survive; every other character
-   becomes a separator.
+2. Alphanumerics (`char::is_alphanumeric`) survive, and so does a combining
+   mark (U+0300-U+036F and the other combining blocks) that directly follows a
+   kept character, so `e` plus U+0301 stays one accented letter; every other
+   character becomes a separator.
 3. Separator runs collapse to one `-`; leading and trailing `-` are trimmed.
 4. Truncate to `max_bytes` **at a char boundary**, then trim a trailing `-`
    again.
@@ -273,8 +275,8 @@ behave differently off Linux and is not checked:
 - **Windows names.** A terminal status called `con`, `nul`, `aux` or another
   reserved device name passes validation but cannot be a directory there, and
   so can an attachment of that name. Otherwise `attach` refuses what Windows
-  cannot hold: `:`, `*`, `?`, `"`, `<`, `>`, `|`, control characters and a
-  trailing `.` or space.
+  cannot hold: `:`, `*`, `?`, `"`, `<`, `>`, `|`, control characters (including the bidi and invisible
+  marks a title may not carry) and a trailing `.` or space.
 
 ## 6. File formats
 
@@ -291,7 +293,8 @@ whitespace, then a non-empty title (so `   # Title` is accepted). Blank lines
 before it are skipped; anything else non-blank is a parse error
 (`t.md must start with "# Title"`). A leading UTF-8 BOM is skipped, here and
 in `m.yml`. The body is everything after the title line with one leading
-blank line (`\n` or `\r\n`) stripped. On write, leading and trailing newlines
+blank line (`\n` or `\r\n`) stripped. `add --sections` opens a heading by the
+same rule. On write, leading and trailing line breaks (`\n` or `\r\n`)
 of the body are dropped and exactly one `\n` ends the file; otherwise the body
 is kept as is — `#`, `---` and code fences inside it are preserved.
 
@@ -460,7 +463,9 @@ comment text, possibly several lines
 ```
 
 i.e. `## {rfc3339} — {author}`, blank line, text, blank line. The separator is
-an em dash.
+an em dash. The writer puts the author on one line (line breaks and other
+control characters become single spaces), and a leading BOM is skipped when
+the file is read.
 
 A new entry starts only at a line of exactly that shape: `## `, a timestamp
 with no whitespace in it, ` — `, an author. Any other line beginning with `## `

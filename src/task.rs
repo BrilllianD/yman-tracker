@@ -142,12 +142,49 @@ pub fn is_unassigned(value: &str) -> bool {
     matches!(value.trim(), "" | "-")
 }
 
-/// What a title or a tag must not carry: control characters, the Unicode
-/// line and paragraph separators, and the bidi embedding, override and
-/// isolate controls, which make `ls` output lie about what it shows.
+/// What a user-typed value must not carry: control characters, the Unicode
+/// line and paragraph separators, the bidi embedding, override and isolate
+/// controls, which make `ls` output lie about what it shows, and the invisible
+/// marks that hide text from a reader (ALM, zero width space, word joiner and
+/// the invisible operators, BOM). ZWNJ and ZWJ stay allowed: scripts and emoji
+/// sequences need them. Titles, tags, attachment names, assignees, links and
+/// related ids all use this one rule; the actor is made one line with it.
 pub fn is_unsafe_char(c: char) -> bool {
     c.is_control()
-        || matches!(c, '\u{2028}' | '\u{2029}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+        || matches!(
+            c,
+            '\u{61c}'
+                | '\u{200b}'
+                | '\u{200e}'
+                | '\u{200f}'
+                | '\u{2028}'..='\u{202e}'
+                | '\u{2060}'..='\u{2064}'
+                | '\u{2066}'..='\u{2069}'
+                | '\u{feff}'
+        )
+}
+
+/// `s` as one line: every run of unsafe characters is a separator, the pieces
+/// are trimmed, empty ones dropped, and the rest joined with one space.
+pub fn one_line(s: &str) -> String {
+    s.split(is_unsafe_char)
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The title of a markdown H1 line: after any leading whitespace, `#` alone or
+/// `#` followed by whitespace. The text is trimmed and may be empty. `t.md`
+/// and `add --sections` both open a heading by this rule.
+pub fn h1_text(line: &str) -> Option<&str> {
+    let rest = line.trim_start().strip_prefix('#')?;
+    (rest.is_empty() || rest.starts_with(char::is_whitespace)).then(|| rest.trim())
+}
+
+/// A body without the line breaks (`\n` or `\r\n`) at either end.
+pub fn body_edges(body: &str) -> &str {
+    body.trim_matches(['\r', '\n'])
 }
 
 /// A title as `add`, `set --title`, `add --sections`, `add -e` and `edit`
@@ -176,7 +213,10 @@ pub fn slugify(title: &str, max_bytes: usize) -> String {
     let mut out = String::new();
     let mut pending_dash = false;
     for ch in title.to_lowercase().chars() {
-        if ch.is_alphanumeric() {
+        // A combining mark stays attached to the character before it; any
+        // other, or one with nothing to attach to, separates like punctuation.
+        let attached = is_combining_mark(ch) && !pending_dash && !out.is_empty();
+        if ch.is_alphanumeric() || attached {
             if pending_dash && !out.is_empty() {
                 out.push('-');
             }
@@ -202,6 +242,17 @@ pub fn slugify(title: &str, max_bytes: usize) -> String {
     out
 }
 
+fn is_combining_mark(c: char) -> bool {
+    matches!(
+        c,
+        '\u{300}'..='\u{36f}'
+            | '\u{1ab0}'..='\u{1aff}'
+            | '\u{1dc0}'..='\u{1dff}'
+            | '\u{20d0}'..='\u{20ff}'
+            | '\u{fe20}'..='\u{fe2f}'
+    )
+}
+
 /// Split `t.md` into its H1 title and the body below it.
 pub fn extract_title(md: &str) -> Result<(String, String)> {
     // A BOM is an editor's signature, not part of the heading.
@@ -212,21 +263,17 @@ pub fn extract_title(md: &str) -> Result<(String, String)> {
             Some(i) => (&rest[..i], &rest[i + 1..]),
             None => (rest, ""),
         };
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
+        if line.trim().is_empty() {
             if tail.is_empty() && rest.trim().is_empty() {
                 break;
             }
             rest = tail;
             continue;
         }
-        if let Some(t) = trimmed.strip_prefix('#') {
-            // `#` must be followed by whitespace, then a non-empty title.
-            if t.starts_with(char::is_whitespace) && !t.trim().is_empty() {
-                title = Some(t.trim().to_string());
-                rest = tail;
-                break;
-            }
+        if let Some(t) = h1_text(line).filter(|t| !t.is_empty()) {
+            title = Some(t.to_string());
+            rest = tail;
+            break;
         }
         bail!("t.md must start with \"# Title\"");
     }
@@ -243,7 +290,7 @@ pub fn extract_title(md: &str) -> Result<(String, String)> {
 }
 
 pub fn render_md(title: &str, body: &str) -> String {
-    let body = body.trim_matches('\n');
+    let body = body_edges(body);
     if body.is_empty() {
         format!("# {title}\n")
     } else {
@@ -782,6 +829,55 @@ mod tests {
         assert_eq!(render_md("T", ""), "# T\n");
         assert_eq!(render_md("T", "body"), "# T\n\nbody\n");
         assert_eq!(render_md("T", "\n\nbody\n\n"), "# T\n\nbody\n");
+    }
+
+    #[test]
+    fn render_md_drops_crlf_edges() {
+        assert_eq!(render_md("T", "\r\nbody\r\n"), "# T\n\nbody\n");
+        assert_eq!(render_md("T", "\r\n\r\n"), "# T\n");
+        assert_eq!(render_md("T", "a\r\nb\r\n"), "# T\n\na\r\nb\n");
+    }
+
+    #[test]
+    fn unsafe_chars_cover_bidi_and_invisible_but_not_joiners() {
+        for c in [
+            '\u{200e}', '\u{200f}', '\u{61c}', '\u{200b}', '\u{2060}', '\u{2064}', '\u{feff}',
+            '\u{2028}', '\u{202a}', '\u{2069}', '\n', '\u{85}',
+        ] {
+            assert!(is_unsafe_char(c), "{c:?}");
+        }
+        for c in ['\u{200c}', '\u{200d}', 'a', ' ', '\u{2065}', 'я'] {
+            assert!(!is_unsafe_char(c), "{c:?}");
+        }
+    }
+
+    #[test]
+    fn one_line_turns_breaks_into_single_spaces() {
+        assert_eq!(one_line("Ivan"), "Ivan");
+        assert_eq!(
+            one_line("Ivan\n## 2026-01-01T00:00:00Z — Mallory"),
+            "Ivan ## 2026-01-01T00:00:00Z — Mallory"
+        );
+        assert_eq!(one_line(" a \r\n\u{202e} b\t"), "a b");
+        assert_eq!(one_line("\n"), "");
+    }
+
+    #[test]
+    fn h1_text_is_the_shared_heading_rule() {
+        assert_eq!(h1_text("# T"), Some("T"));
+        assert_eq!(h1_text("   # T  "), Some("T"));
+        assert_eq!(h1_text("#\tT"), Some("T"));
+        assert_eq!(h1_text("#"), Some(""));
+        assert_eq!(h1_text("##"), None);
+        assert_eq!(h1_text("#T"), None);
+        assert_eq!(h1_text("text"), None);
+    }
+
+    #[test]
+    fn slug_keeps_combining_marks_attached() {
+        assert_eq!(slugify("Cafe\u{301} au lait", 200), "cafe\u{301}-au-lait");
+        assert_eq!(slugify("\u{301}abc", 200), "abc");
+        assert_eq!(slugify("a \u{301}b", 200), "a-b");
     }
 
     #[test]

@@ -73,7 +73,7 @@ fn apply(ctx: &mut Context, a: SetArgs) -> Result<Option<String>> {
     }
 
     // `-a ""` is `--no-assignee` spelled the way `add` accepts it.
-    let assignee = a.assignee.map(super::assignee_arg);
+    let assignee = a.assignee.map(super::assignee_arg).transpose()?;
     if a.no_assignee || matches!(assignee, Some(None)) {
         if let Some(old) = t.meta.assignee.take() {
             changes.push(Change {
@@ -97,6 +97,7 @@ fn apply(ctx: &mut Context, a: SetArgs) -> Result<Option<String>> {
     let add_tags = tags::normalize_all(&a.tag)?;
     let del_tags = tags::normalize_all(&a.untag)?;
     apply_set(&mut t.meta.tags, &add_tags, &del_tags, "tags", &mut changes);
+    super::check_links(&a.link)?;
     apply_set(&mut t.meta.links, &a.link, &a.unlink, "links", &mut changes);
     let relate = super::related_args([a.relate, a.waits_on].concat(), Some(t.id()))?;
     super::warn_unknown_related(ctx, &relate, &t.meta.related)?;
@@ -115,7 +116,7 @@ fn apply(ctx: &mut Context, a: SetArgs) -> Result<Option<String>> {
     };
     let mut body_changed = false;
     if let Some(body) = new_body
-        && body.trim_matches('\n') != t.body.trim_matches('\n')
+        && task::body_edges(&body) != task::body_edges(&t.body)
     {
         changes.push(Change {
             token: "body".to_string(),

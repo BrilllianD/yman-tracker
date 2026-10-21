@@ -106,9 +106,10 @@ commit.
 | the cancel status is not terminal | `invalid .yman/config.toml: statuses.cancel "<s>" is not in statuses.terminal` |
 | `default` or the start status is terminal | `invalid .yman/config.toml: statuses.terminal must not contain statuses.default "<s>"` / `… must not contain the start status "<s>"` |
 | empty title | `title must not be empty` |
-| title with a line break or another control character (the Unicode line and paragraph separators U+2028 and U+2029 and the bidi controls U+202A-U+202E and U+2066-U+2069 count as control characters here) (`add`, `set --title`, each `add --sections` heading, the title left by `add -e` or `edit`; tab included) | `invalid title "<t>"; titles must not contain line breaks or other control characters` — `<t>` is the trimmed title with control characters escaped (`\n`, `\t`, `\u{1b}`); under `add -e` it arrives as `t.md invalid after edit: invalid title …; task not added`, under `edit` as `t.md invalid after edit: invalid title …; fix the file then run: yman edit <id>` |
+| title with a line break or another control character (the Unicode line and paragraph separators U+2028 and U+2029, the bidi controls U+202A-U+202E and U+2066-U+2069 and the invisible marks U+061C, U+200B, U+200E, U+200F, U+2060-U+2064 and U+FEFF count as control characters here; ZWNJ and ZWJ do not) (`add`, `set --title`, each `add --sections` heading, the title left by `add -e` or `edit`; tab included) | `invalid title "<t>"; titles must not contain line breaks or other control characters` — `<t>` is the trimmed title with control characters escaped (`\n`, `\t`, `\u{1b}`); under `add -e` it arrives as `t.md invalid after edit: invalid title …; task not added`, under `edit` as `t.md invalid after edit: invalid title …; fix the file then run: yman edit <id>` |
 | empty tag | `tag must not be empty` |
-| tag with a separator or a control character (the Unicode line and paragraph separators U+2028 and U+2029 and the bidi controls U+202A-U+202E and U+2066-U+2069 count as control characters here) | `invalid tag "<t>"; tags must not contain whitespace, commas or control characters` — `<t>` is the trimmed value with control characters escaped |
+| tag with a separator or a control character (the Unicode line and paragraph separators U+2028 and U+2029, the bidi controls U+202A-U+202E and U+2066-U+2069 and the invisible marks U+061C, U+200B, U+200E, U+200F, U+2060-U+2064 and U+FEFF count as control characters here; ZWNJ and ZWJ do not) | `invalid tag "<t>"; tags must not contain whitespace, commas or control characters` — `<t>` is the trimmed value with control characters escaped |
+| assignee, link or related id (`add`, `set`) with a line break or another control character (same set as the title row; `--no-assignee`, `--unlink` and `--unrelate` still remove a stored one) | `invalid <kind> "<v>"; <kind>s must not contain line breaks or other control characters` — `<kind>` is `assignee`, `link` or `related id`; `<v>` is the trimmed value escaped like a title |
 | blank `--relate` or `--waits-on` value | `related id must not be empty` |
 | `set --relate` or `--waits-on` naming the task itself | `task <id> cannot relate to itself` |
 | `ids.scheme = "random"` with every id of `random_len` taken | `random id space exhausted (random_len = <n>); raise ids.random_len` |
@@ -118,9 +119,9 @@ commit.
 | two sources with the same attachment name | `attachment "<name>" given more than once` |
 | `--name` with several files | `--name only works with a single file` |
 | attachment source unusable | `cannot attach <path>: <why>` / `… not a regular file` |
-| attachment name with a separator, or `.` / `..` | `attachment name "<name>" must not contain a path separator` |
+| attachment name with a separator, or `.` / `..` | `attachment name "<name>" must not contain a path separator` — `<name>` escaped like the portable-name message |
 | `detach` of an entry whose hand-edited name is not a plain file name | `task <id> has an attachment named "<name>", which is not a plain file name; edit m.yml by hand` |
-| attachment name a Windows checkout cannot hold | `attachment name "<name>" is not portable: <why>` — `<why>` is `contains '<c>'` (one of `:*?"<>\|`), `contains a control character`, `ends with '.'`, `ends with a space`, `it is a reserved device name` or `it is empty`; `<name>` has control characters escaped |
+| attachment name a Windows checkout cannot hold | `attachment name "<name>" is not portable: <why>` — `<why>` is `contains '<c>'` (one of `:*?"<>\|`), `contains a control character` (the same set as the title row), `ends with '.'`, `ends with a space`, `it is a reserved device name` or `it is empty`; `<name>` has control characters escaped |
 | `add` onto an existing folder | `folder already exists: <dir>` |
 | empty summary text (`state set`) | `empty state` |
 | empty comment (`comment`, or `-m` on `set` and the verbs) | `empty comment` |

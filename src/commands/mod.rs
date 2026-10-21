@@ -103,12 +103,34 @@ pub fn dedupe(values: Vec<String>) -> Vec<String> {
     out
 }
 
+/// Refuse a value a user typed for an assignee, a link or a related id when it
+/// holds an `is_unsafe_char` character. Stored values are never checked, and
+/// the removing flags do not call this. The value is shown through `{:?}`, so
+/// the terminal is not fed the raw character.
+pub fn check_value(kind: &str, v: &str) -> Result<()> {
+    if v.contains(crate::task::is_unsafe_char) {
+        anyhow::bail!(
+            "invalid {kind} {v:?}; {kind}s must not contain line breaks or other control characters"
+        );
+    }
+    Ok(())
+}
+
+/// `--link` values of `add` and `set`, checked as [`check_value`] does.
+pub fn check_links(values: &[String]) -> Result<()> {
+    values.iter().try_for_each(|v| check_value("link", v))
+}
+
 /// `-a` on `add` and `set`: surrounding whitespace is dropped, and a value
 /// that is blank or `-` after that means "unassigned", the same as leaving
-/// it out.
-pub fn assignee_arg(value: String) -> Option<String> {
+/// it out. Anything else must pass [`check_value`].
+pub fn assignee_arg(value: String) -> Result<Option<String>> {
     let v = value.trim();
-    (!crate::task::is_unassigned(v)).then(|| v.to_string())
+    if crate::task::is_unassigned(v) {
+        return Ok(None);
+    }
+    check_value("assignee", v)?;
+    Ok(Some(v.to_string()))
 }
 
 /// `--relate` and `--waits-on` values: trimmed, deduplicated, and refused
@@ -124,6 +146,7 @@ pub fn related_args(values: Vec<String>, own: Option<&str>) -> Result<Vec<String
         if own == Some(v) {
             anyhow::bail!("task {v} cannot relate to itself");
         }
+        check_value("related id", v)?;
         out.push(v.to_string());
     }
     Ok(dedupe(out))
@@ -160,14 +183,15 @@ pub fn quote_title(title: &str) -> String {
 /// agent working under a person's account is still attributable both ways.
 pub fn actor(ctx: &Context) -> Result<String> {
     if let Some(a) = std::env::var_os("YMAN_ACTOR") {
-        let a = a.to_string_lossy().trim().to_string();
+        let a = crate::task::one_line(&a.to_string_lossy());
         if !a.is_empty() {
             return Ok(a);
         }
     }
     Ok(ctx
         .get_cfg("user.name")?
-        .filter(|s| !s.trim().is_empty())
+        .map(|s| crate::task::one_line(&s))
+        .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "unknown".to_string()))
 }
 
@@ -254,5 +278,33 @@ fn run_cmd(ctx: &mut Context, cmd: Cmd) -> Result<()> {
         Cmd::Hooks(a) => hooks::run(ctx, a),
         Cmd::Sync(a) => sync::run(ctx, a),
         Cmd::Git(a) => git::run(ctx, a),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn check_value_names_the_kind_and_escapes_the_value() {
+        for kind in ["assignee", "link", "related id"] {
+            let err = check_value(kind, "a\u{202e}b").unwrap_err().to_string();
+            assert_eq!(
+                err,
+                format!(
+                    "invalid {kind} \"a\\u{{202e}}b\"; {kind}s must not contain line breaks or \
+                     other control characters"
+                )
+            );
+        }
+        assert!(check_value("link", "https://x/y?z=1").is_ok());
+    }
+
+    #[test]
+    fn values_reach_their_checks() {
+        assert!(assignee_arg("a\nb".into()).is_err());
+        assert_eq!(assignee_arg(" - ".into()).unwrap(), None);
+        assert!(check_links(&["ok".into(), "x\u{200f}".into()]).is_err());
+        assert!(related_args(vec!["2\u{202e}".into()], None).is_err());
     }
 }
