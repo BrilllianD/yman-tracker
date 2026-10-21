@@ -6,3 +6,7 @@ repro: REPRODUCED: Ay6 (cfg-diff3-continue) --continue rc 0 committed t.md with 
 
 decision 2026-10-21 (owner): honour commit.gpgSign from the user's config; yman does not pin commit.gpgSign or push.gpgSign. A failed signature must fail cleanly, which is #88's job (unstage on failed commit). gpgSign removed from this step's Done when.
 
+## 2026-10-21T15:19:58Z — Bronnikov Aleksandr
+
+a7734cb: pin user git config and literal pathspecs
+
