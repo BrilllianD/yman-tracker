@@ -141,7 +141,9 @@ commit` and its two variants for a change that is already in the tree — and a 
 turn each of them into a failure. Paths are matched literally, so an
 attachment named `[ab].png` is that one file, and `log <id>` marks its two
 pathspecs `:(glob)` explicitly. `merge.conflictStyle` is left to the user, and
-its diff3 base marker is recognised. The one exception to all of this is
+its diff3 base marker is recognised. Hooks that git fires from yman's own calls inherit what the
+calls carry: literal pathspecs (`GIT_NOGLOB_PATHSPECS`) and the pins above
+(`GIT_CONFIG_PARAMETERS`). The one exception to all of this is
 `yman git`, a raw passthrough that keeps the user's locale, flags, config and
 environment.
 

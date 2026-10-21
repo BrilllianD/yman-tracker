@@ -816,8 +816,8 @@ Both require a merge in progress.
 markers — a line starting with `<<<<<<< `, `>>>>>>> ` or `|||||||` (the base
 section of `merge.conflictStyle=diff3` and `zdiff3`). A bare `=======` is
 ordinary content (a setext heading, a separator) and counts only in a file git
-left unmerged that holds more of them than its two sides together, i.e. a
-separator left behind. Staging is yman's job, since the message tells the user to edit and
+left unmerged that holds more of them than its sides could (theirs plus ours,
+minus the base's, never fewer than either side), i.e. a separator left behind. Staging is yman's job, since the message tells the user to edit and
 rerun, not to run `git add`. The exception is a conflict git never marked up:
 a binary file, a change on one side to what the other deleted, or an `m.yml`
 whose merge driver could not run. The file on disk is then simply ours, and

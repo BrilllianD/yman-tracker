@@ -8736,6 +8736,94 @@ fn continue_ignores_a_setext_heading_in_task_content() {
     assert_eq!(fx.status(&fx.b, "1"), "done");
 }
 
+/// B holds a sync merge stopped on a text conflict in task 1's `t.md` (`d.md`
+/// is union-merged and never conflicts): both sides rewrote the last body
+/// line under a shared `Summary` setext heading, so the file holds that
+/// heading's `=======` and git's own separator.
+fn conflicted_t_md_with_setext_heading(fx: &Fx) -> std::path::PathBuf {
+    let body = |last: &str| format!("Summary\n=======\n\n{last}");
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Fix login", "-m", &body("lead")])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["set", "1", "--body", &body("from A")])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b)
+        .args(["set", "1", "--body", &body("from B")])
+        .assert()
+        .success();
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    let t_md =
+        fx.b.join(".yman")
+            .join(fx.task_rel(&fx.b, "1"))
+            .join("t.md");
+    let text = fx.read(&t_md);
+    assert!(text.contains("<<<<<<< "), "{text}");
+    assert_eq!(
+        text.lines().filter(|l| *l == "=======").count(),
+        2,
+        "{text}"
+    );
+    t_md
+}
+
+/// The user deletes git's `<<<<<<<` and `>>>>>>>` lines but leaves its
+/// separator: it is a second bare `=======` beside the heading's, so the
+/// merge is still unresolved.
+#[test]
+fn continue_refuses_a_left_over_separator_beside_a_shared_setext_heading() {
+    let fx = Fx::new();
+    let t_md = conflicted_t_md_with_setext_heading(&fx);
+    let text = fx.read(&t_md);
+    let kept: Vec<&str> = text
+        .lines()
+        .filter(|l| !l.starts_with("<<<<<<< ") && !l.starts_with(">>>>>>> "))
+        .collect();
+    fx.write(&t_md, &(kept.join("\n") + "\n"));
+
+    let out = fx
+        .yman(&fx.b)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+}
+
+/// Resolved properly: all three of git's lines go, the heading stays.
+#[test]
+fn continue_accepts_a_resolved_t_md_that_keeps_its_setext_heading() {
+    let fx = Fx::new();
+    let t_md = conflicted_t_md_with_setext_heading(&fx);
+    let text = fx.read(&t_md);
+    let lines: Vec<&str> = text.lines().collect();
+    let git_separator = lines.iter().rposition(|l| *l == "=======").unwrap();
+    let kept: Vec<&str> = lines
+        .iter()
+        .enumerate()
+        .filter(|(i, l)| {
+            *i != git_separator && !l.starts_with("<<<<<<< ") && !l.starts_with(">>>>>>> ")
+        })
+        .map(|(_, l)| *l)
+        .collect();
+    let resolved = kept.join("\n") + "\n";
+    assert!(resolved.contains("Summary\n=======\n"), "{resolved}");
+    fx.write(&t_md, &resolved);
+
+    let out = fx
+        .yman(&fx.b)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+}
+
 /// Identical re-applied changes stage nothing. Git words that differently
 /// when an untracked or an unstaged file sits elsewhere in `.yman`; all three
 /// are success.

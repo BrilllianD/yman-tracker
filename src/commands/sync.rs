@@ -340,7 +340,7 @@ fn file_has_markers(path: &std::path::Path) -> bool {
 }
 
 /// Markers left in an unmerged file, or a separator its sides never had.
-/// The two stage reads happen only when the file has a bare `=======`.
+/// The three stage reads happen only when the file has a bare `=======`.
 fn unresolved(ctx: &Context, f: &str) -> Result<bool> {
     let Ok(text) = std::fs::read_to_string(ctx.ydir.join(f)) else {
         return Ok(false); // binary, or deleted by the user
@@ -351,16 +351,18 @@ fn unresolved(ctx: &Context, f: &str) -> Result<bool> {
     if separator_lines(&text) == 0 {
         return Ok(false);
     }
-    let mut sides = 0;
-    for stage in [2, 3] {
+    // Bare separators in stages 1 (base), 2 (ours) and 3 (theirs); a stage a
+    // side deleted counts as none.
+    let mut stages = [0; 3];
+    for (n, count) in stages.iter_mut().enumerate() {
         let out = ctx
             .wt
-            .run(&["cat-file", "blob", &format!(":{stage}:{f}")])?;
+            .run(&["cat-file", "blob", &format!(":{}:{f}", n + 1)])?;
         if out.ok() {
-            sides += separator_lines(&out.stdout);
+            *count = separator_lines(&out.stdout);
         }
     }
-    Ok(leftover_separator(&text, sides))
+    Ok(leftover_separator(&text, stages))
 }
 
 fn separator_lines(text: &str) -> usize {
@@ -368,11 +370,13 @@ fn separator_lines(text: &str) -> usize {
 }
 
 /// An unmerged file whose markers were removed by hand still has a
-/// forgotten separator when it holds more bare `=======` lines than git's
-/// two sides together (`sides`): every other one is content from one of
-/// them.
-fn leftover_separator(text: &str, sides: usize) -> bool {
-    separator_lines(text) > sides
+/// forgotten separator when it holds more bare `=======` lines than a merge
+/// of the sides' own could: those of ours plus theirs, minus the ones both
+/// inherited from the base (counted twice otherwise), and never fewer than
+/// either side alone. Every other one is content.
+fn leftover_separator(text: &str, [base, ours, theirs]: [usize; 3]) -> bool {
+    let allowed = (ours + theirs).saturating_sub(base).max(ours).max(theirs);
+    separator_lines(text) > allowed
 }
 
 /// A line only a conflict writes. A bare `=======` is not one: a setext
@@ -950,9 +954,15 @@ mod tests {
     fn a_bare_separator_is_not_a_marker() {
         assert!(!is_marker("======="));
         assert!(is_marker("<<<<<<< HEAD"));
-        assert!(leftover_separator("a\n=======\nb\n", 0));
-        assert!(!leftover_separator("Summary\n=======\n", 1));
-        assert!(leftover_separator("x\n=======\ny\n=======\n", 1));
+        assert!(leftover_separator("a\n=======\nb\n", [0, 0, 0]));
+        assert!(!leftover_separator("Summary\n=======\n", [0, 1, 0]));
+        assert!(leftover_separator("x\n=======\ny\n=======\n", [0, 1, 0]));
+        // A heading both sides inherited is one separator, not two.
+        let shared = "Summary\n=======\nx\n=======\ny\n";
+        assert!(leftover_separator(shared, [1, 1, 1]));
+        assert!(!leftover_separator("Summary\n=======\nx\n", [1, 1, 1]));
+        // A side's own new heading is allowed on top of the shared one.
+        assert!(!leftover_separator(shared, [1, 2, 1]));
     }
 
     #[test]
