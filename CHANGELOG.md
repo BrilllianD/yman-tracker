@@ -9,6 +9,23 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- `comment -e` no longer discards text the editor saved in a non-UTF-8
+  encoding as `empty comment`: it fails, names the error and keeps the file;
+  `ls` and `show` no longer report 0 comments for a `d.md` that is not valid
+  UTF-8 or cannot be read, they warn on stderr.
+- A mutating command whose commit fails (a failing GPG signature, a held
+  `index.lock`) no longer leaves its files staged for the next command to commit
+  under its own subject; `.yman` is put back as the last commit left it, `add` no
+  longer leaves a half-made task for a retry to duplicate, `attach` no longer
+  reports files it did not commit, and `rm` of a hand-edited task no longer stages
+  the rewrite of other tasks' `related`.
+- Under `yman.autosync = push`, a command that committed some tasks and then
+  failed (`done 3 99`, `add --sections` stopping part-way) now pushes what it
+  committed instead of leaving it local.
+- Commands that write the task history on one clone now run one at a time,
+  so parallel `yman add` calls (an agent's parallel tool calls) no longer mint
+  the same id; a waiting command prints a note. A filesystem that cannot lock
+  (Linux `ENOLCK`, as on NFS without lockd) only warns instead of failing.
 - A clean `sync` merge can no longer publish one task split across two
   folders. The duplicate-id check and the rejoin of attachments left under a
   moved folder now run on every merge before it is committed; a file present
@@ -48,6 +65,10 @@ under [Releasing](README.md#releasing) in the README.
   `state set` or `attach --force` no longer fails when other files in `.yman`
   are untracked or unstaged; a failure while reporting a stopped merge now
   exits 3 instead of 1.
+
+### Changed
+
+- Building needs Rust 1.89 (`std::fs::File::lock`).
 
 ## [0.9.0] - 2026-10-20
 

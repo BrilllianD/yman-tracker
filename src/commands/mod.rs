@@ -126,7 +126,57 @@ pub fn actor(ctx: &Context) -> Result<String> {
         .unwrap_or_else(|| "unknown".to_string()))
 }
 
+/// Runs one command. When a command that writes to `.yman` fails, whatever it left
+/// staged is taken back, and, if `.yman` had no uncommitted changes before the command
+/// started, the files it wrote are put back to the last commit.
+///
+/// The hard reset and the clean only ever run when `.yman` was clean before this command
+/// started (read here, after the per-clone lock is held and the lazy refresh has run), so
+/// the only changes they discard are the ones this failed command wrote. (On a filesystem
+/// that cannot lock, the command runs unlocked and the reset still runs.) Commits the
+/// command already made (a multi-id verb, `add --sections`) are kept. `git clean` is run
+/// without `-x`, so ignored files are never touched. `edit` is excluded from the hard
+/// reset because its file holds the user's own text: it is only unstaged.
 pub fn dispatch(ctx: &mut Context, cmd: Cmd) -> Result<()> {
+    if !cmd.is_mutating() {
+        return run_cmd(ctx, cmd);
+    }
+    let keep_edits = matches!(cmd, Cmd::Edit(_));
+    let clean_before = match ctx.wt.is_dirty() {
+        Ok(dirty) => !dirty,
+        // Cannot tell: assume the tree held something of the user's.
+        Err(_) => false,
+    };
+    let result = run_cmd(ctx, cmd);
+    if result.is_err() {
+        undo_uncommitted(ctx, clean_before && !keep_edits);
+    }
+    result
+}
+
+/// Takes back what a failed command left in `.yman`: with `restore_tree`, everything
+/// uncommitted (a no-op when the tree is already clean); without it, only the index.
+/// Never fails: a problem is a warning.
+fn undo_uncommitted(ctx: &Context, restore_tree: bool) {
+    let undone = if restore_tree {
+        match ctx.wt.is_dirty() {
+            Ok(false) => Ok(()),
+            Ok(true) => ctx
+                .wt
+                .ok(&["reset", "-q", "--hard", "HEAD"])
+                .and_then(|_| ctx.wt.ok(&["clean", "-fdq"]))
+                .map(|_| ()),
+            Err(e) => Err(e),
+        }
+    } else {
+        ctx.wt.ok(&["reset", "-q"]).map(|_| ())
+    };
+    if let Err(e) = undone {
+        eprintln!("warning: could not undo the failed change: {e:#}; run: yman status");
+    }
+}
+
+fn run_cmd(ctx: &mut Context, cmd: Cmd) -> Result<()> {
     match cmd {
         Cmd::Init(a) => init::run(ctx, a),
         Cmd::Add(a) => add::run(ctx, a),
@@ -150,11 +200,11 @@ pub fn dispatch(ctx: &mut Context, cmd: Cmd) -> Result<()> {
         Cmd::Status(a) => status::run(ctx, a),
         Cmd::Tags(a) => tags::run(ctx, a),
         Cmd::State(a) => state::run(ctx, a),
-        Cmd::Guide => guide::run(),
-        Cmd::Completions(a) => completions::run(a),
-        Cmd::Man(a) => completions::run_man(a),
-        // `main` answers this one before discovery; it never reaches dispatch.
-        Cmd::MergeDriver(_) => unreachable!("merge-driver is dispatched in main"),
+        // `main` answers documentation commands and `merge-driver` before
+        // discovery; they never reach dispatch.
+        Cmd::Guide | Cmd::Completions(_) | Cmd::Man(_) | Cmd::MergeDriver(_) => {
+            unreachable!("main answers documentation commands and merge-driver before discovery")
+        }
         Cmd::Refresh(a) => refresh::run(ctx, a),
         Cmd::Hooks(a) => hooks::run(ctx, a),
         Cmd::Sync(a) => sync::run(ctx, a),

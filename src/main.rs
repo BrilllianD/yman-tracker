@@ -8,6 +8,7 @@ mod git;
 mod hooks;
 mod ids;
 mod json;
+mod lock;
 mod merge;
 mod plan;
 mod refresh;
@@ -21,6 +22,7 @@ mod yml;
 
 use clap::Parser;
 use cli::{Cli, Cmd};
+use repo::LOCAL;
 
 fn main() {
     restore_sigpipe();
@@ -88,6 +90,15 @@ fn run(cli: Cli) -> anyhow::Result<()> {
 
     let mut ctx = repo::discover()?;
 
+    // Before preflight, so the MERGE_HEAD check and the config load see a
+    // state no other yman is changing. Held until `run` returns, which
+    // covers autosync.
+    let _lock = if cli.cmd.takes_lock() {
+        lock::acquire(&ctx)?
+    } else {
+        None
+    };
+
     if !cli.cmd.skips_preflight() {
         ctx.preflight(cli.cmd.is_mutating(), cli.cmd.settles_merge())?;
     }
@@ -100,14 +111,22 @@ fn run(cli: Cli) -> anyhow::Result<()> {
     }
 
     let mutating = cli.cmd.is_mutating();
-    commands::dispatch(&mut ctx, cli.cmd)?;
+    let start = if mutating {
+        ctx.resolve_ref(LOCAL).ok().flatten()
+    } else {
+        None
+    };
+    let result = commands::dispatch(&mut ctx, cli.cmd);
 
-    if mutating {
+    // A command that failed after committing has still committed; publishing
+    // it is the same bonus, and the failure keeps its exit code. The second
+    // lookup must never replace the command's error, so it takes no `?`.
+    if mutating && (result.is_ok() || ctx.resolve_ref(LOCAL).ok().flatten() != start) {
         // The change is already committed; publishing it is a bonus, so a
         // failure here is a warning, never the command's exit code.
         if let Err(err) = autosync::after_mutation(&ctx) {
             eprintln!("warning: autosync failed: {err:#}; run: yman sync");
         }
     }
-    Ok(())
+    result
 }

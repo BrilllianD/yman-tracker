@@ -2153,6 +2153,40 @@ fn a_conflicted_config_toml_keeps_exit_3_and_abort() {
 }
 
 #[test]
+fn every_mutating_command_exits_3_during_a_merge() {
+    let fx = Fx::new();
+    conflict_in_config_toml(&fx);
+    let wt = fx.b.join(".yman");
+    let head = fx.git(&wt, &["rev-parse", "HEAD"]);
+
+    let table: [&[&str]; 16] = [
+        &["add", "Nope"],
+        &["edit", "1"],
+        &["set", "1", "--title", "X"],
+        &["start", "1"],
+        &["done", "1"],
+        &["move", "1", "doing"],
+        &["cancel", "1"],
+        &["reopen", "1"],
+        &["prio", "1", "2"],
+        &["rm", "-f", "1"],
+        &["attach", "1", "x.txt"],
+        &["detach", "1", "x.txt"],
+        &["comment", "1", "-m", "x"],
+        &["tags", "rename", "a", "b"],
+        &["tags", "rm", "-f", "a"],
+        &["state", "set", "-m", "x"],
+    ];
+    for argv in table {
+        let out = fx.yman(&fx.b).args(argv).output().unwrap();
+        assert_eq!(out.status.code(), Some(3), "{argv:?}: {}", stderr(&out));
+        assert_eq!(stderr(&out), MERGE_PENDING, "{argv:?}");
+        assert_eq!(stdout(&out), "", "{argv:?}");
+    }
+    assert_eq!(fx.git(&wt, &["rev-parse", "HEAD"]), head);
+}
+
+#[test]
 fn a_conflicted_config_toml_can_be_continued() {
     let fx = Fx::new();
     conflict_in_config_toml(&fx);
@@ -7640,6 +7674,34 @@ fn autosync_push_publishes_each_change() {
     assert!(text.contains("\"autosync\":\"push\""), "{text}");
 }
 
+/// A command that committed and then failed still publishes, and keeps
+/// the failure's exit code.
+#[test]
+fn autosync_publishes_the_part_a_failed_command_committed() {
+    let fx = Fx::new();
+    let out = fx.yman(&fx.a).arg("init").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    fx.git(&fx.a, &["config", "yman.autosync", "push"]);
+    let out = fx.yman(&fx.a).args(["add", "One"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+
+    let out = fx.yman(&fx.a).args(["done", "1", "99"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(4), "{}", stderr(&out));
+    let err = stderr(&out);
+    assert!(err.contains("note: pushed 1 task commit(s)\n"), "{err}");
+    assert!(err.ends_with("error: task 99 not found\n"), "{err}");
+    assert_eq!(
+        fx.git(&fx.remote, &["rev-parse", "refs/tasks/main"]),
+        fx.git(&fx.a, &["rev-parse", "refs/yman/local"])
+    );
+    assert_eq!(fx.status(&fx.a, "1"), "done");
+
+    // Control: nothing committed, nothing pushed.
+    let out = fx.yman(&fx.a).args(["done", "99"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(4), "{}", stderr(&out));
+    assert!(!stderr(&out).contains("pushed"), "{}", stderr(&out));
+}
+
 /// Unset means off: changes stay local until `yman sync`.
 #[test]
 fn autosync_is_off_by_default() {
@@ -10190,4 +10252,541 @@ fn scrubbed_env_and_script_unsets_cover_leaky_env() {
             );
         }
     }
+}
+
+/// Eight `yman add` started at once on one clone: the lock makes each read
+/// the taken-id set after the previous one committed, so the ids are distinct
+/// and every add is its own commit.
+#[test]
+fn parallel_adds_get_distinct_ids_and_commits() {
+    use std::process::Stdio;
+    let fx = Fx::new();
+    let out = fx.yman(&fx.a).arg("init").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let before: usize = fx
+        .git(&fx.a, &["rev-list", "--count", "refs/yman/local"])
+        .parse()
+        .unwrap();
+
+    let children: Vec<_> = (0..8)
+        .map(|i| {
+            let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_yman"));
+            fx.sandbox(&mut cmd);
+            cmd.current_dir(&fx.a)
+                .args(["add", &format!("Parallel {i}")])
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .unwrap()
+        })
+        .collect();
+    let mut printed = std::collections::BTreeSet::new();
+    for child in children {
+        let out = child.wait_with_output().unwrap();
+        assert!(out.status.success(), "{}", stderr(&out));
+        let text = stdout(&out);
+        assert_eq!(text.lines().count(), 1, "{text}");
+        let rest = text
+            .strip_prefix("added ")
+            .unwrap_or_else(|| panic!("{text}"));
+        printed.insert(rest.split_whitespace().next().unwrap().to_string());
+    }
+    assert_eq!(printed.len(), 8, "ids must be distinct: {printed:?}");
+
+    let after: usize = fx
+        .git(&fx.a, &["rev-list", "--count", "refs/yman/local"])
+        .parse()
+        .unwrap();
+    assert_eq!(after, before + 8);
+
+    let log = fx.git(&fx.a, &["log", "-8", "--format=%H %s", "refs/yman/local"]);
+    let mut logged = std::collections::BTreeSet::new();
+    for line in log.lines() {
+        let (sha, subject) = line.split_once(' ').unwrap();
+        let id = subject
+            .strip_prefix("task(")
+            .and_then(|s| s.split_once("): add \"Parallel "))
+            .unwrap_or_else(|| panic!("{subject}"))
+            .0
+            .to_string();
+        logged.insert(id);
+        let files = fx.git(&fx.a, &["show", "--name-only", "--format=", sha]);
+        let folders: std::collections::BTreeSet<_> = files
+            .lines()
+            .map(|l| l.rsplit_once('/').unwrap().0)
+            .collect();
+        assert_eq!(folders.len(), 1, "one folder per commit: {files}");
+    }
+    assert_eq!(logged, printed);
+    assert_eq!(fx.git(&fx.a, &["-C", ".yman", "status", "--porcelain"]), "");
+}
+
+/// A writer that finds the lock held says so once and waits; a reader never
+/// waits.
+#[test]
+fn a_waiting_writer_says_so_and_readers_do_not_wait() {
+    use std::io::{BufRead, Read};
+    use std::process::Stdio;
+    use std::time::Duration;
+    let fx = Fx::new();
+    for args in [&["init"][..], &["add", "One"]] {
+        let out = fx.yman(&fx.a).args(args).output().unwrap();
+        assert!(out.status.success(), "{}", stderr(&out));
+    }
+    let gitfile = std::fs::read_to_string(fx.a.join(".yman/.git")).unwrap();
+    let dir = std::path::PathBuf::from(gitfile.trim().strip_prefix("gitdir:").unwrap().trim());
+    let dir = fx.a.join(".yman").join(dir);
+    let held = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(dir.join("yman.lock"))
+        .unwrap();
+    held.lock().unwrap();
+
+    let out = fx
+        .yman(&fx.a)
+        .arg("ls")
+        .timeout(Duration::from_secs(20))
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+
+    let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_yman"));
+    fx.sandbox(&mut cmd);
+    let mut child = cmd
+        .current_dir(&fx.a)
+        .args(["add", "Two"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    // The note is printed only once try_lock failed, so reading it proves the
+    // child is blocked on the held lock, however slow the machine is.
+    // The pipe is read on a thread so a writer that never announces itself
+    // fails the test instead of hanging it.
+    let note = "note: waiting for another yman command in this clone to finish\n";
+    let pipe = child.stderr.take().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        let mut err = std::io::BufReader::new(pipe);
+        let mut first = String::new();
+        err.read_line(&mut first).unwrap();
+        tx.send(first).unwrap();
+        let mut rest = String::new();
+        err.read_to_string(&mut rest).unwrap();
+        rest
+    });
+    let Ok(first) = rx.recv_timeout(Duration::from_secs(20)) else {
+        let _ = child.kill();
+        panic!("writer printed no waiting note within 20 s");
+    };
+    assert_eq!(first, note, "writer must announce that it waits");
+    assert!(
+        child.try_wait().unwrap().is_none(),
+        "writer must be blocked"
+    );
+    drop(held);
+    let rest = reader.join().unwrap();
+    let mut out = String::new();
+    child
+        .stdout
+        .take()
+        .unwrap()
+        .read_to_string(&mut out)
+        .unwrap();
+    let status = child.wait().unwrap();
+    assert!(status.success(), "{first}{rest}");
+    assert!(!rest.contains("waiting for another"), "{rest}");
+    assert!(out.starts_with("added "), "{out}");
+}
+
+/// A lock file that cannot be opened is a hard error, exit 1. The other
+/// branch, the "cannot lock ... not serialising" warning, needs a filesystem
+/// that refuses locks; on Linux no test can make `flock` fail that way, so it
+/// has no scenario.
+#[test]
+fn an_unopenable_lock_file_stops_a_writer() {
+    let fx = Fx::new();
+    let out = fx.yman(&fx.a).arg("init").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let gitfile = std::fs::read_to_string(fx.a.join(".yman/.git")).unwrap();
+    let dir = std::path::PathBuf::from(gitfile.trim().strip_prefix("gitdir:").unwrap().trim());
+    let dir = fx.a.join(".yman").join(dir);
+    let lock = dir.join("yman.lock");
+    let _ = std::fs::remove_file(&lock);
+    std::fs::create_dir(&lock).unwrap();
+
+    let out = fx.yman(&fx.a).args(["add", "One"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    let err = stderr(&out);
+    let want = format!("error: cannot lock {}: ", lock.display());
+    assert!(err.starts_with(&want), "{err}");
+    assert_eq!(stdout(&out), "");
+}
+
+/// Makes every commit in clone `a` fail: git is told to sign and the signing
+/// program is `false`.
+fn fail_signing(fx: &Fx) {
+    fx.git(&fx.a, &["config", "commit.gpgSign", "true"]);
+    fx.git(&fx.a, &["config", "gpg.program", "false"]);
+}
+
+/// A commit that fails (here, a signature) leaves nothing staged, no half-made
+/// task folder and no attachment lines on stdout; once it works again the next
+/// commit holds only its own task.
+#[test]
+fn a_failed_signature_leaves_nothing_behind() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Before"]).assert().success();
+    let head = fx.git(&fx.a, &["rev-parse", "refs/yman/local"]);
+    let dir = fx.task_dir(&fx.a, "1");
+    let rel = fx.task_rel(&fx.a, "1");
+    let meta = std::fs::read(dir.join("m.yml")).unwrap();
+    fail_signing(&fx);
+    let porcelain = |fx: &Fx| {
+        stdout(
+            &fx.yman(&fx.a)
+                .args(["git", "status", "--porcelain"])
+                .output()
+                .unwrap(),
+        )
+    };
+
+    let out = fx.yman(&fx.a).args(["add", "X"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("gpg failed to sign the data"),
+        "{}",
+        stderr(&out)
+    );
+    assert_eq!(stdout(&out), "");
+    assert_eq!(porcelain(&fx), "");
+    assert!(!fx.has_task(&fx.a, "2"));
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["set", "1", "--title", "Renamed"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(porcelain(&fx), "");
+    assert_eq!(fx.task_dir(&fx.a, "1"), dir);
+    assert_eq!(std::fs::read(dir.join("m.yml")).unwrap(), meta);
+
+    let src = fx.tmp.path().join("a.png");
+    fx.write(&src, "one");
+    let out = fx
+        .yman(&fx.a)
+        .args(["attach", "1", src.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "", "attach printed before it committed");
+    assert!(!dir.join("f").exists());
+    assert_eq!(porcelain(&fx), "");
+    assert_eq!(fx.git(&fx.a, &["rev-parse", "refs/yman/local"]), head);
+
+    fx.git(&fx.a, &["config", "--unset", "commit.gpgSign"]);
+    fx.yman(&fx.a).args(["add", "Y"]).assert().success();
+    let names = fx.git(
+        &fx.a.join(".yman"),
+        &["show", "--name-only", "--format=", "HEAD"],
+    );
+    assert!(
+        names.lines().all(|l| !l.starts_with(&rel)),
+        "HEAD touches the first task: {names}"
+    );
+    let y = fx.task_rel(&fx.a, "2");
+    assert!(
+        names.lines().all(|l| l.starts_with(&y)),
+        "HEAD touches more than the new task: {names}"
+    );
+}
+
+/// With `.yman` already dirty, a failed commit still takes back the folder
+/// `add` made (the generic cleanup only unstages there); the user's own edit stays.
+#[test]
+fn a_failed_add_in_a_dirty_tracker_leaves_no_folder() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "One"]).assert().success();
+    let rel = fx.task_rel(&fx.a, "1");
+    let md = fx.task_dir(&fx.a, "1").join("t.md");
+    let mut text = std::fs::read_to_string(&md).unwrap();
+    text.push_str("hand edit\n");
+    std::fs::write(&md, text).unwrap();
+    fail_signing(&fx);
+
+    let out = fx.yman(&fx.a).args(["add", "X"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(!fx.has_task(&fx.a, "2"));
+    let porcelain = fx.git(&fx.a.join(".yman"), &["status", "--porcelain"]);
+    assert_eq!(porcelain.trim_end(), format!(" M {rel}/t.md"));
+}
+
+/// `attach --force` over an existing file, then a failed commit: the replaced
+/// file is back as it was and only the earlier dirt remains.
+#[test]
+fn a_failed_forced_attach_restores_the_replaced_file() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "One"]).assert().success();
+    let src = fx.tmp.path().join("a.png");
+    fx.write(&src, "old");
+    fx.yman(&fx.a)
+        .args(["attach", "1", src.to_str().unwrap()])
+        .assert()
+        .success();
+    let dir = fx.task_dir(&fx.a, "1");
+    let rel = fx.task_rel(&fx.a, "1");
+    let meta = std::fs::read(dir.join("m.yml")).unwrap();
+    let md = dir.join("t.md");
+    let mut text = std::fs::read_to_string(&md).unwrap();
+    text.push_str("hand edit\n");
+    std::fs::write(&md, text).unwrap();
+    fx.write(&src, "new");
+    fail_signing(&fx);
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["attach", "1", src.to_str().unwrap(), "--force"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "");
+    assert_eq!(std::fs::read_to_string(dir.join("f/a.png")).unwrap(), "old");
+    assert_eq!(std::fs::read(dir.join("m.yml")).unwrap(), meta);
+    let porcelain = fx.git(&fx.a.join(".yman"), &["status", "--porcelain"]);
+    assert_eq!(porcelain.trim_end(), format!(" M {rel}/t.md"));
+}
+
+/// When the command fails and the undo fails too (a held `index.lock` stops
+/// `git add`, and then `git reset`; `comment` has already written `d.md`), the
+/// exit code is the command's and the warning says what to run.
+#[test]
+fn a_failed_undo_warns_and_keeps_the_exit_code() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "One"]).assert().success();
+    let gitfile = std::fs::read_to_string(fx.a.join(".yman/.git")).unwrap();
+    let dir = std::path::PathBuf::from(gitfile.trim().strip_prefix("gitdir:").unwrap().trim());
+    let lock = fx.a.join(".yman").join(dir).join("index.lock");
+    std::fs::write(&lock, "").unwrap();
+
+    // `comment` writes `d.md` before `git add` hits the lock, so the tree is
+    // dirty and the undo has a reset to run.
+    let out = fx
+        .yman(&fx.a)
+        .args(["comment", "1", "-m", "hi"])
+        .output()
+        .unwrap();
+    let err = stderr(&out);
+    std::fs::remove_file(&lock).unwrap();
+    assert_eq!(out.status.code(), Some(1), "{err}");
+    assert!(
+        err.contains("warning: could not undo the failed change: "),
+        "{err}"
+    );
+    assert!(err.contains("; run: yman status\n"), "{err}");
+}
+
+/// A `d.md` that exists but cannot be read (here a directory) counts as no
+/// discussion, with the pinned warning, once per command.
+#[cfg(unix)]
+#[test]
+fn an_unreadable_discussion_warns_and_counts_zero() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "One"]).assert().success();
+    std::fs::create_dir(fx.task_dir(&fx.a, "1").join("d.md")).unwrap();
+    let w = format!("warning: cannot read {}/d.md: ", fx.task_rel(&fx.a, "1"));
+
+    let out = fx.yman(&fx.a).args(["ls", "--json"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert!(stdout(&out).contains("\"comments\":0"), "{}", stdout(&out));
+    assert_eq!(stderr(&out).matches(&w).count(), 1, "{}", stderr(&out));
+
+    let out = fx.yman(&fx.a).args(["show", "1"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stderr(&out).matches(&w).count(), 1, "{}", stderr(&out));
+}
+
+/// An editor that deletes the temp file wrote nothing: `empty comment`, as
+/// before read errors were reported.
+#[cfg(unix)]
+#[test]
+fn comment_e_with_a_deleted_temp_file_is_an_empty_comment() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "One"]).assert().success();
+    let editor = fx.script("rmfile", "rm \"$1\"\n");
+    let out = fx
+        .yman(&fx.a)
+        .env("EDITOR", &editor)
+        .args(["comment", "1", "-e"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(stderr(&out), "error: empty comment\n");
+}
+
+/// `rm` of a task with a hand edit is refused by `git rm`; it must stop before
+/// it rewrites any other task's `related`.
+#[test]
+fn rm_of_a_hand_edited_task_leaves_others_untouched() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "One"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Other", "--relate", "1"])
+        .assert()
+        .success();
+    let other = fx.task_dir(&fx.a, "2").join("m.yml");
+    let before = std::fs::read(&other).unwrap();
+    let rel = fx.task_rel(&fx.a, "1");
+    let md = fx.task_dir(&fx.a, "1").join("t.md");
+    let mut text = std::fs::read_to_string(&md).unwrap();
+    text.push_str("hand edit\n");
+    std::fs::write(&md, text).unwrap();
+
+    let out = fx.yman(&fx.a).args(["rm", "-f", "1"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(stderr(&out).contains("git rm failed"), "{}", stderr(&out));
+    assert_eq!(std::fs::read(&other).unwrap(), before);
+    let porcelain = stdout(
+        &fx.yman(&fx.a)
+            .args(["git", "status", "--porcelain"])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(porcelain.trim_end(), format!(" M {rel}/t.md"));
+    assert!(fx.has_task(&fx.a, "1"));
+}
+
+/// `edit` holds the user's own text: a failed commit unstages it but keeps it.
+#[test]
+fn a_failed_edit_keeps_the_users_text() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "One"]).assert().success();
+    fail_signing(&fx);
+    let editor = fx.editor_writing("ed", "# One\n\nnew body\n");
+    let out = fx
+        .yman(&fx.a)
+        .env("EDITOR", &editor)
+        .args(["edit", "1"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    let md = std::fs::read_to_string(fx.task_dir(&fx.a, "1").join("t.md")).unwrap();
+    assert!(md.contains("new body"), "{md}");
+    let staged = stdout(
+        &fx.yman(&fx.a)
+            .args(["git", "diff", "--cached", "--name-only"])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(staged, "");
+}
+
+/// An editor that saves Latin-1 must not be read as "empty comment": the read
+/// error is reported and the temp file, which holds the only copy, is kept.
+#[cfg(unix)]
+#[test]
+fn comment_e_fails_on_unreadable_editor_text() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "One"]).assert().success();
+    let wt = fx.a.join(".yman");
+    let before = fx.git(&fx.a, &["rev-parse", "refs/yman/local"]);
+
+    let editor = fx.script("latin1", "printf 'caf\\351\\n' > \"$1\"\n");
+    let tmpdir = fx.tmp.path().join("t");
+    std::fs::create_dir_all(&tmpdir).unwrap();
+    let out = fx
+        .yman(&fx.a)
+        .env("EDITOR", &editor)
+        .env("TMPDIR", &tmpdir)
+        .args(["comment", "1", "-e"])
+        .output()
+        .unwrap();
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(1), "{err}");
+    assert!(
+        err.starts_with("error: cannot read the comment from "),
+        "{err}"
+    );
+    assert!(err.contains("stream did not contain valid UTF-8"), "{err}");
+    assert!(err.ends_with("; the file is kept\n"), "{err}");
+
+    let kept: Vec<_> = std::fs::read_dir(&tmpdir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| {
+            p.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("yman-comment-1-")
+        })
+        .collect();
+    assert_eq!(kept.len(), 1, "{kept:?}");
+    assert_eq!(std::fs::read(&kept[0]).unwrap(), b"caf\xe9\n");
+    assert_eq!(fx.git(&fx.a, &["rev-parse", "refs/yman/local"]), before);
+    assert_eq!(fx.git(&wt, &["status", "--porcelain"]), "");
+}
+
+/// A `d.md` with a stray non-UTF-8 byte still counts and shows its comments,
+/// with one warning per command on stderr.
+#[test]
+fn a_non_utf8_discussion_warns_and_keeps_its_comments() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "One"]).assert().success();
+    for m in ["first", "second"] {
+        fx.yman(&fx.a)
+            .args(["comment", "1", "-m", m])
+            .assert()
+            .success();
+    }
+    {
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(fx.task_dir(&fx.a, "1").join("d.md"))
+            .unwrap();
+        f.write_all(b"\xe9\n").unwrap();
+    }
+    let w = format!(
+        "warning: {}/d.md is not valid UTF-8; invalid bytes shown as U+FFFD\n",
+        fx.task_rel(&fx.a, "1")
+    );
+
+    let out = fx.yman(&fx.a).args(["ls", "--json"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    assert!(stdout(&out).contains("\"comments\":2"), "{}", stdout(&out));
+    assert_eq!(stderr(&out).matches(&w).count(), 1, "{}", stderr(&out));
+
+    let out = fx.yman(&fx.a).arg("ls").output().unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(stderr(&out).matches(&w).count(), 1, "{}", stderr(&out));
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["show", "1", "--json"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    assert!(
+        stdout(&out).contains("\"discussion_total\":2"),
+        "{}",
+        stdout(&out)
+    );
+    assert_eq!(stderr(&out).matches(&w).count(), 1, "{}", stderr(&out));
+
+    let out = fx.yman(&fx.a).args(["show", "1"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(0));
+    assert!(stdout(&out).contains("second"), "{}", stdout(&out));
+    assert_eq!(stderr(&out).matches(&w).count(), 1, "{}", stderr(&out));
 }

@@ -505,14 +505,12 @@ impl Task {
 
     pub fn comment_count(&self) -> usize {
         let path = self.dir.join(DISCUSSION_FILE);
-        match std::fs::read_to_string(path) {
-            // Raw chunks are kept for `show`, but they are not comments.
-            Ok(text) => crate::discussion::parse(&text)
-                .iter()
-                .filter(|e| matches!(e, crate::discussion::Entry::Comment { .. }))
-                .count(),
-            Err(_) => 0,
-        }
+        let text = crate::discussion::read_for_display(&path, &self.rel());
+        // Raw chunks are kept for `show`, but they are not comments.
+        crate::discussion::parse(&text)
+            .iter()
+            .filter(|e| matches!(e, crate::discussion::Entry::Comment { .. }))
+            .count()
     }
 
     pub fn attachment_count(&self) -> usize {

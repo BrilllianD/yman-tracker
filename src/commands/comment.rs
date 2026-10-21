@@ -11,8 +11,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::edit::{resolve_editor, run_editor};
 
 /// The file `comment -e` hands the editor, removed when dropped so that
-/// success, a failed editor and an empty comment all clean up alike.
-struct TempFile(PathBuf);
+/// success, a failed editor and an empty comment all clean up alike. Only a
+/// failed read keeps it, as the editor's text may exist nowhere else.
+struct TempFile(Option<PathBuf>);
 
 impl TempFile {
     /// A new, empty file in the temp dir under a name no other run picks.
@@ -32,7 +33,7 @@ impl TempFile {
             );
             let path = dir.join(name);
             match open_new(&path) {
-                Ok(_) => return Ok(TempFile(path)),
+                Ok(_) => return Ok(TempFile(Some(path))),
                 Err(e) if e.kind() == ErrorKind::AlreadyExists => last = Some(e),
                 Err(e) => bail!("cannot create {}: {e}", path.display()),
             }
@@ -42,13 +43,20 @@ impl TempFile {
     }
 
     fn path(&self) -> &Path {
-        &self.0
+        self.0.as_deref().expect("the path is taken only by keep")
+    }
+
+    /// Stop `Drop` from removing the file and hand back its path.
+    fn keep(mut self) -> PathBuf {
+        self.0.take().expect("the path is taken only by keep")
     }
 }
 
 impl Drop for TempFile {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
+        if let Some(p) = &self.0 {
+            let _ = std::fs::remove_file(p);
+        }
     }
 }
 
@@ -73,7 +81,18 @@ pub fn run(ctx: &mut Context, a: CommentArgs) -> Result<()> {
         resolve_editor()?;
         let tmp = TempFile::create(t.id())?;
         run_editor(tmp.path(), "comment not added")?;
-        std::fs::read_to_string(tmp.path()).unwrap_or_default()
+        match std::fs::read_to_string(tmp.path()) {
+            Ok(text) => text,
+            // The editor removed the file: nothing was written.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(e) => {
+                let p = tmp.keep();
+                bail!(
+                    "cannot read the comment from {}: {e}; the file is kept",
+                    p.display()
+                )
+            }
+        }
     } else if !std::io::stdin().is_terminal() {
         let mut buf = String::new();
         std::io::stdin().read_to_string(&mut buf)?;

@@ -17,7 +17,8 @@ fn policy_is_push(ctx: &Context) -> Result<bool> {
     Ok(ctx.get_cfg("yman.autosync")?.as_deref() == Some("push"))
 }
 
-/// The push that follows a successful mutating command.
+/// The push that follows a mutating command that succeeded, or failed after
+/// it had committed.
 pub fn after_mutation(ctx: &Context) -> Result<()> {
     if !policy_is_push(ctx)? || ctx.origin_url()?.is_none() {
         return Ok(());

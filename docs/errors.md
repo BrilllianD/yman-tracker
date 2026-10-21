@@ -61,7 +61,7 @@ fails, a `git commit` that fails), ends
 Code 4 is only `task <id> not found`. A folder that exists but is broken or
 duplicated is a repository problem, not a missing task, and stays at code 1.
 A verb given several ids exits 4 at the first missing one, with the tasks
-before it already committed.
+before it already committed (and, under `yman.autosync = push`, pushed).
 
 Codes 3 and 4 travel as distinct error types (`src/errors.rs`) and are
 recognised in `main` by downcasting. Returning the same text as a plain
@@ -86,6 +86,7 @@ commit.
 | `.yman` is someone else's directory | `.yman exists and is not a yman worktree; move it aside and rerun` |
 | `.yman` is a standalone repo | `.yman is a standalone git repository, not a worktree; move it aside and rerun` |
 | ref already checked out | `refs/yman/local is already checked out in another worktree of this repo; only one .yman per clone is supported` |
+| the lock file cannot be opened or locked | `cannot lock <path>: <why>` — exit 1 |
 | unknown task | `task <id> not found` |
 | task present but unloadable | `task <id> is broken: <dir>: <why>` |
 | duplicate folders for one id | `duplicate task id <id>: <relA>, <relB>` — paths relative to `.yman`, so the two may differ only in their status directory |
@@ -137,6 +138,7 @@ commit.
 | editor failed during `edit` | `editor exited with status N; file left as is` (or `editor was killed by a signal; …`) |
 | editor failed during `add -e` | `editor exited with status N; task not added` (or `editor was killed by a signal; …`) — the new folder is removed |
 | editor failed during `comment -e` | `editor exited with status N; comment not added` (or `editor was killed by a signal; …`) — the temp file is removed, nothing is committed |
+| `comment -e` cannot read what the editor saved | `cannot read the comment from <path>: <why>; the file is kept` (`<why>` is the OS error, for example `stream did not contain valid UTF-8`) — the temp file is kept, nothing is committed |
 | neither `$VISUAL` nor `$EDITOR` set, stdin not a terminal | `no terminal for vi; set $EDITOR, or use -m / --body-file` |
 | `rm` or `tags rm` prompt declined | `aborted` |
 | `t.md` unparsable | `t.md must start with "# Title"` |
@@ -187,6 +189,8 @@ Never fatal, always stderr:
 | Message | When |
 |---|---|
 | `warning: id scheme is "<s>" (from config.toml); --id-scheme ignored` | `init` on an existing history with a conflicting flag |
+| `note: waiting for another yman command in this clone to finish` | a writing command (or `sync`) found the per-clone lock held by another yman; printed once, then it waits with no timeout |
+| `warning: cannot lock <path>: <why>; not serialising with other yman commands` | the filesystem under `.git` does not support file locks; the command runs unserialised |
 | `warning: origin already points at <url>; --remote ignored` | `init --remote <url>` where origin already exists with a different URL; the same URL is accepted silently |
 | `warning: remote already had tasks; adopted remote state` | two clones initialized the tracker at once |
 | `warning: not published to origin (<why>); run: yman sync` | a fresh `init` created the tracker but its push failed (`push failed`, after git's stderr), lost the race three times (`origin keeps moving`) or lost it and then failed the refetch (`fetch failed`, after git's stderr); hooks and the summary still follow, exit 0 |
@@ -196,9 +200,12 @@ Never fatal, always stderr:
 | `warning: cannot read <path>: <why>` | `hooks status` or `hooks remove` met a hook it cannot read; it reports the hook as `unreadable` and leaves it alone |
 | `warning: refresh failed: <why>` | the lazy refresh before a command failed; the command still runs |
 | `warning: origin has new task commits; run: yman sync` | `yman.autosync = push` and the push after a change was rejected; nothing is merged, the change stays committed |
-| `warning: autosync failed: <why>; run: yman sync` | `yman.autosync = push` and the push after a change failed (offline, auth); the command still succeeds |
+| `warning: autosync failed: <why>; run: yman sync` | `yman.autosync = push` and the push after a change failed (offline, auth); the command's exit code is unchanged |
+| `warning: could not undo the failed change: <why>; run: yman status` | a mutating command failed and putting `.yman` back (unstaging, or restoring the last commit) failed too; the exit code is the original failure's |
 | `warning: task <id> does not exist here; relating anyway` | `add --relate`/`--waits-on` or `set --relate`/`--waits-on` naming an id no folder here carries |
 | `warning: <id> closed with open tasks relating to it: <ids>` | a close (as for the note below) of a task tagged `epic` while tasks relating to it are still open; the close is committed |
+| `warning: <rel>/d.md is not valid UTF-8; invalid bytes shown as U+FFFD` | `ls` or `show` read a `d.md` with invalid bytes; the comments in it are still counted and shown |
+| `warning: cannot read <rel>/d.md: <why>` | `ls` or `show` could not read a `d.md` that exists; it counts as no discussion |
 | `warning: skipped N unreadable task folder(s): <rels>` | `tags`, `tags rename`, `tags rm` and `rm` walking every task |
 | `warning: <path> not moved; <dest> already exists` | `sync` rejoining a split folder found the same file on both sides; the merge stops with `task <id> is split` (exit 3) |
 | `note: no project state yet; write one with yman state set -m <text>` | bare `state` found no `.yman/state.md` |

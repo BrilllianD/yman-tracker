@@ -63,3 +63,39 @@ pub fn exit_code_for(err: &anyhow::Error) -> i32 {
         exit::ERROR
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::Context;
+
+    #[test]
+    fn a_plain_error_exits_1() {
+        assert_eq!(exit_code_for(&anyhow::anyhow!("x")), exit::ERROR);
+    }
+
+    #[test]
+    fn merge_pending_keeps_exit_3_through_context() {
+        let one = anyhow::Error::from(MergePending::new("m")).context("outer");
+        assert_eq!(exit_code_for(&one), exit::MERGE_PENDING);
+        let two = anyhow::Error::from(MergePending::new("m"))
+            .context("a")
+            .context("b");
+        assert_eq!(exit_code_for(&two), exit::MERGE_PENDING);
+    }
+
+    #[test]
+    fn not_found_keeps_exit_4_through_context() {
+        let one = anyhow::Error::from(NotFound::new("t")).context("outer");
+        assert_eq!(exit_code_for(&one), exit::NOT_FOUND);
+        let two = anyhow::Error::from(NotFound::new("t"))
+            .context("a")
+            .context("b");
+        assert_eq!(exit_code_for(&two), exit::NOT_FOUND);
+        let r: anyhow::Result<()> = Err(NotFound::new("t").into());
+        assert_eq!(
+            exit_code_for(&r.context("ctx").unwrap_err()),
+            exit::NOT_FOUND
+        );
+    }
+}

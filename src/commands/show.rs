@@ -13,7 +13,7 @@ pub fn run(ctx: &mut Context, a: ShowArgs) -> Result<()> {
     // N entries in time order, and `total` is what the file held before
     // trimming.
     let dpath = t.dir.join(task::DISCUSSION_FILE);
-    let text = std::fs::read_to_string(&dpath).unwrap_or_default();
+    let text = discussion::read_for_display(&dpath, &t.rel());
     let mut entries = discussion::sort_by_time(discussion::parse(&text));
     let total = entries.len();
     // Only the trimmed case changes the header, so the default output
