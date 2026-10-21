@@ -31,14 +31,16 @@ Normative, as-built. Companion documents: [storage.md](storage.md),
    in progress; using config.toml as committed at HEAD` on stderr. Every other
    command fails with the load error. A key `config.toml` does not define is
    ignored and reported once per command that loads the config (not `init`,
-   `hooks`, `git`) as `warning: .yman/config.toml: unknown key <key> ignored`
-   (never under `refresh --quiet`).
+   `hooks`, `git`, `guide`, `completions`, `man`, `merge-driver`) as
+   `warning: .yman/config.toml: unknown key <key> ignored` (never under
+   `refresh --quiet`).
 4. **Lazy refresh**, when `yman.refresh` is unset or `lazy`, for every command
    except `init`, `sync`, `refresh`, `status`, `hooks` and `git`. A failure here
-   is downgraded to a `warning:` on stderr and never takes the real command
-   down. When it fast-forwards, `config.toml` is loaded again, so the command
-   runs on the rules of the history it now stands on; a config that arrived
-   and does not load fails the command.
+   is downgraded to a `warning:` on stderr and the real command still runs.
+   When it fast-forwards, `config.toml` is loaded again, so the command runs
+   on the rules of the history it now stands on; a config that arrived and
+   does not load is not downgraded: the command fails with exit 1 and
+   `invalid .yman/config.toml: <why>`.
 5. **Autosync**, after a mutating command made at least one commit, including
    one that then failed part-way (a multi-id verb stopping at a missing id,
    `add --sections` stopping at a bad task), when `yman.autosync` is `push`
@@ -767,7 +769,10 @@ exit 1.
 5. No merge base → fatal: the histories are unrelated, and the message spells
    out the re-init recipe.
 6. `base == remote` → nothing to merge. `base == local` → `merge --ff-only`
-   and loads `config.toml` again.
+   and loads `config.toml` again. If the config the fast-forward brought does
+   not load, `sync` exits 1 with `invalid .yman/config.toml: <why>`;
+   `refs/yman/local` has already moved to origin's commit, and no push and no
+   `synced` summary follow.
 7. Otherwise **renumber collisions** (below), then
    `merge --no-commit --no-ff --no-edit --no-verify` with
    `merge.directoryRenames=true`. `m.yml`

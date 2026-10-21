@@ -202,9 +202,9 @@ Never fatal, always stderr:
 | `warning: <name> is N MiB; git is not great at large binaries` | attaching a file over 5 MiB |
 | `warning: installing into core.hooksPath=<p>` | hooks redirected away from `.git/hooks` (a whitespace-only value included, untrimmed); `<p>` is the directory as git resolves it (`~/` expanded, a relative value joined onto the toplevel) |
 | `warning: cannot read <path>: <why>` | `hooks status` or `hooks remove` met a hook it cannot read; it reports the hook as `unreadable` and leaves it alone |
-| `warning: .yman/config.toml: unknown key <key> ignored` | a key `config.toml` does not define; one line per key, dotted and sorted, from every command that loads the config except `refresh --quiet` (so not `init`, `hooks` or `git`) |
+| `warning: .yman/config.toml: unknown key <key> ignored` | a key `config.toml` does not define; one line per key, dotted and sorted, from every command that loads the config except `refresh --quiet` (so not `init`, `hooks`, `git`, `guide`, `completions`, `man` or `merge-driver`) |
 | `note: sync merge in progress; using config.toml as committed at HEAD` | a read-only command (`status`, `ls`, `show`, `plan`, `log`, `path`, `state` or `tags` without an action) ran during a sync merge whose `config.toml` does not load |
-| `warning: refresh failed: <why>` | the lazy refresh before a command failed; the command still runs |
+| `warning: refresh failed: <why>` | the lazy refresh before a command failed; the command still runs (a refresh that succeeded but brought a `config.toml` that does not load fails the command with exit 1 instead) |
 | `warning: origin has new task commits; run: yman sync` | `yman.autosync = push` and the push after a change was rejected; nothing is merged, the change stays committed |
 | `warning: autosync failed: <why>; run: yman sync` | `yman.autosync = push` and the push after a change failed (offline, auth); the command's exit code is unchanged |
 | `warning: could not undo the failed change: <why>; run: yman status` | a mutating command failed and putting `.yman` back (unstaging, or restoring the last commit) failed too; the exit code is the original failure's |

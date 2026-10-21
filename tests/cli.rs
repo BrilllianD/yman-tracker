@@ -2383,6 +2383,34 @@ fn a_sync_fast_forward_loads_the_config_it_brings() {
         "{}",
         stderr(&out)
     );
+    let origin = fx.git(&fx.a, &["rev-parse", "refs/yman/local"]);
+    assert_eq!(fx.git(&fx.b, &["rev-parse", "refs/yman/local"]), origin);
+    assert!(!stdout(&out).contains("synced"), "{}", stdout(&out));
+}
+
+#[test]
+fn a_lazy_refresh_that_brings_an_unloadable_config_fails_the_command() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    let text = fx.read(&fx.a.join(".yman/config.toml"));
+    fx.set_config(&fx.a, &text.replace("version = 2", "version = 3"));
+    fx.git(
+        &fx.a,
+        &["push", "origin", "refs/yman/local:refs/tasks/main"],
+    );
+
+    // The refspec `init` configured brings origin's tracker in as
+    // refs/yman/remote; the next command's lazy refresh fast-forwards to it.
+    fx.git(&fx.b, &["fetch", "origin"]);
+    let out = fx.yman(&fx.b).arg("ls").output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("invalid .yman/config.toml: unsupported version 3"),
+        "{}",
+        stderr(&out)
+    );
 }
 
 #[test]
