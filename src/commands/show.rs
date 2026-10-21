@@ -50,7 +50,7 @@ fn print_text(
     ctx: &Context,
     t: &Task,
     related_by: &[String],
-    entries: &[discussion::Entry],
+    entries: &[discussion::Chunk],
     total: usize,
     trimmed: bool,
 ) {
@@ -114,13 +114,13 @@ fn print_text(
         }
         for e in entries {
             match e {
-                discussion::Entry::Comment { ts, author, text } => {
+                discussion::Chunk::Comment { ts, author, text } => {
                     println!("  {ts} — {author}");
                     for line in text.lines() {
                         println!("    {line}");
                     }
                 }
-                discussion::Entry::Raw(raw) => {
+                discussion::Chunk::Raw(raw) => {
                     for line in raw.lines() {
                         println!("    {line}");
                     }
@@ -133,7 +133,7 @@ fn print_text(
 /// One object. Unlike the text form, empty sections are emitted as empty
 /// arrays rather than omitted: a script should not have to branch on a
 /// missing key.
-fn print_json(t: &Task, related_by: &[String], entries: &[discussion::Entry], total: usize) {
+fn print_json(t: &Task, related_by: &[String], entries: &[discussion::Chunk], total: usize) {
     let attachments = json::array(t.meta.attachments.iter().map(|at| {
         json::Object::new()
             .str("name", &at.name)
@@ -147,12 +147,12 @@ fn print_json(t: &Task, related_by: &[String], entries: &[discussion::Entry], to
     }));
     let discussion = json::array(entries.iter().map(|e| {
         match e {
-            discussion::Entry::Comment { ts, author, text } => json::Object::new()
+            discussion::Chunk::Comment { ts, author, text } => json::Object::new()
                 .str("ts", ts)
                 .str("author", author)
                 .str("text", text)
                 .finish(),
-            discussion::Entry::Raw(raw) => json::Object::new().str("raw", raw).finish(),
+            discussion::Chunk::Raw(raw) => json::Object::new().str("raw", raw).finish(),
         }
     }));
 

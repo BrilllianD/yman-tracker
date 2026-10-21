@@ -29,6 +29,8 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
     // Before the editor, before stdin, before an id is minted: a bad tag must
     // not cost the user a burned id or a half-written folder.
     let tags = tags::normalize_all(&a.tags)?;
+    super::check_links(&a.links)?;
+    let assignee = a.assignee.map(super::assignee_arg).transpose()?.flatten();
     if !a.waits_on.is_empty() {
         plan::require_blocked(ctx.config())?;
     }
@@ -74,8 +76,6 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
     };
     let priority = a.priority.unwrap_or(ctx.config().priorities.default);
 
-    let assignee = a.assignee.and_then(super::assignee_arg);
-
     let spec = Spec {
         status,
         priority,
@@ -105,17 +105,17 @@ fn create(
 ) -> Result<()> {
     let id = ids::new_id(ctx, taken)?;
     taken.insert(id.clone());
-    let folder = FolderName::for_title(spec.priority, &id, &title, ctx.config().slug.max_bytes);
+    let folder = FolderName::for_title(spec.priority, &id, &title, ctx.config().slug.max_bytes)?;
     // A task added straight into a closed status is born in its archive
     // directory rather than being created and immediately moved.
-    let parent = ctx.config().archive_dir(&spec.status).map(str::to_string);
+    let status_dir = ctx.config().archive_dir(&spec.status).map(str::to_string);
     let mut meta = Meta::new(spec.status.clone(), spec.tags.clone());
     meta.assignee = spec.assignee.clone();
     meta.links = spec.links.clone();
     meta.related = spec.related.clone();
     let mut t = Task {
         folder,
-        parent,
+        status_dir,
         ydir: ctx.ydir.clone(),
         title,
         body,

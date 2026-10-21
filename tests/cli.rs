@@ -572,11 +572,10 @@ fn attach_force_case_change_reaches_the_index() {
 #[test]
 fn two_clones_attaching_one_name_in_two_cases_conflict() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.v1_config(&fx.a);
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared(|| {
+        fx.v1_config(&fx.a);
+        fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    });
     let upper = fx.a.join("A.png");
     fx.write(&upper, "one");
     fx.yman(&fx.a)
@@ -685,6 +684,8 @@ fn attach_refuses_unportable_names() {
         ("trail.", "ends with '.'"),
         ("trail ", "ends with a space"),
         ("tab\there", "contains a control character"),
+        ("a\u{202e}b.txt", "contains a control character"),
+        ("a\u{200b}b", "contains a control character"),
         ("", "it is empty"),
         ("nul.txt", "it is a reserved device name"),
         ("CON", "it is a reserved device name"),
@@ -1034,10 +1035,7 @@ fn log_follows_renames() {
 #[test]
 fn log_follows_a_renumber() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "Shared"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["Shared"]);
 
     fx.yman(&fx.a).args(["add", "A two"]).assert().success();
     fx.yman(&fx.a).args(["done", "2"]).assert().success();
@@ -1087,6 +1085,35 @@ fn log_follows_a_renumber() {
         subjects,
         ["task(2): set status=todo->done", "task(2): add \"A two\""],
         "{log}"
+    );
+}
+
+#[test]
+fn detach_removes_only_the_named_file_when_its_name_is_a_glob() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let src_a = fx.tmp.path().join("one.txt");
+    let src_b = fx.tmp.path().join("two.txt");
+    fx.write(&src_a, "one\n");
+    fx.write(&src_b, "two\n");
+    fx.yman(&fx.a)
+        .args(["attach", "1", src_a.to_str().unwrap(), "--name", "a.png"])
+        .assert()
+        .success();
+    fx.yman(&fx.a)
+        .args(["attach", "1", src_b.to_str().unwrap(), "--name", "[ab].png"])
+        .assert()
+        .success();
+    let out = fx
+        .yman(&fx.a)
+        .args(["detach", "1", "[ab].png"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(
+        fx.git(&fx.a.join(".yman"), &["ls-files", "5.1.fix-login/f"]),
+        "5.1.fix-login/f/a.png"
     );
 }
 
@@ -1144,10 +1171,7 @@ fn round_trip() {
 #[test]
 fn seq_collision_renumber() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "A one"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["A one"]);
 
     // Both add offline; both mint id 2.
     fx.yman(&fx.a).args(["add", "A two"]).assert().success();
@@ -1176,10 +1200,7 @@ fn seq_collision_renumber() {
 #[test]
 fn a_renumbered_id_is_not_reused_after_rm() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "A one"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["A one"]);
 
     fx.yman(&fx.a).args(["add", "A two"]).assert().success();
     fx.yman(&fx.b).args(["add", "B two"]).assert().success();
@@ -1202,11 +1223,10 @@ fn a_renumbered_id_is_not_reused_after_rm() {
 #[test]
 fn collision_renumber_keeps_a_closed_task_in_its_status_folder() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.v2_config(&fx.a);
-    fx.yman(&fx.a).args(["add", "A one"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared(|| {
+        fx.v2_config(&fx.a);
+        fx.yman(&fx.a).args(["add", "A one"]).assert().success();
+    });
 
     // Both add offline and mint id 2; B closes its copy before syncing.
     fx.yman(&fx.a).args(["add", "A two"]).assert().success();
@@ -1235,10 +1255,7 @@ fn collision_renumber_keeps_a_closed_task_in_its_status_folder() {
 #[test]
 fn collision_renumber_rewrites_related() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "A one"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["A one"]);
 
     // Both mint id 2 offline; B also has a task 3 pointing at its own 2.
     fx.yman(&fx.a).args(["add", "A two"]).assert().success();
@@ -1312,11 +1329,10 @@ const MERGE_PENDING: &str = "error: sync merge in progress; resolve conflicts th
 #[test]
 fn conflict_and_continue() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.v1_config(&fx.a);
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared(|| {
+        fx.v1_config(&fx.a);
+        fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    });
 
     // Same task, different status on each side.
     fx.yman(&fx.a)
@@ -1450,10 +1466,7 @@ fn a_commit_during_push_stays_unpublished() {
 fn a_failed_renumber_restores_yman() {
     use std::os::unix::fs::PermissionsExt;
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "A one"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["A one"]);
     fx.yman(&fx.b).args(["add", "B two"]).assert().success();
     fx.yman(&fx.b).args(["add", "B three"]).assert().success();
     fx.yman(&fx.b).arg("sync").assert().success();
@@ -1512,10 +1525,7 @@ fn sync_leaves_fetch_head_alone() {
 #[test]
 fn init_drops_a_remote_ref_origin_deleted() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["Fix login"]);
 
     fx.git(&fx.remote, &["update-ref", "-d", "refs/tasks/main"]);
     std::fs::remove_dir_all(fx.b.join(".yman")).unwrap();
@@ -1548,11 +1558,10 @@ fn init_drops_a_remote_ref_origin_deleted() {
 #[test]
 fn continue_ignores_symlinks_and_counts_pulled() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.v1_config(&fx.a);
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared(|| {
+        fx.v1_config(&fx.a);
+        fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    });
 
     let f = fx.task_dir(&fx.a, "1").join("f");
     std::fs::create_dir_all(&f).unwrap();
@@ -1604,10 +1613,7 @@ fn continue_ignores_symlinks_and_counts_pulled() {
 fn a_removed_task_does_not_leave_its_new_files_behind() {
     for remover_first in [true, false] {
         let fx = Fx::new();
-        fx.yman(&fx.a).arg("init").assert().success();
-        fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-        fx.yman(&fx.a).arg("sync").assert().success();
-        fx.yman(&fx.b).arg("init").assert().success();
+        fx.shared_titles(&["Fix login"]);
 
         let rm = |fx: &Fx| {
             fx.yman(&fx.b).args(["rm", "-f", "1"]).assert().success();
@@ -1781,10 +1787,7 @@ fn continue_does_not_drop_a_blob_staged_by_hand() {
 #[test]
 fn a_remnant_holding_a_quoted_attachment_name_is_dropped() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["Fix login"]);
     fx.yman(&fx.b).args(["rm", "-f", "1"]).assert().success();
     fx.yman(&fx.b).arg("sync").assert().success();
     let ydir = fx.a.join(".yman");
@@ -1802,11 +1805,7 @@ fn a_remnant_holding_a_quoted_attachment_name_is_dropped() {
 #[test]
 fn continue_still_drops_a_plain_remnant() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).args(["add", "Other"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["Fix login", "Other"]);
     fx.yman(&fx.b).args(["rm", "-f", "1"]).assert().success();
     let bin = "5.2.other/f/log.bin";
     for (clone, bytes) in [(&fx.a, "from a\0"), (&fx.b, "from b\0")] {
@@ -1850,11 +1849,7 @@ fn continue_still_drops_a_plain_remnant() {
 #[test]
 fn rejoin_and_drop_in_one_sync_still_push() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).args(["add", "Old idea"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["Fix login", "Old idea"]);
 
     fx.yman(&fx.a)
         .args(["set", "1", "--title", "Repair login"])
@@ -1921,11 +1916,7 @@ fn rejoin_and_drop_in_one_sync_still_push() {
 #[test]
 fn a_removed_task_leaving_only_an_ignored_file_syncs() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).args(["add", "Other"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["Fix login", "Other"]);
 
     let dir = fx.task_dir(&fx.b, "1");
     let swap = dir.join(".t.md.swp");
@@ -1962,10 +1953,7 @@ fn a_removed_task_leaving_only_an_ignored_file_syncs() {
 #[test]
 fn a_binary_conflict_needs_an_explicit_side() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["Fix login"]);
     // Committed by hand, so `m.yml` stays untouched and only the bytes clash.
     let file = "5.1.fix-login/f/log.bin";
     for (clone, bytes) in [(&fx.a, "from a\0"), (&fx.b, "from b\0")] {
@@ -2019,10 +2007,7 @@ fn a_binary_conflict_needs_an_explicit_side() {
 #[test]
 fn a_stale_merge_driver_is_reported_and_not_taken_as_resolved() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["Fix login"]);
     fx.git(
         &fx.b,
         &[
@@ -2111,11 +2096,10 @@ fn a_stale_merge_driver_is_reported_and_not_taken_as_resolved() {
 #[test]
 fn conflict_abort() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.v1_config(&fx.a);
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared(|| {
+        fx.v1_config(&fx.a);
+        fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    });
 
     fx.yman(&fx.a)
         .args(["set", "1", "--status", "doing"])
@@ -2148,9 +2132,7 @@ fn conflict_abort() {
 /// it. The marked-up config does not parse, and that must not lock out the
 /// commands that settle the merge, nor turn exit 3 into exit 1.
 fn conflict_in_config_toml(fx: &Fx) {
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&[]);
     let config = fx.read(&fx.a.join(".yman/config.toml"));
     fx.set_config(&fx.a, &config.replace("random_len = 4", "random_len = 5"));
     fx.yman(&fx.a).arg("sync").assert().success();
@@ -2191,11 +2173,10 @@ fn a_conflicted_config_toml_keeps_exit_3_and_abort() {
 #[test]
 fn a_v2_opt_in_arriving_by_fetch_applies_at_once() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.v1_config(&fx.a);
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared(|| {
+        fx.v1_config(&fx.a);
+        fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    });
     fx.v2_config(&fx.a);
     fx.yman(&fx.a).arg("sync").assert().success();
     fx.git(&fx.b, &["fetch", "origin"]);
@@ -2327,9 +2308,7 @@ fn an_unknown_config_key_is_warned() {
 #[test]
 fn a_clean_sync_merge_that_breaks_config_toml_stops_with_exit_3() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&[]);
     fx.yman(&fx.b).args(["add", "B local"]).assert().success();
     let text = fx.read(&fx.a.join(".yman/config.toml"));
     fx.set_config(&fx.a, &text.replace("version = 2", "version = 3"));
@@ -2364,9 +2343,7 @@ fn a_clean_sync_merge_that_breaks_config_toml_stops_with_exit_3() {
 #[test]
 fn a_sync_fast_forward_loads_the_config_it_brings() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&[]);
     let text = fx.read(&fx.a.join(".yman/config.toml"));
     fx.set_config(&fx.a, &text.replace("version = 2", "version = 3"));
     fx.git(
@@ -2391,9 +2368,7 @@ fn a_sync_fast_forward_loads_the_config_it_brings() {
 #[test]
 fn a_lazy_refresh_that_brings_an_unloadable_config_fails_the_command() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&[]);
     let text = fx.read(&fx.a.join(".yman/config.toml"));
     fx.set_config(&fx.a, &text.replace("version = 2", "version = 3"));
     fx.git(
@@ -2493,10 +2468,7 @@ fn a_conflicted_config_toml_can_be_continued() {
 #[test]
 fn field_wise_merge_settles_disjoint_edits() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["Fix login"]);
 
     // Same task, two different fields. These land on adjacent lines in m.yml,
     // which is exactly what the text merge cannot handle.
@@ -2528,10 +2500,7 @@ fn field_wise_merge_settles_disjoint_edits() {
 #[test]
 fn a_tag_added_on_each_clone_merges() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["Fix login"]);
 
     fx.yman(&fx.a)
         .args(["set", "1", "--tag", "zeta"])
@@ -2571,10 +2540,7 @@ fn a_tag_added_on_each_clone_merges() {
 #[test]
 fn an_unparseable_m_yml_falls_back_to_the_text_merge() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["Fix login"]);
 
     fx.yman(&fx.a)
         .args(["set", "1", "--status", "doing"])
@@ -2694,10 +2660,7 @@ git --git-dir="$R" update-ref refs/tasks/main "$c""#;
 /// refs/tasks/main to refs/race/b during A's next push plays the clone that
 /// published in between.
 fn race_setup(fx: &Fx) {
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "A one"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["A one"]);
     fx.yman(&fx.b).args(["add", "B two"]).assert().success();
     fx.git(
         &fx.b,
@@ -3264,10 +3227,7 @@ fn sync_snapshots_hand_edits() {
 #[test]
 fn fresh_on_fetch() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "A one"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["A one"]);
 
     fx.yman(&fx.b).args(["add", "B two"]).assert().success();
     fx.yman(&fx.b).arg("sync").assert().success();
@@ -3320,10 +3280,7 @@ fn refresh_manual() {
 #[test]
 fn refresh_skips_dirty() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "A one"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["A one"]);
     fx.yman(&fx.b).args(["add", "B two"]).assert().success();
     fx.yman(&fx.b).arg("sync").assert().success();
 
@@ -3354,10 +3311,7 @@ fn refresh_skips_dirty() {
 #[test]
 fn refresh_skips_diverged() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "A one"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["A one"]);
     fx.yman(&fx.b).args(["add", "B two"]).assert().success();
     fx.yman(&fx.b).arg("sync").assert().success();
 
@@ -3611,10 +3565,7 @@ fn user_post_checkout_hook_does_not_run_on_init() {
 #[cfg(unix)]
 fn user_post_merge_hook_does_not_run_on_sync() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "A one"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["A one"]);
     let log = noisy_hook(&fx, &fx.b, "post-merge");
 
     // Incoming commits only: B's sync fast-forwards `.yman`.
@@ -3700,11 +3651,10 @@ fn status_reports_ahead_behind() {
 #[test]
 fn status_reports_merge_in_progress() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.v1_config(&fx.a);
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared(|| {
+        fx.v1_config(&fx.a);
+        fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    });
     fx.yman(&fx.a)
         .args(["set", "1", "--status", "doing"])
         .assert()
@@ -3838,20 +3788,6 @@ fn hook_environment_does_not_leak() {
     );
 }
 
-/// An unreadable (not merely absent) attempt log is an error, not zero runs.
-#[test]
-#[should_panic(expected = "read attempt log ")]
-fn fx_runs_panics_on_unreadable_log() {
-    let fx = Fx::new();
-    fx.runs(fx.tmp.path());
-}
-
-#[test]
-fn fx_runs_reads_a_missing_log_as_zero() {
-    let fx = Fx::new();
-    assert_eq!(fx.runs(&fx.tmp.path().join("never-written")), 0);
-}
-
 /// A git killed by a signal exits the way a shell reports it, `128 + signal`.
 #[cfg(unix)]
 #[test]
@@ -3866,93 +3802,305 @@ fn yman_git_reports_signal_death() {
     assert_eq!(out.status.code(), Some(137), "{}", stderr(&out));
 }
 
+#[cfg(unix)]
 #[test]
-fn broken_task_is_listed_not_fatal() {
+fn configured_hooks_never_fire_for_yman() {
+    let fx = Fx::new();
+    let log = fx.tmp.path().join("hook.log");
+    fx.git(
+        &fx.a,
+        &[
+            "config",
+            "hook.yman-probe.command",
+            &format!("echo fired >> '{}'", log.display()),
+        ],
+    );
+    for event in [
+        "post-commit",
+        "post-merge",
+        "post-checkout",
+        "reference-transaction",
+    ] {
+        fx.git(&fx.a, &["config", "--add", "hook.yman-probe.event", event]);
+    }
+    fx.git(&fx.a, &["commit", "--allow-empty", "-qm", "probe"]);
+    if !log.exists() {
+        skip("this git has no config-defined hooks");
+        return;
+    }
+    std::fs::remove_file(&log).unwrap();
+
+    for args in [
+        vec!["init"],
+        vec!["add", "One"],
+        vec!["sync"],
+        vec!["done", "1"],
+        vec!["sync"],
+    ] {
+        let out = fx.yman(&fx.a).args(&args).output().unwrap();
+        assert!(out.status.success(), "{args:?}: {}", stderr(&out));
+    }
+    assert!(
+        !log.exists(),
+        "a configured hook fired for yman: {}",
+        fx.read(&log)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn reference_transaction_hook_never_sees_yman_refs() {
+    use std::os::unix::fs::PermissionsExt;
+    let fx = Fx::new();
+    let log = fx.tmp.path().join("ref.log");
+    let hook = fx.a.join(".git/hooks/reference-transaction");
+    fx.write(&hook, &format!("#!/bin/sh\ncat >> '{}'\n", log.display()));
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+    // Positive control: a plain git ref update must reach the hook, or the
+    // absence of yman refs below proves nothing.
+    fx.git(&fx.a, &["update-ref", "refs/heads/yman-probe", "HEAD"]);
+    assert!(
+        fx.read(&log).contains("refs/heads/yman-probe"),
+        "the hook never fired; the test would prove nothing"
+    );
+    fx.write(&log, "");
+
+    for args in [vec!["init"], vec!["add", "One"], vec!["sync"]] {
+        let out = fx.yman(&fx.a).args(&args).output().unwrap();
+        assert!(out.status.success(), "{args:?}: {}", stderr(&out));
+    }
+    let text = fx.read(&log);
+    for line in text.lines() {
+        assert!(
+            !line.contains("refs/yman/") && !line.contains("refs/tasks/"),
+            "hook saw {line}"
+        );
+    }
+}
+
+#[test]
+fn hooks_install_refuses_an_empty_hooks_path_and_honours_a_blank_one() {
     let fx = Fx::new();
     fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.write(&fx.a.join(".yman/5.2.broken/m.yml"), "status: todo\n");
-    fx.write(&fx.a.join(".yman/5.2.broken/t.md"), "no heading here\n");
-
-    let out = fx.yman(&fx.a).arg("ls").output().unwrap();
+    fx.git(&fx.a, &["config", "core.hooksPath", ""]);
+    for sub in ["install", "status", "remove"] {
+        let out = fx.yman(&fx.a).args(["hooks", sub]).output().unwrap();
+        assert_eq!(out.status.code(), Some(1), "{sub}");
+        assert_eq!(
+            stderr(&out),
+            "error: core.hooksPath is empty, which turns git hooks off; unset it or point it at a directory\n",
+            "{sub}"
+        );
+    }
+    assert!(!fx.a.join(".git/hooks/post-merge").exists());
+    let out = fx.yman(&fx.a).arg("status").output().unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
-    let text = stdout(&out);
-    assert!(text.contains("Fix login"), "{text}");
-    assert!(text.contains("!  5.2.broken  broken"), "{text}");
-    assert!(text.contains("t.md must start with"), "{text}");
+    assert!(stdout(&out).contains("not installed"), "{}", stdout(&out));
 
-    // Commands that target it fail, and say why.
-    let out = fx.yman(&fx.a).args(["show", "2"]).output().unwrap();
-    assert!(!out.status.success());
+    fx.git(&fx.a, &["config", "core.hooksPath", "  "]);
+    let out = fx.yman(&fx.a).args(["hooks", "install"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
     assert!(
-        stderr(&out).contains("task 2 is broken"),
+        stderr(&out).contains("warning: installing into core.hooksPath="),
         "{}",
         stderr(&out)
     );
-
-    let text = stdout(&fx.yman(&fx.a).arg("status").output().unwrap());
-    assert!(text.contains("(1 broken)"), "{text}");
+    assert!(fx.a.join("  ").join("post-merge").exists());
 }
 
+#[cfg(unix)]
 #[test]
-fn an_m_yml_indentation_indicator_cannot_crash_ls() {
+fn hooks_warn_when_yman_is_not_on_path() {
+    const WARN: &str = "warning: yman is not on PATH, so the installed hooks do nothing";
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    let bad = "status: |3\n  я\ncreated: 2026-01-01T00:00:00Z\nupdated: 2026-01-01T00:00:00Z\n";
-    fx.write(&fx.task_dir(&fx.a, "1").join("m.yml"), bad);
+    fx.yman(&fx.a).args(["init", "--hooks"]).assert().success();
+    let only_git = fx.tmp.path().join("only-git");
+    std::fs::create_dir_all(&only_git).unwrap();
+    let real_git = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+        .map(|d| d.join("git"))
+        .find(|p| p.is_file())
+        .unwrap();
+    std::os::unix::fs::symlink(real_git, only_git.join("git")).unwrap();
 
-    let out = fx.yman(&fx.a).arg("ls").output().unwrap();
-    assert!(out.status.success(), "{}", stderr(&out));
-    let text = stdout(&out);
-    assert!(text.contains("broken"), "{text}");
-    assert!(text.contains("indentation indicator"), "{text}");
-
-    // The merge driver takes the same text and must not panic either.
-    let dir = tempfile::tempdir().unwrap();
-    let good = "status: todo\ntags: []\nassignee: null\ncreated: 2026-01-01T00:00:00Z\n\
-                updated: 2026-01-01T00:00:00Z\nattachments: []\nlinks: []\nrelated: []\n";
-    for (name, text) in [("base", good), ("ours", bad), ("theirs", good)] {
-        std::fs::write(dir.path().join(name), text).unwrap();
-    }
     let out = fx
-        .yman(dir.path())
-        .args(["merge-driver", "base", "ours", "theirs"])
+        .yman(&fx.a)
+        .env("PATH", &only_git)
+        .args(["hooks", "status"])
         .output()
         .unwrap();
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
-    assert!(!stderr(&out).contains("panicked"), "{}", stderr(&out));
+    assert!(
+        stdout(&out).contains("hook post-merge: installed"),
+        "{}",
+        stdout(&out)
+    );
+    assert!(stderr(&out).contains(WARN), "{}", stderr(&out));
+    for args in [&["status"][..], &["hooks", "install"][..]] {
+        let out = fx
+            .yman(&fx.a)
+            .env("PATH", &only_git)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(stderr(&out).contains(WARN), "{args:?}: {}", stderr(&out));
+    }
+    for args in [
+        &["status"][..],
+        &["hooks", "status"][..],
+        &["hooks", "install"][..],
+    ] {
+        let out = fx.yman(&fx.a).args(args).output().unwrap();
+        assert!(!stderr(&out).contains(WARN), "{args:?}: {}", stderr(&out));
+    }
 }
 
 #[test]
-fn a_flow_sequence_comment_is_not_a_tag() {
+fn hooks_honour_core_hooks_path() {
+    let fx = Fx::new();
+    fx.git(&fx.a, &["config", "core.hooksPath", "githooks"]);
+    fx.yman(&fx.a).arg("init").assert().success();
+
+    let out = fx.yman(&fx.a).args(["hooks", "install"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(
+        stderr(&out).trim(),
+        format!(
+            "warning: installing into core.hooksPath={}",
+            fx.a.join("githooks").display()
+        )
+    );
+    assert!(fx.a.join("githooks/post-merge").is_file());
+    assert!(!fx.a.join(".git/hooks/post-merge").exists());
+
+    let text = stdout(&fx.yman(&fx.a).args(["hooks", "status"]).output().unwrap());
+    assert!(text.contains("hook post-merge: installed"), "{text}");
+
+    fx.yman(&fx.a).args(["hooks", "remove"]).assert().success();
+    assert!(!fx.a.join("githooks/post-merge").exists());
+}
+
+#[test]
+fn hooks_core_hooks_path_expands_tilde() {
+    let fx = Fx::new();
+    fx.git(&fx.a, &["config", "core.hooksPath", "~/githooks"]);
+    fx.yman(&fx.a).arg("init").assert().success();
+
+    let out = fx.yman(&fx.a).args(["hooks", "install"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let dir = fx.home().join("githooks");
+    assert_eq!(
+        stderr(&out).trim(),
+        format!("warning: installing into core.hooksPath={}", dir.display())
+    );
+    assert!(fx.read(&dir.join("post-merge")).contains("# yman-hook v1"));
+    assert!(dir.join("post-checkout").is_file());
+    assert!(!fx.a.join("~").exists(), "installed under a literal ~");
+
+    let text = stdout(&fx.yman(&fx.a).args(["hooks", "status"]).output().unwrap());
+    assert!(text.contains("hook post-merge: installed"), "{text}");
+    fx.yman(&fx.a).args(["hooks", "remove"]).assert().success();
+    assert!(!dir.join("post-merge").exists());
+}
+
+/// `hooks install`, `status` and `remove` against a `post-merge` hook yman
+/// cannot read: install refuses it naming `why`, status reports it as
+/// `unreadable`, remove leaves it, and the file is byte-for-byte untouched
+/// throughout. `post-checkout` is installed and removed as usual.
+fn assert_unreadable_hook_refused(fx: &Fx, why: &str, check: &dyn Fn()) {
+    let hook = fx.a.join(".git/hooks/post-merge");
+    let out = fx.yman(&fx.a).args(["hooks", "install"]).output().unwrap();
+    assert!(!out.status.success(), "{}", stdout(&out));
+    let err = stderr(&out);
+    assert!(
+        err.contains(&format!(
+            "warning: hook post-merge: cannot read {}: {why}; not replacing it",
+            hook.display()
+        )),
+        "{err}"
+    );
+    assert!(
+        err.contains("error: 1 hook(s) not installed: post-merge"),
+        "{err}"
+    );
+    assert!(stdout(&out).contains("hook post-checkout: installed"));
+    check();
+
+    let out = fx.yman(&fx.a).args(["hooks", "status"]).output().unwrap();
+    assert!(out.status.success());
+    assert!(
+        stdout(&out).contains("hook post-merge: unreadable\n"),
+        "{}",
+        stdout(&out)
+    );
+    assert!(
+        stderr(&out).contains(&format!("warning: cannot read {}: {why}", hook.display())),
+        "{}",
+        stderr(&out)
+    );
+    check();
+
+    let out = fx.yman(&fx.a).args(["hooks", "remove"]).output().unwrap();
+    assert!(out.status.success());
+    assert!(
+        stdout(&out).contains("hook post-merge: unreadable, left alone"),
+        "{}",
+        stdout(&out)
+    );
+    assert!(stdout(&out).contains("hook post-checkout: removed"));
+    check();
+}
+
+#[cfg(unix)]
+#[test]
+fn hooks_refuse_unreadable_hook() {
+    use std::os::unix::fs::PermissionsExt;
     let fx = Fx::new();
     fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    let path = fx.task_dir(&fx.a, "1").join("m.yml");
-    fx.write(
-        &path,
-        "status: todo\ntags: [a, b]  # note\nassignee: null\ncreated: 2026-01-01T00:00:00Z\n\
-         updated: 2026-01-01T00:00:00Z\nattachments: []\nlinks: []\nrelated: [] # x\n",
-    );
+    let hook = fx.a.join(".git/hooks/post-merge");
+    fx.write(&hook, "#!/bin/sh\necho mine\n");
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if std::fs::read(&hook).is_ok() {
+        // Running as root: mode 000 does not stop the read.
+        skip(&format!("{} is still readable", hook.display()));
+        return;
+    }
+    let check = || {
+        let mode = std::fs::metadata(&hook).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0, "mode changed");
+    };
+    assert_unreadable_hook_refused(&fx, "Permission denied (os error 13)", &check);
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(fx.read(&hook), "#!/bin/sh\necho mine\n");
+}
 
-    let json = stdout(
-        &fx.yman(&fx.a)
-            .args(["show", "1", "--json"])
-            .output()
-            .unwrap(),
-    );
-    assert!(json.contains(r#""tags":["a","b"]"#), "{json}");
-    assert!(json.contains(r#""related":[]"#), "{json}");
+#[test]
+fn hooks_refuse_non_utf8_hook() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let hook = fx.a.join(".git/hooks/post-merge");
+    let bytes: &[u8] = b"#!/bin/sh\n# caf\xe9\necho mine\n";
+    std::fs::write(&hook, bytes).unwrap();
+    let check = || assert_eq!(std::fs::read(&hook).unwrap(), bytes);
+    assert_unreadable_hook_refused(&fx, "not valid UTF-8", &check);
+}
 
-    fx.yman(&fx.a)
-        .args(["set", "1", "--status", "doing"])
-        .assert()
-        .success();
-    let text = fx.read(&path);
-    assert!(text.contains("tags:\n- a\n- b\n"), "{text}");
-    assert!(text.contains("related: []\n"), "{text}");
-    assert!(!text.contains("'[a, b]'"), "{text}");
+#[cfg(unix)]
+#[test]
+fn hooks_refuse_dangling_symlink() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let hook = fx.a.join(".git/hooks/post-merge");
+    // The directory exists, so a write through the link would succeed.
+    let shared = fx.tmp.path().join("shared-hooks");
+    std::fs::create_dir_all(&shared).unwrap();
+    let target = shared.join("post-merge");
+    std::os::unix::fs::symlink(&target, &hook).unwrap();
+    let check = || {
+        assert_eq!(std::fs::read_link(&hook).unwrap(), target);
+        assert!(!target.exists(), "wrote through the symlink");
+    };
+    assert_unreadable_hook_refused(&fx, "dangling symlink", &check);
 }
 
 // ------------------------------------------------------------- editor paths
@@ -4106,6 +4254,56 @@ fn edit_reports_an_editor_that_fails() {
         "error: editor exited with status 3; file left as is"
     );
     assert_eq!(fx.title(&fx.a, "1"), "Fix login");
+}
+
+/// An editor that interrupts both yman (its parent) and itself, as a Ctrl-C
+/// in a terminal does to the whole foreground process group.
+#[cfg(unix)]
+const SIGINT_EDITOR: &str = "sleep 0.2\nkill -INT $PPID\nkill -INT $$\n";
+
+#[cfg(unix)]
+#[test]
+fn add_e_survives_sigint_and_removes_its_folder() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let editor = fx.script("ed-sigint", SIGINT_EDITOR);
+    let out = fx
+        .yman(&fx.a)
+        .env("EDITOR", &editor)
+        .args(["add", "-e", "Fix login"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(
+        stderr(&out).trim(),
+        "error: editor was killed by a signal; task not added"
+    );
+    assert!(fx.task_dirs(&fx.a).is_empty());
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["status", "--porcelain"]), "");
+}
+
+#[cfg(unix)]
+#[test]
+fn comment_e_survives_sigint_and_removes_its_temp_file() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let tmpdir = fx.tmp.path().join("scratch");
+    std::fs::create_dir(&tmpdir).unwrap();
+    let editor = fx.script("ed-sigint", SIGINT_EDITOR);
+    let out = fx
+        .yman(&fx.a)
+        .env("EDITOR", &editor)
+        .env("TMPDIR", &tmpdir)
+        .args(["comment", "1", "-e"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(
+        stderr(&out).trim(),
+        "error: editor was killed by a signal; comment not added"
+    );
+    assert_eq!(std::fs::read_dir(&tmpdir).unwrap().count(), 0);
 }
 
 #[test]
@@ -4538,10 +4736,7 @@ const HOSTILE_GIT_CONFIG: &str = "[color]\n\tdiff = always\n\tstatus = always\n\
 #[test]
 fn user_git_config_does_not_change_what_yman_does() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["Fix login"]);
 
     let log = |args: &[&str]| {
         let out = fx.yman(&fx.a).args(args).output().unwrap();
@@ -4604,11 +4799,10 @@ fn user_git_config_does_not_change_what_yman_does() {
 #[test]
 fn user_diff3_base_section_keeps_continue_pending() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.v1_config(&fx.a);
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared(|| {
+        fx.v1_config(&fx.a);
+        fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    });
     fx.global_config("[merge]\n\tconflictStyle = diff3\n");
 
     let ta = fx.task_dir(&fx.a, "1").join("t.md");
@@ -4650,35 +4844,6 @@ fn user_diff3_base_section_keeps_continue_pending() {
         .output()
         .unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
-}
-
-#[test]
-fn detach_removes_only_the_named_file_when_its_name_is_a_glob() {
-    let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    let src_a = fx.tmp.path().join("one.txt");
-    let src_b = fx.tmp.path().join("two.txt");
-    fx.write(&src_a, "one\n");
-    fx.write(&src_b, "two\n");
-    fx.yman(&fx.a)
-        .args(["attach", "1", src_a.to_str().unwrap(), "--name", "a.png"])
-        .assert()
-        .success();
-    fx.yman(&fx.a)
-        .args(["attach", "1", src_b.to_str().unwrap(), "--name", "[ab].png"])
-        .assert()
-        .success();
-    let out = fx
-        .yman(&fx.a)
-        .args(["detach", "1", "[ab].png"])
-        .output()
-        .unwrap();
-    assert!(out.status.success(), "{}", stderr(&out));
-    assert_eq!(
-        fx.git(&fx.a.join(".yman"), &["ls-files", "5.1.fix-login/f"]),
-        "5.1.fix-login/f/a.png"
-    );
 }
 
 #[test]
@@ -5223,154 +5388,6 @@ fn a_bad_author_prefix_names_its_source() {
     );
 }
 
-#[test]
-fn hooks_honour_core_hooks_path() {
-    let fx = Fx::new();
-    fx.git(&fx.a, &["config", "core.hooksPath", "githooks"]);
-    fx.yman(&fx.a).arg("init").assert().success();
-
-    let out = fx.yman(&fx.a).args(["hooks", "install"]).output().unwrap();
-    assert!(out.status.success(), "{}", stderr(&out));
-    assert_eq!(
-        stderr(&out).trim(),
-        format!(
-            "warning: installing into core.hooksPath={}",
-            fx.a.join("githooks").display()
-        )
-    );
-    assert!(fx.a.join("githooks/post-merge").is_file());
-    assert!(!fx.a.join(".git/hooks/post-merge").exists());
-
-    let text = stdout(&fx.yman(&fx.a).args(["hooks", "status"]).output().unwrap());
-    assert!(text.contains("hook post-merge: installed"), "{text}");
-
-    fx.yman(&fx.a).args(["hooks", "remove"]).assert().success();
-    assert!(!fx.a.join("githooks/post-merge").exists());
-}
-
-#[test]
-fn hooks_core_hooks_path_expands_tilde() {
-    let fx = Fx::new();
-    fx.git(&fx.a, &["config", "core.hooksPath", "~/githooks"]);
-    fx.yman(&fx.a).arg("init").assert().success();
-
-    let out = fx.yman(&fx.a).args(["hooks", "install"]).output().unwrap();
-    assert!(out.status.success(), "{}", stderr(&out));
-    let dir = fx.home().join("githooks");
-    assert_eq!(
-        stderr(&out).trim(),
-        format!("warning: installing into core.hooksPath={}", dir.display())
-    );
-    assert!(fx.read(&dir.join("post-merge")).contains("# yman-hook v1"));
-    assert!(dir.join("post-checkout").is_file());
-    assert!(!fx.a.join("~").exists(), "installed under a literal ~");
-
-    let text = stdout(&fx.yman(&fx.a).args(["hooks", "status"]).output().unwrap());
-    assert!(text.contains("hook post-merge: installed"), "{text}");
-    fx.yman(&fx.a).args(["hooks", "remove"]).assert().success();
-    assert!(!dir.join("post-merge").exists());
-}
-
-/// `hooks install`, `status` and `remove` against a `post-merge` hook yman
-/// cannot read: install refuses it naming `why`, status reports it as
-/// `unreadable`, remove leaves it, and the file is byte-for-byte untouched
-/// throughout. `post-checkout` is installed and removed as usual.
-fn assert_unreadable_hook_refused(fx: &Fx, why: &str, check: &dyn Fn()) {
-    let hook = fx.a.join(".git/hooks/post-merge");
-    let out = fx.yman(&fx.a).args(["hooks", "install"]).output().unwrap();
-    assert!(!out.status.success(), "{}", stdout(&out));
-    let err = stderr(&out);
-    assert!(
-        err.contains(&format!(
-            "warning: hook post-merge: cannot read {}: {why}; not replacing it",
-            hook.display()
-        )),
-        "{err}"
-    );
-    assert!(
-        err.contains("error: 1 hook(s) not installed: post-merge"),
-        "{err}"
-    );
-    assert!(stdout(&out).contains("hook post-checkout: installed"));
-    check();
-
-    let out = fx.yman(&fx.a).args(["hooks", "status"]).output().unwrap();
-    assert!(out.status.success());
-    assert!(
-        stdout(&out).contains("hook post-merge: unreadable\n"),
-        "{}",
-        stdout(&out)
-    );
-    assert!(
-        stderr(&out).contains(&format!("warning: cannot read {}: {why}", hook.display())),
-        "{}",
-        stderr(&out)
-    );
-    check();
-
-    let out = fx.yman(&fx.a).args(["hooks", "remove"]).output().unwrap();
-    assert!(out.status.success());
-    assert!(
-        stdout(&out).contains("hook post-merge: unreadable, left alone"),
-        "{}",
-        stdout(&out)
-    );
-    assert!(stdout(&out).contains("hook post-checkout: removed"));
-    check();
-}
-
-#[cfg(unix)]
-#[test]
-fn hooks_refuse_unreadable_hook() {
-    use std::os::unix::fs::PermissionsExt;
-    let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    let hook = fx.a.join(".git/hooks/post-merge");
-    fx.write(&hook, "#!/bin/sh\necho mine\n");
-    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o000)).unwrap();
-    if std::fs::read(&hook).is_ok() {
-        // Running as root: mode 000 does not stop the read.
-        skip(&format!("{} is still readable", hook.display()));
-        return;
-    }
-    let check = || {
-        let mode = std::fs::metadata(&hook).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0, "mode changed");
-    };
-    assert_unreadable_hook_refused(&fx, "Permission denied (os error 13)", &check);
-    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o644)).unwrap();
-    assert_eq!(fx.read(&hook), "#!/bin/sh\necho mine\n");
-}
-
-#[test]
-fn hooks_refuse_non_utf8_hook() {
-    let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    let hook = fx.a.join(".git/hooks/post-merge");
-    let bytes: &[u8] = b"#!/bin/sh\n# caf\xe9\necho mine\n";
-    std::fs::write(&hook, bytes).unwrap();
-    let check = || assert_eq!(std::fs::read(&hook).unwrap(), bytes);
-    assert_unreadable_hook_refused(&fx, "not valid UTF-8", &check);
-}
-
-#[cfg(unix)]
-#[test]
-fn hooks_refuse_dangling_symlink() {
-    let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    let hook = fx.a.join(".git/hooks/post-merge");
-    // The directory exists, so a write through the link would succeed.
-    let shared = fx.tmp.path().join("shared-hooks");
-    std::fs::create_dir_all(&shared).unwrap();
-    let target = shared.join("post-merge");
-    std::os::unix::fs::symlink(&target, &hook).unwrap();
-    let check = || {
-        assert_eq!(std::fs::read_link(&hook).unwrap(), target);
-        assert!(!target.exists(), "wrote through the symlink");
-    };
-    assert_unreadable_hook_refused(&fx, "dangling symlink", &check);
-}
-
 /// Task ids present in a clone, in folder-name order.
 fn ids_in(clone: &std::path::Path) -> Vec<String> {
     let mut names: Vec<String> = std::fs::read_dir(clone.join(".yman"))
@@ -5387,7 +5404,72 @@ fn ids_in(clone: &std::path::Path) -> Vec<String> {
         .collect()
 }
 
-// ------------------------------------------------------- the rest of `set`
+/// A directory name with a byte that is not UTF-8, inside the fixture's
+/// tempdir. `None` when the filesystem refuses such a name.
+#[cfg(target_os = "linux")]
+fn non_utf8_dir(fx: &Fx) -> Option<std::path::PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    let dir = fx
+        .tmp
+        .path()
+        .join(std::ffi::OsStr::from_bytes(b"repo-\xff"));
+    std::fs::create_dir(&dir).ok()?;
+    Some(dir)
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn utf8_repository_path_is_refused() {
+    let fx = Fx::new();
+    let Some(dir) = non_utf8_dir(&fx) else {
+        skip("the filesystem refuses a non-UTF-8 directory name");
+        return;
+    };
+    fx.git(&dir, &["init", "-q"]);
+    let before = std::fs::read_dir(fx.tmp.path()).unwrap().count();
+    for args in [&["ls"][..], &["init"][..]] {
+        let out = fx.yman(&dir).args(args).output().unwrap();
+        assert_eq!(out.status.code(), Some(1), "{args:?}: {}", stderr(&out));
+        assert!(
+            stderr(&out).starts_with("error: repository path is not valid UTF-8: "),
+            "{args:?}: {}",
+            stderr(&out)
+        );
+    }
+    assert_eq!(std::fs::read_dir(fx.tmp.path()).unwrap().count(), before);
+    assert!(!dir.join(".yman").exists());
+}
+
+/// Characterization: the lossy name does not exist on disk, and `ls` still
+/// lists the folder, as broken, instead of skipping it.
+#[cfg(target_os = "linux")]
+#[test]
+fn utf8_task_folder_name_is_listed_as_broken() {
+    use std::os::unix::ffi::OsStrExt;
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Cafe"]).assert().success();
+    let src = fx.task_dir(&fx.a, "1");
+    let dst =
+        fx.a.join(".yman")
+            .join(std::ffi::OsStr::from_bytes(b"5.9.caf\xff"));
+    if std::fs::create_dir(&dst).is_err() {
+        skip("the filesystem refuses a non-UTF-8 directory name");
+        return;
+    }
+    for f in ["t.md", "m.yml"] {
+        std::fs::copy(src.join(f), dst.join(f)).unwrap();
+    }
+    let out = fx.yman(&fx.a).arg("ls").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stdout(&out).contains("5.9.caf\u{FFFD}  broken"),
+        "{}",
+        stdout(&out)
+    );
+}
+
+// --------------------- set, show, ls, tags, plan, autosync and value checks
 
 #[test]
 fn set_assignee_links_and_related() {
@@ -6032,12 +6114,11 @@ fn a_broken_folder_in_a_status_dir_is_listed_with_its_path() {
 #[test]
 fn a_split_close_cannot_be_continued_into_a_duplicate_id() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    // `done` and `cancelled` are both closed statuses.
-    fx.v2_config(&fx.a);
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared(|| {
+        // `done` and `cancelled` are both closed statuses.
+        fx.v2_config(&fx.a);
+        fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    });
 
     // Each side files the same task under a different status directory.
     let archive = |clone: &std::path::Path, status: &str| {
@@ -6097,10 +6178,7 @@ fn a_split_close_cannot_be_continued_into_a_duplicate_id() {
 #[test]
 fn commenting_on_both_sides_does_not_renumber() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["Fix login"]);
 
     fx.yman(&fx.a)
         .args(["comment", "1", "-m", "from A"])
@@ -6138,10 +6216,7 @@ fn commenting_on_both_sides_does_not_renumber() {
 #[test]
 fn retitling_does_not_renumber() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["Fix login"]);
 
     // B retitles offline; the folder moves and `t.md`'s first line changes.
     fx.yman(&fx.b)
@@ -6292,12 +6367,11 @@ fn version_one_keeps_every_task_flat() {
 #[test]
 fn comments_on_an_archived_task_merge_without_conflict() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.v2_config(&fx.a);
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).args(["done", "1"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared(|| {
+        fx.v2_config(&fx.a);
+        fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+        fx.yman(&fx.a).args(["done", "1"]).assert().success();
+    });
 
     fx.yman(&fx.a)
         .args(["comment", "1", "-m", "from A"])
@@ -8096,10 +8170,7 @@ fn tags_subcommands_wait_for_an_unresolved_merge() {
 #[test]
 fn collision_renumber_leaves_no_reference_dangling() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "Shared"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["Shared"]);
 
     // Both mint 2 offline, and on each side a published task and a new one
     // point at that side's own 2.
@@ -8155,10 +8226,7 @@ fn collision_renumber_leaves_no_reference_dangling() {
 #[test]
 fn second_round_renumber_leaves_no_reference_dangling() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "Shared"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["Shared"]);
 
     fx.yman(&fx.a).args(["add", "A two"]).assert().success();
     fx.yman(&fx.a)
@@ -8228,10 +8296,7 @@ fn second_round_renumber_leaves_no_reference_dangling() {
 fn retitle_and_first_comment_merge() {
     for retitler in ["a", "b"] {
         let fx = Fx::new();
-        fx.yman(&fx.a).arg("init").assert().success();
-        fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-        fx.yman(&fx.a).arg("sync").assert().success();
-        fx.yman(&fx.b).arg("init").assert().success();
+        fx.shared_titles(&["Fix login"]);
 
         let (mover, other) = if retitler == "a" {
             (&fx.a, &fx.b)
@@ -8342,11 +8407,7 @@ fn moved_folder_and_attachment_merge() {
 #[test]
 fn a_retitle_remnant_in_a_stopped_merge_is_not_a_split_close() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).args(["add", "Other"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["Fix login", "Other"]);
 
     fx.yman(&fx.a)
         .args(["set", "1", "--title", "Repair login"])
@@ -8934,6 +8995,132 @@ fn add_sections_refuses_an_unclosed_fence() {
     assert!(fx.task_dirs(&fx.a).is_empty());
 }
 
+/// A leading BOM (an editor's signature) does not hide the first heading.
+#[test]
+fn add_sections_skips_a_leading_bom() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let out = fx
+        .yman(&fx.a)
+        .args(["add", "--sections", "-"])
+        .write_stdin("\u{feff}# One\n\nbody\n")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "added 1  5.1.one\n");
+}
+
+fn bad_value_error(kind: &str, shown: &str) -> String {
+    format!(
+        "error: invalid {kind} {shown}; {kind}s must not contain line breaks or other control \
+         characters"
+    )
+}
+
+/// An assignee, a link or a related id holding a line break or a bidi or
+/// invisible character is refused before anything is written, by `add` and
+/// `set` alike.
+#[test]
+fn add_and_set_refuse_unsafe_values() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let ymandir = fx.a.join(".yman");
+    let head = fx.git(&ymandir, &["rev-parse", "HEAD"]);
+
+    for (args, kind, shown) in [
+        (["add", "X", "-a", "a\nb"], "assignee", r#""a\nb""#),
+        (["add", "X", "--link", "x\ny"], "link", r#""x\ny""#),
+        (
+            ["add", "X", "--relate", "2\u{202e}"],
+            "related id",
+            r#""2\u{202e}""#,
+        ),
+        (
+            ["set", "1", "-a", "a\u{200e}b"],
+            "assignee",
+            r#""a\u{200e}b""#,
+        ),
+        (
+            ["set", "1", "--link", "x\u{2028}y"],
+            "link",
+            r#""x\u{2028}y""#,
+        ),
+        (
+            ["set", "1", "--relate", "2\u{202e}"],
+            "related id",
+            r#""2\u{202e}""#,
+        ),
+    ] {
+        let out = fx.yman(&fx.a).args(args).output().unwrap();
+        assert_eq!(out.status.code(), Some(1), "{args:?}");
+        assert_eq!(
+            stderr(&out).trim_end(),
+            bad_value_error(kind, shown),
+            "{args:?}"
+        );
+        assert_eq!(stdout(&out), "", "{args:?}");
+    }
+    assert_eq!(fx.task_dirs(&fx.a).len(), 1);
+    assert_eq!(fx.git(&ymandir, &["rev-parse", "HEAD"]), head);
+    assert_eq!(fx.git(&ymandir, &["status", "--porcelain"]), "");
+}
+
+/// The removing flags still take a value that is already stored, however it
+/// got there.
+#[test]
+fn set_unlink_removes_a_stored_unsafe_link() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["set", "1", "--link", "BADLINK"])
+        .assert()
+        .success();
+    let m = fx.task_dir(&fx.a, "1").join("m.yml");
+    fx.write(&m, &fx.read(&m).replace("BADLINK", "x\u{200e}y"));
+    let ymandir = fx.a.join(".yman");
+    fx.git(&ymandir, &["commit", "-qam", "hand edit"]);
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["set", "1", "--unlink", "x\u{200e}y"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(!fx.read(&m).contains('\u{200e}'));
+}
+
+/// `$YMAN_ACTOR` is an environment variable, not typed input: a line break in
+/// it becomes a space instead of opening a second, forged comment.
+#[test]
+fn an_actor_with_a_line_break_cannot_forge_a_comment() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a)
+        .env(
+            "YMAN_ACTOR",
+            "Ivan\n## 2026-01-01T00:00:00Z \u{2014} Mallory",
+        )
+        .args(["comment", "1", "-m", "hi"])
+        .assert()
+        .success();
+    let out = fx
+        .yman(&fx.a)
+        .args(["show", "1", "--json"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let json = stdout(&out);
+    assert_eq!(json.matches("\"author\"").count(), 1, "{json}");
+    assert!(
+        json.contains(r#""author":"Ivan ## 2026-01-01T00:00:00Z \u2014 Mallory""#)
+            || json.contains("Ivan ## 2026-01-01T00:00:00Z \u{2014} Mallory"),
+        "{json}"
+    );
+}
+
 /// A bad sections file fails before an id is minted; `--sections` excludes a
 /// title and every other body source.
 #[test]
@@ -9173,6 +9360,95 @@ fn edit_refuses_a_title_with_a_control_character() {
         fx.task_dirs(&fx.a),
         [std::path::PathBuf::from("5.1.fix-login")]
     );
+}
+
+#[test]
+fn broken_task_is_listed_not_fatal() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.write(&fx.a.join(".yman/5.2.broken/m.yml"), "status: todo\n");
+    fx.write(&fx.a.join(".yman/5.2.broken/t.md"), "no heading here\n");
+
+    let out = fx.yman(&fx.a).arg("ls").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("Fix login"), "{text}");
+    assert!(text.contains("!  5.2.broken  broken"), "{text}");
+    assert!(text.contains("t.md must start with"), "{text}");
+
+    // Commands that target it fail, and say why.
+    let out = fx.yman(&fx.a).args(["show", "2"]).output().unwrap();
+    assert!(!out.status.success());
+    assert!(
+        stderr(&out).contains("task 2 is broken"),
+        "{}",
+        stderr(&out)
+    );
+
+    let text = stdout(&fx.yman(&fx.a).arg("status").output().unwrap());
+    assert!(text.contains("(1 broken)"), "{text}");
+}
+
+#[test]
+fn an_m_yml_indentation_indicator_cannot_crash_ls() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let bad = "status: |3\n  я\ncreated: 2026-01-01T00:00:00Z\nupdated: 2026-01-01T00:00:00Z\n";
+    fx.write(&fx.task_dir(&fx.a, "1").join("m.yml"), bad);
+
+    let out = fx.yman(&fx.a).arg("ls").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("broken"), "{text}");
+    assert!(text.contains("indentation indicator"), "{text}");
+
+    // The merge driver takes the same text and must not panic either.
+    let dir = tempfile::tempdir().unwrap();
+    let good = "status: todo\ntags: []\nassignee: null\ncreated: 2026-01-01T00:00:00Z\n\
+                updated: 2026-01-01T00:00:00Z\nattachments: []\nlinks: []\nrelated: []\n";
+    for (name, text) in [("base", good), ("ours", bad), ("theirs", good)] {
+        std::fs::write(dir.path().join(name), text).unwrap();
+    }
+    let out = fx
+        .yman(dir.path())
+        .args(["merge-driver", "base", "ours", "theirs"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert!(!stderr(&out).contains("panicked"), "{}", stderr(&out));
+}
+
+#[test]
+fn a_flow_sequence_comment_is_not_a_tag() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let path = fx.task_dir(&fx.a, "1").join("m.yml");
+    fx.write(
+        &path,
+        "status: todo\ntags: [a, b]  # note\nassignee: null\ncreated: 2026-01-01T00:00:00Z\n\
+         updated: 2026-01-01T00:00:00Z\nattachments: []\nlinks: []\nrelated: [] # x\n",
+    );
+
+    let json = stdout(
+        &fx.yman(&fx.a)
+            .args(["show", "1", "--json"])
+            .output()
+            .unwrap(),
+    );
+    assert!(json.contains(r#""tags":["a","b"]"#), "{json}");
+    assert!(json.contains(r#""related":[]"#), "{json}");
+
+    fx.yman(&fx.a)
+        .args(["set", "1", "--status", "doing"])
+        .assert()
+        .success();
+    let text = fx.read(&path);
+    assert!(text.contains("tags:\n- a\n- b\n"), "{text}");
+    assert!(text.contains("related: []\n"), "{text}");
+    assert!(!text.contains("'[a, b]'"), "{text}");
 }
 
 // ------------------------------------- flags and pinned messages, by command
@@ -9434,10 +9710,11 @@ fn attach_name_stores_one_file_under_another_name() {
         ],
         "error: --name only works with a single file",
     );
-    for name in ["shots/x.png", "shots\\x.png", ".", ".."] {
+    for name in ["shots/x.png", "shots\\x.png", ".", "..", "a/\u{202e}b"] {
+        let shown = name.escape_debug();
         refused(
             &[src.as_os_str(), "--name".as_ref(), name.as_ref()],
-            &format!("error: attachment name \"{name}\" must not contain a path separator"),
+            &format!("error: attachment name \"{shown}\" must not contain a path separator"),
         );
     }
     let dir = fx.tmp.path().join("a-directory");
@@ -9695,10 +9972,7 @@ fn an_editor_that_cannot_start_is_named() {
 #[test]
 fn refresh_quiet_says_nothing() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "A one"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["A one"]);
     let quiet = || {
         let out = fx
             .yman(&fx.a)
@@ -9741,10 +10015,7 @@ fn refresh_quiet_says_nothing() {
 #[test]
 fn a_failing_lazy_refresh_warns_and_the_command_runs() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "A one"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["A one"]);
     fx.yman(&fx.b).args(["add", "B two"]).assert().success();
     fx.yman(&fx.b).arg("sync").assert().success();
     fx.git(&fx.a, &["fetch", "origin"]);
@@ -9832,11 +10103,10 @@ fn sync_reports_a_failed_fetch() {
 /// B holds a sync merge stopped on a conflict in task 1's `m.yml`: A moved
 /// the task to doing, B to done.
 fn conflicted(fx: &Fx) {
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.v1_config(&fx.a);
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared(|| {
+        fx.v1_config(&fx.a);
+        fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    });
     fx.yman(&fx.a).args(["start", "1"]).assert().success();
     fx.yman(&fx.a).arg("sync").assert().success();
     fx.yman(&fx.b).args(["done", "1"]).assert().success();
@@ -9848,10 +10118,7 @@ fn conflicted(fx: &Fx) {
 /// shape every new tracker has: A closed task 1, which moved its folder to
 /// `done/`, while B started it, which edited `m.yml` where it stood.
 fn conflicted_v2(fx: &Fx) {
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["Fix login"]);
     fx.yman(&fx.a).args(["done", "1"]).assert().success();
     assert_eq!(fx.task_rel(&fx.a, "1"), "done/5.1.fix-login");
     fx.yman(&fx.a).arg("sync").assert().success();
@@ -10038,11 +10305,10 @@ fn identical_commit_with_untracked_or_unstaged_files_succeeds() {
 #[test]
 fn a_failure_after_the_merge_stops_keeps_exit_3() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.v1_config(&fx.a);
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared(|| {
+        fx.v1_config(&fx.a);
+        fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    });
     fx.yman(&fx.a).args(["start", "1"]).assert().success();
     fx.yman(&fx.a).arg("sync").assert().success();
     fx.yman(&fx.b).args(["done", "1"]).assert().success();
@@ -10279,10 +10545,7 @@ fn id1_folders(fx: &Fx) -> usize {
 #[test]
 fn a_left_behind_file_is_not_moved_over_an_existing_one() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["Fix login"]);
 
     // A retitles, and a stray file lands in the new folder by hand, so the
     // two `m.yml` merge cleanly and only the files collide.
@@ -10346,10 +10609,7 @@ fn a_left_behind_file_is_not_moved_over_an_existing_one() {
 #[test]
 fn a_clean_merge_with_two_folders_for_one_id_is_not_pushed() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["Fix login"]);
 
     let src = fx.b.join(".yman/5.1.fix-login");
     let copy = fx.b.join(".yman/5.1.copy");
@@ -10391,10 +10651,7 @@ fn a_clean_merge_with_two_folders_for_one_id_is_not_pushed() {
 #[test]
 fn sync_names_refs_yman_remote_only_to_pin_it() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "A one"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["A one"]);
     fx.yman(&fx.a).args(["add", "A two"]).assert().success();
     fx.yman(&fx.a).arg("sync").assert().success();
     fx.yman(&fx.b).args(["add", "B two"]).assert().success();
@@ -10436,10 +10693,7 @@ fn sync_names_refs_yman_remote_only_to_pin_it() {
 #[test]
 fn a_rejoin_that_fails_once_is_finished_by_continue() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&["Fix login"]);
     fx.yman(&fx.a)
         .args(["set", "1", "--title", "Repair login"])
         .assert()
@@ -10655,112 +10909,7 @@ fn man_dir_reports_what_it_cannot_write() {
     );
 }
 
-#[cfg(unix)]
-#[test]
-fn configured_hooks_never_fire_for_yman() {
-    let fx = Fx::new();
-    let log = fx.tmp.path().join("hook.log");
-    fx.git(
-        &fx.a,
-        &[
-            "config",
-            "hook.yman-probe.command",
-            &format!("echo fired >> '{}'", log.display()),
-        ],
-    );
-    for event in [
-        "post-commit",
-        "post-merge",
-        "post-checkout",
-        "reference-transaction",
-    ] {
-        fx.git(&fx.a, &["config", "--add", "hook.yman-probe.event", event]);
-    }
-    fx.git(&fx.a, &["commit", "--allow-empty", "-qm", "probe"]);
-    if !log.exists() {
-        skip("this git has no config-defined hooks");
-        return;
-    }
-    std::fs::remove_file(&log).unwrap();
-
-    for args in [
-        vec!["init"],
-        vec!["add", "One"],
-        vec!["sync"],
-        vec!["done", "1"],
-        vec!["sync"],
-    ] {
-        let out = fx.yman(&fx.a).args(&args).output().unwrap();
-        assert!(out.status.success(), "{args:?}: {}", stderr(&out));
-    }
-    assert!(
-        !log.exists(),
-        "a configured hook fired for yman: {}",
-        fx.read(&log)
-    );
-}
-
-#[cfg(unix)]
-#[test]
-fn reference_transaction_hook_never_sees_yman_refs() {
-    use std::os::unix::fs::PermissionsExt;
-    let fx = Fx::new();
-    let log = fx.tmp.path().join("ref.log");
-    let hook = fx.a.join(".git/hooks/reference-transaction");
-    fx.write(&hook, &format!("#!/bin/sh\ncat >> '{}'\n", log.display()));
-    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
-
-    // Positive control: a plain git ref update must reach the hook, or the
-    // absence of yman refs below proves nothing.
-    fx.git(&fx.a, &["update-ref", "refs/heads/yman-probe", "HEAD"]);
-    assert!(
-        fx.read(&log).contains("refs/heads/yman-probe"),
-        "the hook never fired; the test would prove nothing"
-    );
-    fx.write(&log, "");
-
-    for args in [vec!["init"], vec!["add", "One"], vec!["sync"]] {
-        let out = fx.yman(&fx.a).args(&args).output().unwrap();
-        assert!(out.status.success(), "{args:?}: {}", stderr(&out));
-    }
-    let text = fx.read(&log);
-    for line in text.lines() {
-        assert!(
-            !line.contains("refs/yman/") && !line.contains("refs/tasks/"),
-            "hook saw {line}"
-        );
-    }
-}
-
-#[test]
-fn hooks_install_refuses_an_empty_hooks_path_and_honours_a_blank_one() {
-    let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.git(&fx.a, &["config", "core.hooksPath", ""]);
-    for sub in ["install", "status", "remove"] {
-        let out = fx.yman(&fx.a).args(["hooks", sub]).output().unwrap();
-        assert_eq!(out.status.code(), Some(1), "{sub}");
-        assert_eq!(
-            stderr(&out),
-            "error: core.hooksPath is empty, which turns git hooks off; unset it or point it at a directory\n",
-            "{sub}"
-        );
-    }
-    assert!(!fx.a.join(".git/hooks/post-merge").exists());
-    let out = fx.yman(&fx.a).arg("status").output().unwrap();
-    assert!(out.status.success(), "{}", stderr(&out));
-    assert!(stdout(&out).contains("not installed"), "{}", stdout(&out));
-
-    fx.git(&fx.a, &["config", "core.hooksPath", "  "]);
-    let out = fx.yman(&fx.a).args(["hooks", "install"]).output().unwrap();
-    assert!(out.status.success(), "{}", stderr(&out));
-    assert!(
-        stderr(&out).contains("warning: installing into core.hooksPath="),
-        "{}",
-        stderr(&out)
-    );
-    assert!(fx.a.join("  ").join("post-merge").exists());
-}
+// -------------------------------------------------------------------- state
 
 #[test]
 fn state_absent_prints_note() {
@@ -10865,9 +11014,7 @@ fn state_set_rejects_empty_and_missing_text() {
 #[test]
 fn state_syncs_between_clones() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&[]);
     fx.yman(&fx.a)
         .args(["state", "set", "-m", "shared state"])
         .assert()
@@ -10881,9 +11028,7 @@ fn state_syncs_between_clones() {
 #[test]
 fn state_conflict_keeps_exit_3() {
     let fx = Fx::new();
-    fx.yman(&fx.a).arg("init").assert().success();
-    fx.yman(&fx.a).arg("sync").assert().success();
-    fx.yman(&fx.b).arg("init").assert().success();
+    fx.shared_titles(&[]);
     fx.yman(&fx.a)
         .args(["state", "set", "-m", "from a"])
         .assert()
@@ -11719,48 +11864,16 @@ fn status_reports_a_merge_driver_that_is_not_executable() {
     );
 }
 
-#[cfg(unix)]
+/// An unreadable (not merely absent) attempt log is an error, not zero runs.
 #[test]
-fn hooks_warn_when_yman_is_not_on_path() {
-    const WARN: &str = "warning: yman is not on PATH, so the installed hooks do nothing";
+#[should_panic(expected = "read attempt log ")]
+fn fx_runs_panics_on_unreadable_log() {
     let fx = Fx::new();
-    fx.yman(&fx.a).args(["init", "--hooks"]).assert().success();
-    let only_git = fx.tmp.path().join("only-git");
-    std::fs::create_dir_all(&only_git).unwrap();
-    let real_git = std::env::split_paths(&std::env::var_os("PATH").unwrap())
-        .map(|d| d.join("git"))
-        .find(|p| p.is_file())
-        .unwrap();
-    std::os::unix::fs::symlink(real_git, only_git.join("git")).unwrap();
+    fx.runs(fx.tmp.path());
+}
 
-    let out = fx
-        .yman(&fx.a)
-        .env("PATH", &only_git)
-        .args(["hooks", "status"])
-        .output()
-        .unwrap();
-    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
-    assert!(
-        stdout(&out).contains("hook post-merge: installed"),
-        "{}",
-        stdout(&out)
-    );
-    assert!(stderr(&out).contains(WARN), "{}", stderr(&out));
-    for args in [&["status"][..], &["hooks", "install"][..]] {
-        let out = fx
-            .yman(&fx.a)
-            .env("PATH", &only_git)
-            .args(args)
-            .output()
-            .unwrap();
-        assert!(stderr(&out).contains(WARN), "{args:?}: {}", stderr(&out));
-    }
-    for args in [
-        &["status"][..],
-        &["hooks", "status"][..],
-        &["hooks", "install"][..],
-    ] {
-        let out = fx.yman(&fx.a).args(args).output().unwrap();
-        assert!(!stderr(&out).contains(WARN), "{args:?}: {}", stderr(&out));
-    }
+#[test]
+fn fx_runs_reads_a_missing_log_as_zero() {
+    let fx = Fx::new();
+    assert_eq!(fx.runs(&fx.tmp.path().join("never-written")), 0);
 }

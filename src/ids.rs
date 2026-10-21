@@ -147,11 +147,7 @@ pub fn next_free(
             // `random_len = 2` is legal and holds only 256 ids.
             let in_space = taken
                 .iter()
-                .filter(|id| {
-                    id.strip_prefix("t-").is_some_and(|h| {
-                        h.len() == len && h.bytes().all(|c| matches!(c, b'0'..=b'9' | b'a'..=b'f'))
-                    })
-                })
+                .filter(|id| random_tail(id).is_some_and(|h| h.len() == len))
                 .count() as u128;
             if in_space >= 16u128.pow(len as u32) {
                 bail!("random id space exhausted (random_len = {len}); raise ids.random_len");
@@ -171,18 +167,22 @@ pub fn next_free(
         Scheme::Seq => {
             let max = taken
                 .iter()
-                .filter_map(|id| parse_all_digits(id))
+                .filter_map(|id| match IdShape::of(id) {
+                    IdShape::Seq(n) => Some(n),
+                    _ => None,
+                })
                 .max()
                 .unwrap_or(0);
             successor(max)?.to_string()
         }
         Scheme::Author => {
             let prefix = prefix.unwrap_or("x");
-            let head = format!("{prefix}-");
             let max = taken
                 .iter()
-                .filter_map(|id| id.strip_prefix(&head))
-                .filter_map(parse_all_digits)
+                .filter_map(|id| match IdShape::of(id) {
+                    IdShape::Author { prefix: p, n } if p == prefix => Some(n),
+                    _ => None,
+                })
                 .max()
                 .unwrap_or(0);
             format!("{prefix}-{}", successor(max)?)
@@ -197,21 +197,68 @@ fn successor(max: u64) -> Result<u64> {
         .ok_or_else(|| anyhow::anyhow!("id space exhausted: {max} is the largest id there can be"))
 }
 
-fn parse_all_digits(s: &str) -> Option<u64> {
+/// What an id looks like, by the scheme that could have minted it. The
+/// variant order is the sort order (`task::cmp_id`).
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum IdShape<'a> {
+    /// All digits: the sequential scheme.
+    Seq(u64),
+    /// `prefix-N`, `N` all digits: the author scheme.
+    Author {
+        prefix: &'a str,
+        n: u64,
+    },
+    /// `t-` and hex digits: the random scheme. Only when it is not also what
+    /// an author whose prefix is `t` mints (`t-1234`), which stays `Author`:
+    /// counting it out would make the author scheme re-mint taken numbers.
+    Random(&'a str),
+    Other,
+}
+
+impl<'a> IdShape<'a> {
+    pub fn of(id: &'a str) -> IdShape<'a> {
+        if let Some(n) = all_digits(id) {
+            return IdShape::Seq(n);
+        }
+        if let Some(h) = random_tail(id)
+            && (h.starts_with('0') || h.bytes().any(|c| c.is_ascii_lowercase()))
+        {
+            return IdShape::Random(h);
+        }
+        match id.rfind('-') {
+            Some(i) => match all_digits(&id[i + 1..]) {
+                Some(n) => IdShape::Author {
+                    prefix: &id[..i],
+                    n,
+                },
+                None => IdShape::Other,
+            },
+            None => IdShape::Other,
+        }
+    }
+}
+
+fn all_digits(s: &str) -> Option<u64> {
     if s.is_empty() || !s.bytes().all(|c| c.is_ascii_digit()) {
         return None;
     }
     s.parse().ok()
 }
 
+/// The hex part of a `t-` id with 2 to 16 lowercase hex digits, whether or
+/// not it also reads as an author id.
+fn random_tail(id: &str) -> Option<&str> {
+    let h = id.strip_prefix("t-")?;
+    let hex = h.bytes().all(|c| matches!(c, b'0'..=b'9' | b'a'..=b'f'));
+    (hex && (2..=16).contains(&h.len())).then_some(h)
+}
+
 /// The `prefix-` part of an id, for keeping a renumbered task with its author.
 pub fn prefix_of(id: &str) -> Option<&str> {
-    let i = id.rfind('-')?;
-    let tail = &id[i + 1..];
-    if tail.is_empty() || !tail.bytes().all(|c| c.is_ascii_digit()) {
-        return None;
+    match IdShape::of(id) {
+        IdShape::Author { prefix, .. } => Some(prefix),
+        _ => None,
     }
-    Some(&id[..i])
 }
 
 /// Everything an id must avoid colliding with.
@@ -333,10 +380,56 @@ mod tests {
     }
 
     #[test]
+    fn id_shapes() {
+        let cases = [
+            ("14", IdShape::Seq(14)),
+            ("007", IdShape::Seq(7)),
+            (
+                "iv-12",
+                IdShape::Author {
+                    prefix: "iv",
+                    n: 12,
+                },
+            ),
+            (
+                "a-b-3",
+                IdShape::Author {
+                    prefix: "a-b",
+                    n: 3,
+                },
+            ),
+            // `t-` plus 2 to 16 hex digits is random, unless it is also what
+            // an author whose prefix is `t` mints.
+            (
+                "t-1234",
+                IdShape::Author {
+                    prefix: "t",
+                    n: 1234,
+                },
+            ),
+            ("t-0042", IdShape::Random("0042")),
+            ("t-7f3a", IdShape::Random("7f3a")),
+            ("t-12ab", IdShape::Random("12ab")),
+            ("t-7F3A", IdShape::Other),
+            ("t-a", IdShape::Other),
+            ("t-0000000000000000a", IdShape::Other),
+            ("t-xyz", IdShape::Other),
+            ("5-a", IdShape::Other),
+            ("", IdShape::Other),
+            ("99999999999999999999", IdShape::Other),
+        ];
+        for (id, shape) in cases {
+            assert_eq!(IdShape::of(id), shape, "{id}");
+        }
+    }
+
+    #[test]
     fn prefix_extraction() {
         assert_eq!(prefix_of("iv-12"), Some("iv"));
         assert_eq!(prefix_of("a-b-3"), Some("a-b"));
         assert_eq!(prefix_of("t-7f3a"), None);
+        assert_eq!(prefix_of("t-0042"), None);
+        assert_eq!(prefix_of("t-12"), Some("t"));
         assert_eq!(prefix_of("14"), None);
     }
 

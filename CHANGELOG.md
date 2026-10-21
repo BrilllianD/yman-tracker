@@ -9,6 +9,30 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- `ls`, `show` and `plan` no longer sort random ids such as `t-0042` among
+  author ids, and a sync renumber under the author scheme no longer reads
+  `t-0042` as author `t`.
+- Ctrl-C in the editor during `add -e` or `comment -e` no longer kills yman
+  and leaves the new task folder or the temp file behind; the command fails
+  with `editor was killed by a signal; task not added` (or `comment not
+  added`) and cleans up.
+- A repository at a path that is not valid UTF-8 is refused with
+  `repository path is not valid UTF-8: <path>` instead of failing later with
+  a git error about a directory that does not exist.
+- Attachment names, assignees, links and related ids are refused when they
+  hold a bidi or invisible character (U+202E, U+200E, U+200B, U+FEFF and the
+  like) or a line break, and the same characters are refused in titles and
+  tags; the message names the offending character escaped.
+- A `$YMAN_ACTOR` or `user.name` holding a line break no longer forges a
+  second comment in `d.md`; the break becomes a space.
+- A BOM at the start of `d.md` no longer hides the first comment, and one at
+  the start of an `add --sections` file no longer hides the first heading.
+- `add --sections` accepts the headings `t.md` accepts (`  # Title`,
+  `#<tab>Title`).
+- A body with CRLF line breaks at its edges no longer gains a blank `\r` line
+  in `t.md`.
+- A slug keeps an accent typed as a combining mark (`e` plus U+0301) instead
+  of splitting the word.
 - A husky or lefthook style hook that already runs `yman refresh --quiet`, as
   `hooks install` told the user to add, now counts as installed (`chained`)
   instead of "not installed" forever.

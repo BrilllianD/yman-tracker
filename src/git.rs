@@ -250,23 +250,26 @@ impl Git {
             .stderr(Stdio::piped())
             .spawn()
             .map_err(Self::spawn_err)?;
-        child
+        // Keep the write result, and always wait: a write that fails because
+        // git already exited is git's failure to report, and returning early
+        // would drop the child unwaited.
+        let written = child
             .stdin
             .take()
             .expect("stdin was piped")
             .write_all(data.as_bytes())
-            .context("failed writing to git stdin")?;
+            .context("failed writing to git stdin");
         let out = child.wait_with_output().context("failed waiting for git")?;
         let out = Output {
             status: out.status.code().unwrap_or(-1),
             stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
             stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
         };
-        if out.ok() {
-            Ok(out)
-        } else {
-            Err(git_failure(args, &out))
+        if !out.ok() {
+            return Err(git_failure(args, &out));
         }
+        written?;
+        Ok(out)
     }
 
     /// Resolve a ref to a full hash; `None` when it does not exist.
@@ -529,5 +532,51 @@ mod tests {
         let git = Git::new(empty.path());
         git.ok(&["init", "-q"]).unwrap();
         assert!(git.without_hooks().configured_hooks().is_empty());
+    }
+
+    /// git exits on a usage error before it reads stdin, so the write fails
+    /// with `EPIPE` (the test harness keeps SIGPIPE ignored); the error that
+    /// reaches the user is git's own.
+    #[test]
+    fn with_stdin_reports_git_failure_over_a_failed_write() {
+        // Runs git, so it runs in a child process whose HOME and global
+        // config are empty, whatever the developer has.
+        if std::env::var_os("YMAN_UNIT_SANDBOXED").is_none() {
+            let home = tempfile::tempdir().unwrap();
+            let gitconfig = home.path().join("gitconfig");
+            std::fs::write(&gitconfig, "").unwrap();
+            let out = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "git::tests::with_stdin_reports_git_failure_over_a_failed_write",
+                    "--test-threads=1",
+                ])
+                .env("YMAN_UNIT_SANDBOXED", "1")
+                .env("HOME", home.path())
+                .env("XDG_CONFIG_HOME", home.path().join(".config"))
+                .env("GIT_CONFIG_GLOBAL", &gitconfig)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .output()
+                .unwrap();
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            assert!(
+                out.status.success() && stdout.contains("test result: ok. 1 passed"),
+                "stdout:\n{stdout}\nstderr:\n{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let err = Git::new(dir.path())
+            .with_stdin(
+                &["hash-object", "--no-such-option", "--stdin"],
+                &"x".repeat(1 << 20),
+            )
+            .err()
+            .expect("git refused the option");
+        assert!(
+            err.to_string().starts_with("git hash-object failed:"),
+            "{err:#}"
+        );
     }
 }

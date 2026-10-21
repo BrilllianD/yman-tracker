@@ -1,7 +1,8 @@
 //! `add --sections`: one markdown file, one task per `# ` heading.
 //!
-//! Parsed by hand, like `t.md` titles: a line starting with `# ` opens a
-//! section and is its title; everything up to the next one is the body. A
+//! Parsed by hand, like `t.md` titles, by the same rule (`task::h1_text`): a
+//! line that, after any leading whitespace, is `#` alone or `#` and whitespace
+//! opens a section and is its title; everything up to the next one is the body. A
 //! heading inside a fenced code block (``` or ~~~) is body text, so a shell
 //! comment in an example does not split a task in two. Fences follow
 //! CommonMark: three or more of one character open one, and only a run of the
@@ -21,8 +22,10 @@ pub fn parse(text: &str, source: &str) -> Result<Vec<(String, String)>> {
     let mut out: Vec<(String, Vec<&str>)> = Vec::new();
     // The open fence: its character, its length, and the line it opened on.
     let mut fence: Option<(char, usize, usize)> = None;
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     for (n, line) in text.lines().enumerate() {
         let n = n + 1;
+        let heading = crate::task::h1_text(line);
         match (fence, fence_of(line)) {
             (Some((c, len, _)), Some((m, mlen, info)))
                 if m == c && mlen >= len && info.is_empty() =>
@@ -30,8 +33,8 @@ pub fn parse(text: &str, source: &str) -> Result<Vec<(String, String)>> {
                 fence = None
             }
             (None, Some((m, mlen, _))) => fence = Some((m, mlen, n)),
-            (None, None) if line == "#" || line.starts_with("# ") => {
-                let title = line[1..].trim();
+            (None, None) if heading.is_some() => {
+                let title = heading.unwrap_or_default();
                 if title.is_empty() {
                     bail!("{source}: line {n}: empty title");
                 }
@@ -109,6 +112,20 @@ mod tests {
         assert_eq!(got[0].1, "```sh\n# a comment\n~~~\n```\n#not a heading");
         let got = titles("# One\n~~~\n# x\n```\n# y\n~~~\n# Two\n");
         assert_eq!(got.len(), 2, "a fence closes only on its own marker");
+    }
+
+    #[test]
+    fn a_leading_bom_is_skipped() {
+        let got = titles("\u{feff}# One\nbody\n");
+        assert_eq!(got, [("One".into(), "body".into())]);
+    }
+
+    #[test]
+    fn headings_follow_the_t_md_rule() {
+        let got = titles("  # One\nx\n#\tTwo\n##\n#no\n");
+        assert_eq!(got.len(), 2, "{got:?}");
+        assert_eq!(got[0], ("One".into(), "x".into()));
+        assert_eq!(got[1], ("Two".into(), "##\n#no".into()));
     }
 
     #[test]

@@ -88,7 +88,7 @@ impl Meta {
 /// `{priority}.{id}.{slug}`
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FolderName {
-    pub priority: u8,
+    priority: u8,
     pub id: String,
     pub slug: String,
 }
@@ -121,13 +121,32 @@ impl FolderName {
 
 impl FolderName {
     /// `{priority}.{id}.{slugify(title, max_bytes)}`
-    pub fn for_title(priority: u8, id: &str, title: &str, max_bytes: usize) -> FolderName {
-        FolderName {
+    pub fn for_title(priority: u8, id: &str, title: &str, max_bytes: usize) -> Result<FolderName> {
+        check_priority(priority)?;
+        Ok(FolderName {
             priority,
             id: id.to_string(),
             slug: slugify(title, max_bytes),
-        }
+        })
     }
+
+    pub fn priority(&self) -> u8 {
+        self.priority
+    }
+
+    /// The name has one priority digit, so 10 and up would not parse back.
+    pub fn set_priority(&mut self, priority: u8) -> Result<()> {
+        check_priority(priority)?;
+        self.priority = priority;
+        Ok(())
+    }
+}
+
+fn check_priority(priority: u8) -> Result<()> {
+    if priority > 9 {
+        bail!("priority {priority} is not in 0..=9");
+    }
+    Ok(())
 }
 
 impl std::fmt::Display for FolderName {
@@ -142,12 +161,49 @@ pub fn is_unassigned(value: &str) -> bool {
     matches!(value.trim(), "" | "-")
 }
 
-/// What a title or a tag must not carry: control characters, the Unicode
-/// line and paragraph separators, and the bidi embedding, override and
-/// isolate controls, which make `ls` output lie about what it shows.
+/// What a user-typed value must not carry: control characters, the Unicode
+/// line and paragraph separators, the bidi embedding, override and isolate
+/// controls, which make `ls` output lie about what it shows, and the invisible
+/// marks that hide text from a reader (ALM, zero width space, word joiner and
+/// the invisible operators, BOM). ZWNJ and ZWJ stay allowed: scripts and emoji
+/// sequences need them. Titles, tags, attachment names, assignees, links and
+/// related ids all use this one rule; the actor is made one line with it.
 pub fn is_unsafe_char(c: char) -> bool {
     c.is_control()
-        || matches!(c, '\u{2028}' | '\u{2029}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+        || matches!(
+            c,
+            '\u{61c}'
+                | '\u{200b}'
+                | '\u{200e}'
+                | '\u{200f}'
+                | '\u{2028}'..='\u{202e}'
+                | '\u{2060}'..='\u{2064}'
+                | '\u{2066}'..='\u{2069}'
+                | '\u{feff}'
+        )
+}
+
+/// `s` as one line: every run of unsafe characters is a separator, the pieces
+/// are trimmed, empty ones dropped, and the rest joined with one space.
+pub fn one_line(s: &str) -> String {
+    s.split(is_unsafe_char)
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The title of a markdown H1 line: after any leading whitespace, `#` alone or
+/// `#` followed by whitespace. The text is trimmed and may be empty. `t.md`
+/// and `add --sections` both open a heading by this rule.
+pub fn h1_text(line: &str) -> Option<&str> {
+    let rest = line.trim_start().strip_prefix('#')?;
+    (rest.is_empty() || rest.starts_with(char::is_whitespace)).then(|| rest.trim())
+}
+
+/// A body without the line breaks (`\n` or `\r\n`) at either end.
+pub fn body_edges(body: &str) -> &str {
+    body.trim_matches(['\r', '\n'])
 }
 
 /// A title as `add`, `set --title`, `add --sections`, `add -e` and `edit`
@@ -176,7 +232,10 @@ pub fn slugify(title: &str, max_bytes: usize) -> String {
     let mut out = String::new();
     let mut pending_dash = false;
     for ch in title.to_lowercase().chars() {
-        if ch.is_alphanumeric() {
+        // A combining mark stays attached to the character before it; any
+        // other, or one with nothing to attach to, separates like punctuation.
+        let attached = is_combining_mark(ch) && !pending_dash && !out.is_empty();
+        if ch.is_alphanumeric() || attached {
             if pending_dash && !out.is_empty() {
                 out.push('-');
             }
@@ -202,6 +261,17 @@ pub fn slugify(title: &str, max_bytes: usize) -> String {
     out
 }
 
+fn is_combining_mark(c: char) -> bool {
+    matches!(
+        c,
+        '\u{300}'..='\u{36f}'
+            | '\u{1ab0}'..='\u{1aff}'
+            | '\u{1dc0}'..='\u{1dff}'
+            | '\u{20d0}'..='\u{20ff}'
+            | '\u{fe20}'..='\u{fe2f}'
+    )
+}
+
 /// Split `t.md` into its H1 title and the body below it.
 pub fn extract_title(md: &str) -> Result<(String, String)> {
     // A BOM is an editor's signature, not part of the heading.
@@ -212,21 +282,17 @@ pub fn extract_title(md: &str) -> Result<(String, String)> {
             Some(i) => (&rest[..i], &rest[i + 1..]),
             None => (rest, ""),
         };
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
+        if line.trim().is_empty() {
             if tail.is_empty() && rest.trim().is_empty() {
                 break;
             }
             rest = tail;
             continue;
         }
-        if let Some(t) = trimmed.strip_prefix('#') {
-            // `#` must be followed by whitespace, then a non-empty title.
-            if t.starts_with(char::is_whitespace) && !t.trim().is_empty() {
-                title = Some(t.trim().to_string());
-                rest = tail;
-                break;
-            }
+        if let Some(t) = h1_text(line).filter(|t| !t.is_empty()) {
+            title = Some(t.to_string());
+            rest = tail;
+            break;
         }
         bail!("t.md must start with \"# Title\"");
     }
@@ -243,7 +309,7 @@ pub fn extract_title(md: &str) -> Result<(String, String)> {
 }
 
 pub fn render_md(title: &str, body: &str) -> String {
-    let body = body.trim_matches('\n');
+    let body = body_edges(body);
     if body.is_empty() {
         format!("# {title}\n")
     } else {
@@ -256,9 +322,9 @@ pub struct Task {
     pub folder: FolderName,
     /// Status directory this folder sits in, `None` at the top level of
     /// `.yman`. See `docs/storage.md` §5.
-    pub parent: Option<String>,
+    pub status_dir: Option<String>,
     /// The `.yman` directory this task was loaded from. The folder's own path
-    /// is derived from it, `parent` and `folder` by `dir()`, never stored.
+    /// is derived from it, `status_dir` and `folder` by `dir()`, never stored.
     pub ydir: PathBuf,
     pub title: String,
     pub body: String,
@@ -273,7 +339,7 @@ pub enum Entry {
     Task(Task),
     Broken {
         dir: PathBuf,
-        parent: Option<String>,
+        status_dir: Option<String>,
         error: String,
     },
 }
@@ -295,14 +361,11 @@ impl Entry {
     /// messages and `ls` print, since a bare folder name cannot tell two
     /// copies of one id apart.
     pub fn rel(&self) -> String {
-        let parent = match self {
-            Entry::Task(t) => &t.parent,
-            Entry::Broken { parent, .. } => parent,
+        let status_dir = match self {
+            Entry::Task(t) => &t.status_dir,
+            Entry::Broken { status_dir, .. } => status_dir,
         };
-        match parent {
-            Some(p) => format!("{p}/{}", self.dir_name()),
-            None => self.dir_name(),
-        }
+        rel_of(status_dir.as_deref(), &self.dir_name())
     }
 }
 
@@ -316,7 +379,7 @@ pub fn load(ydir: &Path, dir: &Path) -> Result<Task> {
     let Some(folder) = FolderName::parse(&name) else {
         bail!("folder name does not look like {{priority}}.{{id}}.{{slug}}");
     };
-    let parent = parent_of(ydir, dir)?;
+    let status_dir = status_dir_of(ydir, dir)?;
     let md = std::fs::read_to_string(dir.join(MD_FILE))
         .map_err(|e| anyhow::anyhow!("cannot read {MD_FILE}: {e}"))?;
     let (title, body) = extract_title(&md)?;
@@ -326,7 +389,7 @@ pub fn load(ydir: &Path, dir: &Path) -> Result<Task> {
         crate::yml::parse(&yml).map_err(|e| anyhow::anyhow!("invalid {META_FILE}: {e:#}"))?;
     Ok(Task {
         folder,
-        parent,
+        status_dir,
         ydir: ydir.to_path_buf(),
         title,
         body,
@@ -336,7 +399,7 @@ pub fn load(ydir: &Path, dir: &Path) -> Result<Task> {
 
 /// `None` for `.yman/<task>`, `Some(status)` for `.yman/<status>/<task>`.
 /// Anything deeper is not a task folder.
-fn parent_of(ydir: &Path, dir: &Path) -> Result<Option<String>> {
+fn status_dir_of(ydir: &Path, dir: &Path) -> Result<Option<String>> {
     let Some(up) = dir.parent() else {
         bail!("task folder has no parent directory");
     };
@@ -374,7 +437,7 @@ pub fn task_path_of(path: &str) -> Option<(String, FolderName)> {
     if segs.len() >= 3 && crate::config::is_status_dir_name(first) {
         let second = segs[1];
         if let Some(folder) = FolderName::parse(second) {
-            return Some((format!("{first}/{second}"), folder));
+            return Some((rel_of(Some(first), second), folder));
         }
     }
     None
@@ -391,13 +454,13 @@ pub fn task_path_of(path: &str) -> Option<(String, FolderName)> {
 pub fn list(ydir: &Path) -> Result<Vec<Entry>> {
     Ok(task_dirs(ydir)?
         .into_iter()
-        .map(|(parent, name, _)| {
-            let dir = dir_of(ydir, parent.as_deref(), &name);
+        .map(|(status_dir, name, _)| {
+            let dir = dir_of(ydir, status_dir.as_deref(), &name);
             match load(ydir, &dir) {
                 Ok(t) => Entry::Task(t),
                 Err(e) => Entry::Broken {
                     dir,
-                    parent,
+                    status_dir,
                     error: format!("{e:#}"),
                 },
             }
@@ -436,8 +499,8 @@ pub fn task_dirs(ydir: &Path) -> Result<Vec<(Option<String>, String, FolderName)
     Ok(rels)
 }
 
-fn dir_of(ydir: &Path, parent: Option<&str>, name: &str) -> PathBuf {
-    match parent {
+fn dir_of(ydir: &Path, status_dir: Option<&str>, name: &str) -> PathBuf {
+    match status_dir {
         Some(p) => ydir.join(p).join(name),
         None => ydir.join(name),
     }
@@ -453,14 +516,14 @@ pub fn find(ydir: &Path, id: &str) -> Result<Task> {
     let mut hits: Vec<(Option<String>, String)> = task_dirs(ydir)?
         .into_iter()
         .filter(|(_, _, folder)| folder.id == id)
-        .map(|(parent, name, _)| (parent, name))
+        .map(|(status_dir, name, _)| (status_dir, name))
         .collect();
     match hits.len() {
         0 => Err(crate::errors::NotFound::new(format!("task {id} not found")).into()),
         1 => {
-            let (parent, name) = hits.pop().expect("length checked");
-            let rel = rel_of(parent.as_deref(), &name);
-            load(ydir, &dir_of(ydir, parent.as_deref(), &name))
+            let (status_dir, name) = hits.pop().expect("length checked");
+            let rel = rel_of(status_dir.as_deref(), &name);
+            load(ydir, &dir_of(ydir, status_dir.as_deref(), &name))
                 .map_err(|e| anyhow::anyhow!("task {id} is broken: {rel}: {e:#}"))
         }
         _ => {
@@ -468,16 +531,16 @@ pub fn find(ydir: &Path, id: &str) -> Result<Task> {
             // can share a leaf name and differ only in their status directory.
             let names: Vec<String> = hits
                 .iter()
-                .map(|(parent, name)| rel_of(parent.as_deref(), name))
+                .map(|(status_dir, name)| rel_of(status_dir.as_deref(), name))
                 .collect();
             bail!("duplicate task id {id}: {}", names.join(", "))
         }
     }
 }
 
-/// `<parent>/<name>`, or `<name>` at the top level: a path relative to `.yman`.
-pub fn rel_of(parent: Option<&str>, name: &str) -> String {
-    match parent {
+/// `<status_dir>/<name>`, or `<name>` at the top level: a path relative to `.yman`.
+pub fn rel_of(status_dir: Option<&str>, name: &str) -> String {
+    match status_dir {
         Some(p) => format!("{p}/{name}"),
         None => name.to_string(),
     }
@@ -489,10 +552,14 @@ pub fn attachment_rel(name: &str) -> String {
 }
 
 impl Task {
-    /// Absolute path of the task folder, derived from `ydir`, `parent` and
+    /// Absolute path of the task folder, derived from `ydir`, `status_dir` and
     /// `folder` so a mutation of either can never leave it stale.
     pub fn dir(&self) -> PathBuf {
-        dir_of(&self.ydir, self.parent.as_deref(), &self.folder.to_string())
+        dir_of(
+            &self.ydir,
+            self.status_dir.as_deref(),
+            &self.folder.to_string(),
+        )
     }
 
     /// The task's attachment directory.
@@ -517,7 +584,7 @@ impl Task {
         if from_rel == to_rel {
             return Ok(false);
         }
-        if let Some(p) = &self.parent {
+        if let Some(p) = &self.status_dir {
             std::fs::create_dir_all(self.ydir.join(p))?;
         }
         match wt {
@@ -527,7 +594,7 @@ impl Task {
             None => std::fs::rename(self.ydir.join(from_rel), self.ydir.join(&to_rel))?,
         }
         let old_parent = from_rel.split_once('/').map(|(p, _)| p);
-        if old_parent != self.parent.as_deref() {
+        if old_parent != self.status_dir.as_deref() {
             // Git does not track directories, so the one we left behind is an
             // untracked leftover. Non-recursive: it fails harmlessly while
             // other tasks are still in there.
@@ -555,7 +622,7 @@ impl Task {
 
     /// Path relative to `.yman` — what every git call and `ls --json` use.
     pub fn rel(&self) -> String {
-        rel_of(self.parent.as_deref(), &self.folder.to_string())
+        rel_of(self.status_dir.as_deref(), &self.folder.to_string())
     }
 
     pub fn id(&self) -> &str {
@@ -563,7 +630,7 @@ impl Task {
     }
 
     pub fn priority(&self) -> u8 {
-        self.folder.priority
+        self.folder.priority()
     }
 
     pub fn comment_count(&self) -> usize {
@@ -572,7 +639,7 @@ impl Task {
         // Raw chunks are kept for `show`, but they are not comments.
         crate::discussion::parse(&text)
             .iter()
-            .filter(|e| matches!(e, crate::discussion::Entry::Comment { .. }))
+            .filter(|e| matches!(e, crate::discussion::Chunk::Comment { .. }))
             .count()
     }
 
@@ -594,44 +661,34 @@ impl Task {
 }
 
 /// Sort ids the way a human reads them: plain numbers first, numerically;
-/// then `prefix-N` ids by prefix and numeric tail; then everything else,
-/// lexically. Ties within a class (`07` against `7`) fall back to the bytes.
+/// then `prefix-N` ids by prefix and numeric tail; then random ids by their
+/// hex; then everything else, lexically (see `ids::IdShape`). Ties within a
+/// class (`07` against `7`) fall back to the bytes.
 ///
 /// This has to be a total order: `sort_by` may panic on one that is not, and
 /// mixing rules pairwise ("numbers numerically, same prefix by tail, else
 /// lexically") is not one — `9 < 10`, `10 < 5-a` and `5-a < 9` all held.
 pub fn cmp_id(a: &str, b: &str) -> Ordering {
-    #[derive(PartialEq, Eq, PartialOrd, Ord)]
-    enum Key<'a> {
-        Num(u64),
-        Prefixed(&'a str, u64),
-        Other,
-    }
-    fn digits(s: &str) -> Option<u64> {
-        if !s.is_empty() && s.bytes().all(|c| c.is_ascii_digit()) {
-            s.parse().ok()
-        } else {
-            None
-        }
-    }
-    fn key(s: &str) -> Key<'_> {
-        if let Some(n) = digits(s) {
-            return Key::Num(n);
-        }
-        match s.rfind('-') {
-            Some(i) => match digits(&s[i + 1..]) {
-                Some(n) => Key::Prefixed(&s[..i], n),
-                None => Key::Other,
-            },
-            None => Key::Other,
-        }
-    }
-    key(a).cmp(&key(b)).then_with(|| a.cmp(b))
+    crate::ids::IdShape::of(a)
+        .cmp(&crate::ids::IdShape::of(b))
+        .then_with(|| a.cmp(b))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn folder_priority_is_one_digit() {
+        assert!(FolderName::for_title(9, "1", "t", 200).is_ok());
+        let err = FolderName::for_title(10, "1", "t", 200).unwrap_err();
+        assert_eq!(err.to_string(), "priority 10 is not in 0..=9");
+        let mut f = FolderName::parse("2.14.fix").unwrap();
+        assert!(f.set_priority(10).is_err());
+        assert_eq!(f.priority(), 2);
+        f.set_priority(9).unwrap();
+        assert_eq!(f.to_string(), "9.14.fix");
+    }
 
     #[test]
     fn folder_name_round_trip() {
@@ -640,7 +697,7 @@ mod tests {
             assert_eq!(f.to_string(), name);
         }
         let f = FolderName::parse("2.14.fix-login").unwrap();
-        assert_eq!(f.priority, 2);
+        assert_eq!(f.priority(), 2);
         assert_eq!(f.id, "14");
         assert_eq!(f.slug, "fix-login");
     }
@@ -785,10 +842,73 @@ mod tests {
     }
 
     #[test]
+    fn render_md_drops_crlf_edges() {
+        assert_eq!(render_md("T", "\r\nbody\r\n"), "# T\n\nbody\n");
+        assert_eq!(render_md("T", "\r\n\r\n"), "# T\n");
+        assert_eq!(render_md("T", "a\r\nb\r\n"), "# T\n\na\r\nb\n");
+    }
+
+    #[test]
+    fn unsafe_chars_cover_bidi_and_invisible_but_not_joiners() {
+        for c in [
+            '\u{200e}', '\u{200f}', '\u{61c}', '\u{200b}', '\u{2060}', '\u{2064}', '\u{feff}',
+            '\u{2028}', '\u{202a}', '\u{2069}', '\n', '\u{85}',
+        ] {
+            assert!(is_unsafe_char(c), "{c:?}");
+        }
+        for c in ['\u{200c}', '\u{200d}', 'a', ' ', '\u{2065}', 'я'] {
+            assert!(!is_unsafe_char(c), "{c:?}");
+        }
+    }
+
+    #[test]
+    fn one_line_turns_breaks_into_single_spaces() {
+        assert_eq!(one_line("Ivan"), "Ivan");
+        assert_eq!(
+            one_line("Ivan\n## 2026-01-01T00:00:00Z — Mallory"),
+            "Ivan ## 2026-01-01T00:00:00Z — Mallory"
+        );
+        assert_eq!(one_line(" a \r\n\u{202e} b\t"), "a b");
+        assert_eq!(one_line("\n"), "");
+    }
+
+    #[test]
+    fn h1_text_is_the_shared_heading_rule() {
+        assert_eq!(h1_text("# T"), Some("T"));
+        assert_eq!(h1_text("   # T  "), Some("T"));
+        assert_eq!(h1_text("#\tT"), Some("T"));
+        assert_eq!(h1_text("#"), Some(""));
+        assert_eq!(h1_text("##"), None);
+        assert_eq!(h1_text("#T"), None);
+        assert_eq!(h1_text("text"), None);
+    }
+
+    #[test]
+    fn slug_keeps_combining_marks_attached() {
+        assert_eq!(slugify("Cafe\u{301} au lait", 200), "cafe\u{301}-au-lait");
+        assert_eq!(slugify("\u{301}abc", 200), "abc");
+        assert_eq!(slugify("a \u{301}b", 200), "a-b");
+    }
+
+    #[test]
     fn id_order() {
         let mut ids = vec!["10", "2", "1", "t-b", "t-a", "ab-10", "ab-2"];
         ids.sort_by(|a, b| cmp_id(a, b));
         assert_eq!(ids, ["1", "2", "10", "ab-2", "ab-10", "t-a", "t-b"]);
+    }
+
+    #[test]
+    fn random_ids_sort_between_author_and_other_ids() {
+        let mut ids = vec![
+            "t-7f3a", "x-y", "t-0042", "t-1234", "t-02", "ab-3", "9", "t-12ab",
+        ];
+        ids.sort_by(|a, b| cmp_id(a, b));
+        assert_eq!(
+            ids,
+            [
+                "9", "ab-3", "t-1234", "t-0042", "t-02", "t-12ab", "t-7f3a", "x-y"
+            ]
+        );
     }
 
     #[test]
@@ -801,6 +921,7 @@ mod tests {
         }
         let mut ids = vec![
             "t-ab",
+            "t-0042",
             "a-10",
             "7",
             "07",
@@ -824,9 +945,10 @@ mod tests {
                 "a-10",
                 "a-b-1",
                 "z-1",
+                "t-0042",
+                "t-ab",
                 "5-a",
                 "99999999999999999999",
-                "t-ab",
             ]
         );
         for a in &ids {
@@ -841,14 +963,14 @@ mod tests {
         let folder = FolderName::parse("5.1.fix-login").unwrap();
         let mut t = Task {
             folder,
-            parent: None,
+            status_dir: None,
             ydir: PathBuf::from("/tmp/.yman"),
             title: "Fix login".to_string(),
             body: String::new(),
             meta: Meta::new("todo".to_string(), Vec::new()),
         };
         assert_eq!(t.rel(), "5.1.fix-login");
-        t.parent = Some("done".to_string());
+        t.status_dir = Some("done".to_string());
         assert_eq!(t.rel(), "done/5.1.fix-login");
     }
 
@@ -856,14 +978,14 @@ mod tests {
     fn dir_follows_folder_and_parent() {
         let mut t = Task {
             folder: FolderName::parse("5.1.fix-login").unwrap(),
-            parent: None,
+            status_dir: None,
             ydir: PathBuf::from("/tmp/.yman"),
             title: "Fix login".to_string(),
             body: String::new(),
             meta: Meta::new("todo".to_string(), Vec::new()),
         };
         assert_eq!(t.dir(), PathBuf::from("/tmp/.yman/5.1.fix-login"));
-        t.parent = Some("done".to_string());
+        t.status_dir = Some("done".to_string());
         t.folder.slug = "x".to_string();
         assert_eq!(t.dir(), PathBuf::from("/tmp/.yman/done/5.1.x"));
         assert_eq!(t.files_dir(), PathBuf::from("/tmp/.yman/done/5.1.x/f"));
@@ -872,7 +994,9 @@ mod tests {
         assert_eq!(rel_of(Some("done"), "5.1.x"), "done/5.1.x");
         assert_eq!(rel_of(None, "5.1.x"), "5.1.x");
         assert_eq!(
-            FolderName::for_title(2, "14", "Fix login!", 200).to_string(),
+            FolderName::for_title(2, "14", "Fix login!", 200)
+                .unwrap()
+                .to_string(),
             "2.14.fix-login"
         );
     }
@@ -881,7 +1005,7 @@ mod tests {
     fn attachment_path_stays_inside_f() {
         let t = Task {
             folder: FolderName::parse("5.1.fix-login").unwrap(),
-            parent: None,
+            status_dir: None,
             ydir: PathBuf::from("/tmp/.yman"),
             title: "Fix login".to_string(),
             body: String::new(),
@@ -905,15 +1029,15 @@ mod tests {
     #[test]
     fn parent_is_derived_from_the_path() {
         let ydir = Path::new("/repo/.yman");
-        assert_eq!(parent_of(ydir, &ydir.join("5.1.x")).unwrap(), None);
+        assert_eq!(status_dir_of(ydir, &ydir.join("5.1.x")).unwrap(), None);
         assert_eq!(
-            parent_of(ydir, &ydir.join("done").join("5.1.x")).unwrap(),
+            status_dir_of(ydir, &ydir.join("done").join("5.1.x")).unwrap(),
             Some("done".to_string())
         );
         // Two levels down is not a task folder, and neither is a parent whose
         // name could never be a status.
-        assert!(parent_of(ydir, &ydir.join("a").join("b").join("5.1.x")).is_err());
-        assert!(parent_of(ydir, &ydir.join("5.9.other").join("5.1.x")).is_err());
+        assert!(status_dir_of(ydir, &ydir.join("a").join("b").join("5.1.x")).is_err());
+        assert!(status_dir_of(ydir, &ydir.join("5.9.other").join("5.1.x")).is_err());
     }
 
     #[test]

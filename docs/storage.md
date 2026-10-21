@@ -22,6 +22,13 @@ Two git runners exist, both over the same object store and refs
 - **in wt** — `git -C YDIR …`: anything touching task files — add, mv, rm,
   commit, merge, status, diff, log.
 
+yman reads the paths git prints as UTF-8. A repository whose path (toplevel,
+common dir or git dir) is not UTF-8 is refused by every command that discovers
+the repository, with `repository path is not valid UTF-8: <path>`, exit 1; the
+path shown has U+FFFD for the bytes that are not UTF-8. A task folder under
+`.yman` whose name is not UTF-8 is listed by `ls` as broken, under that lossy
+name, which does not exist on disk.
+
 ### `WT_GITDIR` is read, never constructed
 
 Git derives a linked worktree's private directory name from the basename and
@@ -237,8 +244,10 @@ A task in a terminal status (§7) is stored at
 ### `slugify(title, max_bytes)`
 
 1. Unicode lowercase.
-2. Alphanumerics (`char::is_alphanumeric`) survive; every other character
-   becomes a separator.
+2. Alphanumerics (`char::is_alphanumeric`) survive, and so does a combining
+   mark (U+0300-U+036F and the other combining blocks) that directly follows a
+   kept character, so `e` plus U+0301 stays one accented letter; every other
+   character becomes a separator.
 3. Separator runs collapse to one `-`; leading and trailing `-` are trimmed.
 4. Truncate to `max_bytes` **at a char boundary**, then trim a trailing `-`
    again.
@@ -273,8 +282,9 @@ behave differently off Linux and is not checked:
 - **Windows names.** A terminal status called `con`, `nul`, `aux` or another
   reserved device name passes validation but cannot be a directory there, and
   so can an attachment of that name. Otherwise `attach` refuses what Windows
-  cannot hold: `:`, `*`, `?`, `"`, `<`, `>`, `|`, control characters and a
-  trailing `.` or space.
+  cannot hold: `:`, `*`, `?`, `"`, `<`, `>`, `|`, control characters
+  (including the bidi and invisible marks a title may not carry) and a trailing
+  `.` or space.
 
 ## 6. File formats
 
@@ -291,7 +301,8 @@ whitespace, then a non-empty title (so `   # Title` is accepted). Blank lines
 before it are skipped; anything else non-blank is a parse error
 (`t.md must start with "# Title"`). A leading UTF-8 BOM is skipped, here and
 in `m.yml`. The body is everything after the title line with one leading
-blank line (`\n` or `\r\n`) stripped. On write, leading and trailing newlines
+blank line (`\n` or `\r\n`) stripped. `add --sections` opens a heading by the
+same rule. On write, leading and trailing line breaks (`\n` or `\r\n`)
 of the body are dropped and exactly one `\n` ends the file; otherwise the body
 is kept as is — `#`, `---` and code fences inside it are preserved.
 
@@ -460,7 +471,9 @@ comment text, possibly several lines
 ```
 
 i.e. `## {rfc3339} — {author}`, blank line, text, blank line. The separator is
-an em dash.
+an em dash. The writer puts the author on one line (line breaks and other
+control characters become single spaces), and a leading BOM is skipped when
+the file is read.
 
 A new entry starts only at a line of exactly that shape: `## `, a timestamp
 with no whitespace in it, ` — `, an author. Any other line beginning with `## `
@@ -574,6 +587,11 @@ statuses count as closed:
 | `statuses.cancel` | `yman cancel` | the command refuses |
 | `statuses.terminal` | closed: hidden by `ls` | `[done status]` |
 
+`blocked` is not a role. It is a fixed status name: `--waits-on` sets it and
+`yman plan` reads it as waiting. A project without it in `statuses.list` does
+not get `--waits-on`, which is refused before anything is written (see
+`errors.md`).
+
 Naming them is what stops a reordered `list` from silently changing what
 `yman start` means. For the same reason `statuses.done` is required as soon as
 `statuses.terminal` names more than one status: with one closed status the
@@ -630,6 +648,13 @@ project.
 | `seq` | `1`, `2`, `14` | highest all-digit id taken, plus one |
 | `author` | `iv-1`, `an-3` | highest `{prefix}-N` taken, plus one |
 | `random` | `t-7f3a` | `t-` plus `random_len` hex chars, redrawn until free |
+
+Ids are classified by shape, whatever the configured scheme, because a tracker
+may have switched schemes: all digits is `seq`, `prefix-N` with all-digit `N`
+is `author`, and `t-` plus 2 to 16 lowercase hex digits is `random` unless it
+is also `t-N` of an author whose prefix is `t` (no letter, no leading zero),
+which stays `author` so that scheme never re-mints a taken number. A number
+past 64 bits is neither `seq` nor `author`; it sorts with the other ids.
 
 A scheme with no id left fails instead of looping or wrapping: `random` once
 every `random_len`-character id is taken, `seq` and `author` past

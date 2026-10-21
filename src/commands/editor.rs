@@ -1,3 +1,4 @@
+use crate::signal::IgnoreInterrupts;
 use anyhow::{Result, bail};
 use std::io::IsTerminal;
 use std::path::Path;
@@ -37,11 +38,20 @@ pub fn run_editor(path: &Path, aftermath: &str) -> Result<()> {
     let mut parts = spec.split_whitespace();
     // `resolve_editor` never returns a blank spec, so there is a first word.
     let program = parts.next().unwrap_or("vi");
-    let status = Command::new(program)
+    let mut child = Command::new(program)
         .args(parts)
         .arg(path)
-        .status()
+        .spawn()
         .map_err(|e| anyhow::anyhow!("cannot run editor \"{program}\": {e}"))?;
+    // After the spawn, not before: an ignored signal stays ignored across
+    // exec, and the editor must keep the default dispositions (git's
+    // `launch_editor` does the same). A Ctrl-C then stops the editor only, and
+    // the cleanup of the caller still runs when it reports the signal.
+    let interrupts = IgnoreInterrupts::new();
+    let status = child.wait();
+    drop(interrupts);
+    let status =
+        status.map_err(|e| anyhow::anyhow!("cannot wait for editor \"{program}\": {e}"))?;
     match status.code() {
         Some(0) => Ok(()),
         Some(n) => bail!("editor exited with status {n}; {aftermath}"),

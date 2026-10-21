@@ -41,7 +41,10 @@ pub fn run(ctx: &mut Context, a: AttachArgs) -> Result<()> {
                 .into_owned(),
         };
         if name.contains('/') || name.contains('\\') || name == "." || name == ".." {
-            bail!("attachment name \"{name}\" must not contain a path separator");
+            bail!(
+                "attachment name \"{}\" must not contain a path separator",
+                name.escape_debug()
+            );
         }
         check_portable(&name)?;
         // `--force` replaces an attachment already on the task; it cannot
@@ -302,7 +305,7 @@ fn check_portable(name: &str) -> Result<()> {
         Some("it is empty".to_string())
     } else if let Some(c) = name.chars().find(|c| ":*?\"<>|".contains(*c)) {
         Some(format!("contains '{c}'"))
-    } else if name.chars().any(char::is_control) {
+    } else if name.chars().any(crate::task::is_unsafe_char) {
         Some("contains a control character".to_string())
     } else if name.ends_with('.') {
         Some("ends with '.'".to_string())
@@ -388,6 +391,16 @@ mod tests {
         for name in ["console.txt", "com10", "lpt0", "nul_x.txt", "com"] {
             assert!(check_portable(name).is_ok(), "{name}");
         }
+    }
+
+    #[test]
+    fn unsafe_characters_are_not_portable() {
+        for name in ["a\u{202e}b.txt", "a\u{2028}b", "a\u{200b}b", "a\u{feff}b"] {
+            let err = check_portable(name).unwrap_err().to_string();
+            assert!(err.ends_with(": contains a control character"), "{err}");
+            assert!(!err.contains(['\u{202e}', '\u{2028}', '\u{200b}', '\u{feff}']));
+        }
+        assert!(check_portable("a\u{200d}b").is_ok());
     }
 
     /// Every file under `dir`, name to bytes.

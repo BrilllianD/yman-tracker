@@ -200,7 +200,7 @@ mod tests {
         meta.related = related.iter().map(|s| s.to_string()).collect();
         Task {
             folder: FolderName::parse(&name).unwrap(),
-            parent: None,
+            status_dir: None,
             ydir: PathBuf::from("/tmp/.yman"),
             title: format!("Task {id}"),
             body: String::new(),

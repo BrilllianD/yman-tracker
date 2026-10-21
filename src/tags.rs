@@ -141,6 +141,7 @@ mod tests {
             "a\u{1}b",
             "a\u{202e}b",
             "a\u{2066}b",
+            "a\u{200e}b",
         ] {
             let err = normalize(raw).unwrap_err().to_string();
             assert!(err.starts_with("invalid tag "), "for {raw:?}, got {err:?}");
