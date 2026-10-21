@@ -11378,3 +11378,150 @@ fn a_non_utf8_discussion_warns_and_keeps_its_comments() {
     assert!(stdout(&out).contains("second"), "{}", stdout(&out));
     assert_eq!(stderr(&out).matches(&w).count(), 1, "{}", stderr(&out));
 }
+
+/// `yman.refresh` and `yman.autosync` match exactly. A value that is not a
+/// policy name acts as the fallback (manual, off), and `status` shows that
+/// fallback with a warning instead of echoing the raw value.
+#[test]
+fn status_shows_the_policy_in_effect_and_warns_on_an_invalid_value() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.git(&fx.a, &["config", "yman.refresh", "Lazy"]);
+    let out = fx.yman(&fx.a).arg("status").output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert!(
+        stdout(&out).contains("(refresh: manual, hooks:"),
+        "{}",
+        stdout(&out)
+    );
+    assert!(
+        stderr(&out).contains(
+            "warning: git config yman.refresh \"Lazy\" is not lazy or manual; using manual"
+        ),
+        "{}",
+        stderr(&out)
+    );
+    let json = fx.yman(&fx.a).args(["status", "--json"]).output().unwrap();
+    assert!(
+        stdout(&json).contains("\"refresh\":\"manual\""),
+        "{}",
+        stdout(&json)
+    );
+
+    fx.git(&fx.a, &["config", "yman.refresh", "lazy"]);
+    fx.git(&fx.a, &["config", "yman.autosync", "Push"]);
+    let out = fx.yman(&fx.a).arg("status").output().unwrap();
+    let first = stdout(&out).lines().next().unwrap_or("").to_string();
+    assert!(!first.contains("autosync:"), "{first}");
+    assert!(
+        stderr(&out)
+            .contains("warning: git config yman.autosync \"Push\" is not off or push; using off"),
+        "{}",
+        stderr(&out)
+    );
+    let json = fx.yman(&fx.a).args(["status", "--json"]).output().unwrap();
+    assert!(
+        stdout(&json).contains("\"autosync\":\"off\""),
+        "{}",
+        stdout(&json)
+    );
+}
+
+#[test]
+fn a_mutation_under_an_invalid_autosync_warns() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.git(&fx.a, &["config", "yman.autosync", "Push"]);
+    let out = fx.yman(&fx.a).args(["add", "X"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let err = stderr(&out);
+    assert!(
+        err.contains("warning: git config yman.autosync \"Push\" is not off or push; using off"),
+        "{err}"
+    );
+    assert!(!err.contains("note: pushed"), "{err}");
+}
+
+#[test]
+fn status_reports_a_stale_merge_driver() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let out = fx.yman(&fx.a).arg("status").output().unwrap();
+    assert!(!stderr(&out).contains("merge driver"), "{}", stderr(&out));
+
+    fx.git(
+        &fx.a,
+        &[
+            "config",
+            "merge.ymanmeta.driver",
+            "'/nonexistent/yman' merge-driver %O %A %B",
+        ],
+    );
+    let out = fx.yman(&fx.a).arg("status").output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains(
+            "warning: merge driver merge.ymanmeta.driver runs /nonexistent/yman, which does not exist; run: yman init"
+        ),
+        "{}",
+        stderr(&out)
+    );
+    fx.yman(&fx.a).arg("init").assert().success();
+    let out = fx.yman(&fx.a).arg("status").output().unwrap();
+    assert!(!stderr(&out).contains("merge driver"), "{}", stderr(&out));
+
+    fx.git(&fx.a, &["config", "--unset", "merge.ymanmeta.driver"]);
+    let out = fx.yman(&fx.a).arg("status").output().unwrap();
+    assert!(
+        stderr(&out)
+            .contains("warning: merge driver merge.ymanmeta.driver is not set; run: yman init"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn hooks_warn_when_yman_is_not_on_path() {
+    const WARN: &str = "warning: yman is not on PATH, so the installed hooks do nothing";
+    let fx = Fx::new();
+    fx.yman(&fx.a).args(["init", "--hooks"]).assert().success();
+    let only_git = fx.tmp.path().join("only-git");
+    std::fs::create_dir_all(&only_git).unwrap();
+    let real_git = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+        .map(|d| d.join("git"))
+        .find(|p| p.is_file())
+        .unwrap();
+    std::os::unix::fs::symlink(real_git, only_git.join("git")).unwrap();
+
+    let out = fx
+        .yman(&fx.a)
+        .env("PATH", &only_git)
+        .args(["hooks", "status"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert!(
+        stdout(&out).contains("hook post-merge: installed"),
+        "{}",
+        stdout(&out)
+    );
+    assert!(stderr(&out).contains(WARN), "{}", stderr(&out));
+    for args in [&["status"][..], &["hooks", "install"][..]] {
+        let out = fx
+            .yman(&fx.a)
+            .env("PATH", &only_git)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(stderr(&out).contains(WARN), "{args:?}: {}", stderr(&out));
+    }
+    for args in [
+        &["status"][..],
+        &["hooks", "status"][..],
+        &["hooks", "install"][..],
+    ] {
+        let out = fx.yman(&fx.a).args(args).output().unwrap();
+        assert!(!stderr(&out).contains(WARN), "{args:?}: {}", stderr(&out));
+    }
+}

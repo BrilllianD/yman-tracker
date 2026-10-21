@@ -37,6 +37,9 @@ Normative, as-built. Companion documents: [storage.md](storage.md),
 4. **Lazy refresh**, when `yman.refresh` is unset or `lazy`, for every command
    except `init`, `sync`, `refresh`, `status`, `hooks` and `git`. A failure here
    is downgraded to a `warning:` on stderr and the real command still runs.
+   Any other `yman.refresh` value acts as `manual`, and wherever the policy
+   is read yman prints `warning: git config yman.refresh "<v>" is not lazy or
+   manual; using manual`.
    When it fast-forwards, `config.toml` is loaded again, so the command runs
    on the rules of the history it now stands on; a config that arrived and
    does not load is not downgraded: the command fails with exit 1 and
@@ -44,7 +47,9 @@ Normative, as-built. Companion documents: [storage.md](storage.md),
 5. **Autosync**, after a mutating command made at least one commit, including
    one that then failed part-way (a multi-id verb stopping at a missing id,
    `add --sections` stopping at a bad task), when `yman.autosync` is `push`
-   and there is an `origin`; the push runs before the error is printed, and
+   and there is an `origin` (any other `yman.autosync` value acts as `off`,
+   with `warning: git config yman.autosync "<v>" is not off or push; using
+   off`); the push runs before the error is printed, and
    the exit code stays the failure's: one push of `refs/yman/local` to
    `refs/tasks/main`, skipped when `LOCAL` already equals `REMOTE`. It never
    fetches or merges. A push reports `note: pushed N task commit(s)`; a push
@@ -260,9 +265,16 @@ An unknown id is exit 4, as everywhere.
 Reports and never changes anything: the local ref and its short head, the
 remote ref with `ahead`/`behind` when it has been fetched, the refresh policy,
 the autosync setting (the text form names it only when it is not `off`),
-whether the hooks are installed, the number of uncommitted changes under
+whether the hooks are installed (the refresh policy and autosync setting
+shown are the ones in effect: an invalid value shows its fallback, with the
+warning above on stderr), the number of uncommitted changes under
 `.yman`, an unresolved merge with its unmerged files, and the task counts per
-configured status.
+configured status. A merge driver that is not set or whose program does not
+exist is reported on stderr as `warning: merge driver merge.ymanmeta.driver
+is not set; run: yman init` or `warning: merge driver merge.ymanmeta.driver
+runs <program>, which does not exist; run: yman init`, and with the hooks
+installed and no `yman` on `PATH` it prints `warning: yman is not on PATH, so
+the installed hooks do nothing`.
 
 `--json` emits one object —
 `{local: {ref, head}, remote: {ref, fetched, head, ahead, behind, origin}, refresh,
@@ -721,6 +733,10 @@ marker line `# yman-hook v1`:
 command -v yman >/dev/null 2>&1 && yman refresh --quiet
 exit 0
 ```
+
+The script needs `yman` on `PATH`; `install`, `status` and `yman status` warn
+with `warning: yman is not on PATH, so the installed hooks do nothing` when it
+is not.
 
 The target directory is `core.hooksPath` when set, as git resolves it with
 `rev-parse --git-path hooks` (`~/` expanded, a relative value relative to the

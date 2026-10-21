@@ -9,6 +9,7 @@
 //! question that costs a `git` process is asked only once the answers before
 //! it say it still matters.
 
+use crate::cli::RefreshPolicy;
 use crate::repo::{Context, LOCAL, REMOTE};
 use anyhow::Result;
 
@@ -45,10 +46,9 @@ enum Step {
 
 /// Is the lazy policy in effect? Unset counts as lazy.
 fn policy_is_lazy(ctx: &Context) -> Result<bool> {
-    Ok(matches!(
-        ctx.get_cfg("yman.refresh")?.as_deref(),
-        None | Some("lazy")
-    ))
+    let p = ctx.refresh_policy()?;
+    p.warn();
+    Ok(p.value == RefreshPolicy::Lazy)
 }
 
 fn triage(ctx: &Context) -> Result<Step> {

@@ -87,6 +87,33 @@ pub fn state(dir: &Path, name: &str) -> HookState {
     }
 }
 
+/// The first executable `name` in the directories of `PATH`.
+pub fn on_path(name: &str) -> Option<PathBuf> {
+    std::env::split_paths(&std::env::var_os("PATH")?)
+        .map(|dir| dir.join(name))
+        .find(|p| is_executable(p))
+}
+
+#[cfg(unix)]
+fn is_executable(p: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    p.metadata()
+        .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+}
+
+#[cfg(not(unix))]
+fn is_executable(p: &Path) -> bool {
+    p.is_file()
+}
+
+/// Warn when hooks are installed but `yman` is not on `PATH`, so they do
+/// nothing.
+pub fn warn_if_yman_missing(installed: bool) {
+    if installed && on_path("yman").is_none() {
+        eprintln!("warning: yman is not on PATH, so the installed hooks do nothing");
+    }
+}
+
 /// Write both hooks. Foreign and unreadable hooks are reported and left
 /// alone; the command still processes the other hook before failing.
 pub fn install(ctx: &Context) -> Result<()> {
@@ -98,10 +125,14 @@ pub fn install(ctx: &Context) -> Result<()> {
     }
     std::fs::create_dir_all(&dir)?;
     let mut refused: Vec<&str> = Vec::new();
+    let mut any_installed = false;
     for name in HOOKS {
         let path = dir.join(name);
         match state(&dir, name) {
-            HookState::Installed => println!("hook {name}: already installed"),
+            HookState::Installed => {
+                any_installed = true;
+                println!("hook {name}: already installed");
+            }
             HookState::Foreign => {
                 eprintln!(
                     "note: hook {name} exists; add this line to it:\n    yman refresh --quiet"
@@ -118,10 +149,12 @@ pub fn install(ctx: &Context) -> Result<()> {
             HookState::Absent => {
                 write_new(&path)?;
                 set_executable(&path)?;
+                any_installed = true;
                 println!("hook {name}: installed");
             }
         }
     }
+    warn_if_yman_missing(any_installed);
     if !refused.is_empty() {
         bail!(
             "{} hook(s) not installed: {}",
@@ -173,13 +206,16 @@ pub fn report(ctx: &Context) -> Result<()> {
     let Some((dir, _)) = hooks_dir(ctx)? else {
         bail!(EMPTY_HOOKS_PATH)
     };
+    let mut any_installed = false;
     for name in HOOKS {
         let st = state(&dir, name);
         if let HookState::Unreadable(why) = &st {
             warn_unreadable(&dir.join(name), why);
         }
+        any_installed |= st == HookState::Installed;
         println!("hook {name}: {}", st.as_str());
     }
+    warn_if_yman_missing(any_installed);
     Ok(())
 }
 

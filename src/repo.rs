@@ -1,5 +1,6 @@
 //! Discovery of the surrounding repository and the state of `.yman`.
 
+use crate::cli::{AutosyncPolicy, RefreshPolicy};
 use crate::config::{CONFIG_FILE, Config};
 use crate::errors::MergePending;
 use crate::git::{Git, indent_detail};
@@ -249,6 +250,28 @@ impl Context {
         self.get_cfg("remote.origin.url")
     }
 
+    /// `yman.refresh` as this clone holds it: unset is lazy, a value that is
+    /// not a policy name acts as manual.
+    pub fn refresh_policy(&self) -> Result<Policy<RefreshPolicy>> {
+        Ok(Policy::read(
+            "yman.refresh",
+            self.get_cfg("yman.refresh")?,
+            RefreshPolicy::Lazy,
+            RefreshPolicy::Manual,
+        ))
+    }
+
+    /// `yman.autosync` as this clone holds it: unset or a value that is not a
+    /// policy name acts as off.
+    pub fn autosync_policy(&self) -> Result<Policy<AutosyncPolicy>> {
+        Ok(Policy::read(
+            "yman.autosync",
+            self.get_cfg("yman.autosync")?,
+            AutosyncPolicy::Off,
+            AutosyncPolicy::Off,
+        ))
+    }
+
     pub fn get_cfg(&self, key: &str) -> Result<Option<String>> {
         let out = self.main.run(&["config", "--get", key])?;
         if out.ok() {
@@ -421,6 +444,85 @@ impl Context {
         match dir.strip_prefix(&self.root) {
             Ok(rel) => rel.to_string_lossy().into_owned(),
             Err(_) => dir.to_string_lossy().into_owned(),
+        }
+    }
+}
+
+/// A per-clone `yman.*` policy, as this clone's git config holds it.
+pub struct Policy<T> {
+    /// What yman does.
+    pub value: T,
+    /// The raw value, when it is set but names no policy yman knows.
+    pub invalid: Option<String>,
+    key: &'static str,
+    fallback: T,
+}
+
+impl<T: clap::ValueEnum + Copy> Policy<T> {
+    /// `unset` when the key is absent, `fallback` when its value is not a
+    /// variant name (exact, case-sensitive match).
+    fn read(key: &'static str, raw: Option<String>, unset: T, fallback: T) -> Policy<T> {
+        let (value, invalid) = match raw {
+            None => (unset, None),
+            Some(v) => match T::from_str(&v, false) {
+                Ok(t) => (t, None),
+                Err(_) => (fallback, Some(v)),
+            },
+        };
+        Policy {
+            value,
+            invalid,
+            key,
+            fallback,
+        }
+    }
+
+    /// Print the `warning: git config <key> "<v>" is not <a> or <b>; using
+    /// <fallback>` line when the value is invalid.
+    pub fn warn(&self) {
+        let Some(v) = &self.invalid else { return };
+        let name = |t: &T| {
+            t.to_possible_value()
+                .map(|p| p.get_name().to_string())
+                .unwrap_or_default()
+        };
+        let names: Vec<String> = T::value_variants().iter().map(name).collect();
+        eprintln!(
+            "warning: git config {} \"{v}\" is not {}; using {}",
+            self.key,
+            names.join(" or "),
+            name(&self.fallback)
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn refresh(raw: Option<&str>) -> Policy<RefreshPolicy> {
+        Policy::read(
+            "yman.refresh",
+            raw.map(str::to_string),
+            RefreshPolicy::Lazy,
+            RefreshPolicy::Manual,
+        )
+    }
+
+    #[test]
+    fn policy_read_unset_and_valid_names() {
+        assert_eq!(refresh(None).value, RefreshPolicy::Lazy);
+        assert_eq!(refresh(Some("lazy")).value, RefreshPolicy::Lazy);
+        assert_eq!(refresh(Some("manual")).value, RefreshPolicy::Manual);
+        assert!(refresh(Some("manual")).invalid.is_none());
+    }
+
+    #[test]
+    fn policy_read_is_exact_and_empty_is_invalid() {
+        for raw in ["Lazy", ""] {
+            let p = refresh(Some(raw));
+            assert_eq!(p.value, RefreshPolicy::Manual, "{raw:?}");
+            assert_eq!(p.invalid.as_deref(), Some(raw));
         }
     }
 }

@@ -9,6 +9,14 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- `yman status` and the `init` summary show the refresh and autosync policy
+  actually in effect, and an invalid value (`Push`, `Lazy`) is reported
+  instead of silently acting as off or manual.
+- `yman status` reports a merge driver whose binary is gone (after a Homebrew
+  or Nix upgrade, say) with `run: yman init`, instead of every concurrent
+  `m.yml` edit stopping `sync` with exit 3 unexplained.
+- `hooks status`, `hooks install` and `status` warn when `yman` is not on
+  `PATH`, where the installed hooks silently do nothing.
 - The first command after a `config.toml` change arrives through `git pull` or
   `git fetch` (the v1 to v2 opt-in, for one) now uses the new config, so
   `yman done` archives under `done/` instead of leaving the task at top level.

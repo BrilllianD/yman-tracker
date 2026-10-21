@@ -127,8 +127,22 @@ impl Fx {
             .env("VISUAL", "")
             .env("TERM", "dumb")
             .env("LC_ALL", "C")
+            .env("PATH", self.path())
             .env_remove("YMAN_AUTHOR")
             .env_remove("YMAN_ACTOR")
+    }
+
+    /// The `PATH` every sandboxed process sees: the directory of the built
+    /// `yman` first, then the inherited one. Whether `yman` is on `PATH` is
+    /// then the same on a developer machine and in CI.
+    pub fn path(&self) -> String {
+        let bin = Path::new(env!("CARGO_BIN_EXE_yman"));
+        let dir = bin.parent().unwrap_or(bin);
+        format!(
+            "{}:{}",
+            dir.display(),
+            std::env::var("PATH").unwrap_or_default()
+        )
     }
 
     /// The `HOME` every sandboxed process sees, so `~` in a git config value
@@ -188,7 +202,7 @@ impl Fx {
 
         let log = self.tmp.path().join("git-spawns");
         std::fs::write(&log, "").unwrap();
-        let path = std::env::var("PATH").unwrap_or_default();
+        let path = self.path();
         self.yman(dir)
             .env("YMAN_REAL_PATH", &path)
             .env("PATH", format!("{}:{path}", shim_dir.display()))
@@ -227,7 +241,7 @@ impl Fx {
         .unwrap();
         std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-        let path = std::env::var("PATH").unwrap_or_default();
+        let path = self.path();
         let mut cmd = self.yman(dir);
         cmd.env("YMAN_REAL_PATH", &path)
             .env("PATH", format!("{}:{path}", shim_dir.display()));

@@ -5,6 +5,7 @@ use crate::repo::{Context, LOCAL, REMOTE, REMOTE_REF, YDIR_NAME, YdirState};
 use crate::task;
 use crate::transport::{self, PUSH_ATTEMPTS, PushResult, push};
 use anyhow::{Result, bail};
+use std::path::Path;
 
 const GITIGNORE: &str = "*.swp\n*~\n.#*\n*.orig\n";
 const GITATTRIBUTES: &str = "**/d.md merge=union\n**/m.yml merge=ymanmeta\n";
@@ -275,6 +276,44 @@ fn register_merge_driver(ctx: &Context) -> Result<()> {
     Ok(())
 }
 
+/// Why this clone's `m.yml` merge driver would not run, or `None`.
+pub(crate) fn merge_driver_problem(ctx: &Context) -> Result<Option<String>> {
+    let key = format!("merge.{MERGE_DRIVER}.driver");
+    let Some(driver) = ctx.get_cfg(&key)? else {
+        return Ok(Some(format!("merge driver {key} is not set")));
+    };
+    let program = match sh_unquote(&driver) {
+        Some((word, _)) if driver.starts_with('\'') => word,
+        _ => driver.split_whitespace().next().unwrap_or("").to_string(),
+    };
+    let found = if program.contains('/') {
+        Path::new(&program).is_file()
+    } else {
+        hooks::on_path(&program).is_some()
+    };
+    Ok((!found).then(|| format!("merge driver {key} runs {program}, which does not exist")))
+}
+
+/// Read one shell word written by [`sh_quote`] from the start of `s`; returns
+/// it and the rest.
+fn sh_unquote(s: &str) -> Option<(String, &str)> {
+    let mut word = String::new();
+    let mut rest = s;
+    loop {
+        rest = rest.strip_prefix('\'')?;
+        let end = rest.find('\'')?;
+        word.push_str(&rest[..end]);
+        rest = &rest[end + 1..];
+        match rest.strip_prefix("\\'") {
+            Some(after) => {
+                word.push('\'');
+                rest = after;
+            }
+            None => return Some((word, rest)),
+        }
+    }
+}
+
 /// One shell word, whatever `s` holds: single-quoted, with each `'` closed,
 /// escaped and reopened.
 fn sh_quote(s: &str) -> String {
@@ -361,9 +400,9 @@ fn load_history_config(ctx: &Context, source: &str) -> Result<Config> {
 
 fn summary(ctx: &Context, url: Option<&str>, verb: &str) -> Result<()> {
     let tasks = task::list(&ctx.ydir)?.len();
-    let refresh = ctx
-        .get_cfg("yman.refresh")?
-        .unwrap_or_else(|| "lazy".to_string());
+    let refresh = ctx.refresh_policy()?;
+    refresh.warn();
+    let refresh = refresh.value.as_str();
     let hooks_state = if hooks::all_installed(ctx)? {
         "installed"
     } else {
@@ -403,5 +442,23 @@ mod tests {
                 .unwrap();
             assert_eq!(String::from_utf8(out.stdout).unwrap(), path);
         }
+    }
+
+    #[test]
+    fn sh_unquote_reads_what_sh_quote_wrote() {
+        for path in [
+            "/usr/bin/yman",
+            "/opt/my tools/yman",
+            "/tmp/a\"b/yman",
+            "/tmp/it's/yman",
+            "\\\\server\\share\\yman.exe",
+        ] {
+            let driver = format!("{} merge-driver %O %A %B", sh_quote(path));
+            assert_eq!(
+                sh_unquote(&driver),
+                Some((path.to_string(), " merge-driver %O %A %B"))
+            );
+        }
+        assert_eq!(sh_unquote("yman merge-driver"), None);
     }
 }
