@@ -17,7 +17,7 @@ cargo clippy --all-targets -- -D warnings   # must be clean; CI runs it too
 cargo fmt                                   # run before committing
 sh scripts/spike-symref.sh                  # re-proves the git invariant below
 cargo test --test cli <name>                # one integration scenario
-YMAN_TEST_NO_SKIP=1 cargo test               # a scenario that would skip fails instead
+YMAN_TEST_NO_SKIP=1 cargo test              # a scenario that would skip fails instead
 sh scripts/book.sh                          # docs site; fails on broken links
 ```
 

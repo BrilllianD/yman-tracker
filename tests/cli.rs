@@ -3039,7 +3039,7 @@ fn hook_environment_does_not_leak() {
 
 /// An unreadable (not merely absent) attempt log is an error, not zero runs.
 #[test]
-#[should_panic(expected = "read ")]
+#[should_panic(expected = "read attempt log ")]
 fn fx_runs_panics_on_unreadable_log() {
     let fx = Fx::new();
     fx.runs(fx.tmp.path());

@@ -423,7 +423,7 @@ impl Fx {
         match std::fs::read_to_string(log) {
             Ok(t) => t.lines().count(),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => 0,
-            Err(e) => panic!("read {}: {e}", log.display()),
+            Err(e) => panic!("read attempt log {}: {e}", log.display()),
         }
     }
 
