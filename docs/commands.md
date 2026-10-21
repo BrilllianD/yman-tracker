@@ -91,9 +91,11 @@ contributes `folder`, list fields contribute `+added,-removed`, a changed
 body contributes the bare word `body`, and `-m` contributes the bare word
 `comment`.
 
-`Git::commit` treats "nothing to commit" as success: re-applying an identical
-change inside the same second stages nothing, and the tree already says what the
-caller asked for.
+`Git::commit` treats git's three ways of saying nothing is staged
+(`nothing to commit`, `nothing added to commit`, `no changes added to commit`)
+as success: re-applying an identical change stages nothing, whatever else is
+untracked or unstaged in `.yman`, and the tree already says what the caller
+asked for.
 
 ## 3. Reading
 
@@ -273,6 +275,9 @@ The lazy refresh still runs, silently.
 name through a priority change, a retitle and a move into or out of a status
 directory, so those keep the task's full history without consulting git's
 rename detection, and `-n` stops the walk once enough commits are found.
+The wrapper matches every other path literally (`--noglob-pathspecs`), and a
+`GIT_LITERAL_PATHSPECS` in the environment is removed, so these two patterns
+glob whatever the user's setting.
 
 A sync renumber is the one move that changes the id, and `log` reads it from
 the commit subject (`yman: renumber 2->3, …`):
@@ -711,7 +716,9 @@ exit 1.
    ([storage.md](storage.md#merging-myml)), so edits to different fields of one
    task settle on their own; anything it cannot settle falls back to the text
    merge. Conflicts print `note: unmerged files:`, then each file indented by
-   two spaces, and exit 3. A clean merge is
+   two spaces, and exit 3; if yman cannot list or record them, it still exits 3,
+   with `merge stopped with conflicts, but yman could not list them: <why>`. A
+   clean merge is
    followed by the **rejoin** below.
 8. Push, unless `--no-push`: resolve `LOCAL` once and push that commit,
    `<sha>:refs/tasks/main`, with `--porcelain`, and read git's verdict from
@@ -806,7 +813,11 @@ the merge commit, ahead of its checks.
 Both require a merge in progress.
 
 `--continue` treats a file as unresolved while it still carries conflict
-markers — staging is yman's job, since the message tells the user to edit and
+markers — a line starting with `<<<<<<< `, `>>>>>>> ` or `|||||||` (the base
+section of `merge.conflictStyle=diff3` and `zdiff3`). A bare `=======` is
+ordinary content (a setext heading, a separator) and counts only in a file git
+left unmerged that holds more of them than its sides could (theirs plus ours,
+minus the base's, never fewer than either side), i.e. a separator left behind. Staging is yman's job, since the message tells the user to edit and
 rerun, not to run `git add`. The exception is a conflict git never marked up:
 a binary file, a change on one side to what the other deleted, or an `m.yml`
 whose merge driver could not run. The file on disk is then simply ours, and

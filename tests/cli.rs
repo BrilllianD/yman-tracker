@@ -3649,6 +3649,158 @@ fn a_localized_git_does_not_change_behaviour() {
     assert!(out.status.success(), "{}", stderr(&out));
 }
 
+/// User settings that reshape git's output or make a yman operation fail.
+const HOSTILE_GIT_CONFIG: &str = "[color]\n\tdiff = always\n\tstatus = always\n\
+    [log]\n\tdecorate = full\n\tshowSignature = true\n\
+    [status]\n\tshowUntrackedFiles = no\n\
+    [merge]\n\tff = only\n\tverifySignatures = true\n";
+
+#[test]
+fn user_git_config_does_not_change_what_yman_does() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+
+    let log = |args: &[&str]| {
+        let out = fx.yman(&fx.a).args(args).output().unwrap();
+        assert!(out.status.success(), "{}", stderr(&out));
+        stdout(&out)
+    };
+    let plain = log(&["log"]);
+    let plain_task = log(&["log", "1"]);
+    assert!(!plain_task.is_empty());
+
+    fx.global_config(HOSTILE_GIT_CONFIG);
+    assert_eq!(log(&["log"]), plain);
+    assert_eq!(log(&["log", "1"]), plain_task);
+    let out = fx
+        .yman(&fx.a)
+        .env("GIT_LITERAL_PATHSPECS", "1")
+        .args(["log", "1"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out), plain_task);
+
+    for (clone, args) in [
+        (&fx.a, vec!["state", "set", "-m", "from A"]),
+        (&fx.a, vec!["sync"]),
+        (&fx.b, vec!["comment", "1", "-m", "from B"]),
+    ] {
+        let out = fx.yman(clone).args(args).output().unwrap();
+        assert!(out.status.success(), "{}", stderr(&out));
+    }
+
+    // A hand-made folder still counts as a local change.
+    let scratch = fx.b.join(".yman/scratch");
+    std::fs::create_dir_all(&scratch).unwrap();
+    fx.write(&scratch.join("notes.txt"), "hand-made\n");
+    let out = fx.yman(&fx.b).args(["status", "--json"]).output().unwrap();
+    assert!(
+        stdout(&out).contains("\"worktree\":{\"dirty\":1}"),
+        "{}",
+        stdout(&out)
+    );
+
+    // A diverged sync merges despite merge.ff=only.
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stdout(&out).contains("snapshotted 1 local change(s)"),
+        "{}",
+        stdout(&out)
+    );
+    let state = stdout(&fx.yman(&fx.b).arg("state").output().unwrap());
+    assert!(state.contains("from A"), "{state}");
+    let parents = fx.git(
+        &fx.b,
+        &["rev-list", "--parents", "-n", "1", "refs/yman/local"],
+    );
+    assert_eq!(parents.split_whitespace().count(), 3, "{parents}");
+}
+
+#[test]
+fn user_diff3_base_section_keeps_continue_pending() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v1_config(&fx.a);
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    fx.global_config("[merge]\n\tconflictStyle = diff3\n");
+
+    let ta = fx.task_dir(&fx.a, "1").join("t.md");
+    fx.write(&ta, "# Fix login\n\nA body\n");
+    fx.yman(&fx.a).arg("sync").assert().success();
+    let tb = fx.task_dir(&fx.b, "1").join("t.md");
+    fx.write(&tb, "# Fix login\n\nB body\n");
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    let conflicted = fx.read(&tb);
+    assert!(
+        conflicted.lines().any(|l| l.starts_with("|||||||")),
+        "{conflicted}"
+    );
+
+    // Drop the three usual markers but leave the diff3 base line behind.
+    let resolved: String = conflicted
+        .lines()
+        .filter(|l| !(l.starts_with("<<<<<<<") || *l == "=======" || l.starts_with(">>>>>>>")))
+        .map(|l| format!("{l}\n"))
+        .collect();
+    fx.write(&tb, &resolved);
+    let out = fx
+        .yman(&fx.b)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("still unmerged: 5.1.fix-login/t.md"),
+        "{}",
+        stderr(&out)
+    );
+
+    fx.write(&tb, "# Fix login\n\nB body\n");
+    let out = fx
+        .yman(&fx.b)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+}
+
+#[test]
+fn detach_removes_only_the_named_file_when_its_name_is_a_glob() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let src_a = fx.tmp.path().join("one.txt");
+    let src_b = fx.tmp.path().join("two.txt");
+    fx.write(&src_a, "one\n");
+    fx.write(&src_b, "two\n");
+    fx.yman(&fx.a)
+        .args(["attach", "1", src_a.to_str().unwrap(), "--name", "a.png"])
+        .assert()
+        .success();
+    fx.yman(&fx.a)
+        .args(["attach", "1", src_b.to_str().unwrap(), "--name", "[ab].png"])
+        .assert()
+        .success();
+    let out = fx
+        .yman(&fx.a)
+        .args(["detach", "1", "[ab].png"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(
+        fx.git(&fx.a.join(".yman"), &["ls-files", "5.1.fix-login/f"]),
+        "5.1.fix-login/f/a.png"
+    );
+}
+
 #[test]
 fn init_offline_touches_no_remote() {
     let fx = Fx::new();
@@ -8549,6 +8701,191 @@ fn resolve_to_done(fx: &Fx) {
             "5.1.fix-login/m.yml",
         ],
     );
+}
+
+/// A setext heading in a comment is `=======` on a line of its own. It is
+/// content, not a conflict marker, so it must not hold `sync --continue` back
+/// once the real conflict is resolved.
+#[test]
+fn continue_ignores_a_setext_heading_in_task_content() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v1_config(&fx.a);
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["comment", "1", "-m", "Summary\n======="])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    let d_md = fx.read(&fx.b.join(".yman/5.1.fix-login/d.md"));
+    assert!(d_md.contains("\nSummary\n=======\n"), "{d_md}");
+    fx.yman(&fx.a).args(["start", "1"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).args(["done", "1"]).assert().success();
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+
+    resolve_to_done(&fx);
+    let out = fx
+        .yman(&fx.b)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(fx.status(&fx.b, "1"), "done");
+}
+
+/// B holds a sync merge stopped on a text conflict in task 1's `t.md` (`d.md`
+/// is union-merged and never conflicts): both sides rewrote the last body
+/// line under a shared `Summary` setext heading, so the file holds that
+/// heading's `=======` and git's own separator.
+fn conflicted_t_md_with_setext_heading(fx: &Fx) -> std::path::PathBuf {
+    let body = |last: &str| format!("Summary\n=======\n\n{last}");
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Fix login", "-m", &body("lead")])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["set", "1", "--body", &body("from A")])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b)
+        .args(["set", "1", "--body", &body("from B")])
+        .assert()
+        .success();
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    let t_md =
+        fx.b.join(".yman")
+            .join(fx.task_rel(&fx.b, "1"))
+            .join("t.md");
+    let text = fx.read(&t_md);
+    assert!(text.contains("<<<<<<< "), "{text}");
+    assert_eq!(
+        text.lines().filter(|l| *l == "=======").count(),
+        2,
+        "{text}"
+    );
+    t_md
+}
+
+/// The user deletes git's `<<<<<<<` and `>>>>>>>` lines but leaves its
+/// separator: it is a second bare `=======` beside the heading's, so the
+/// merge is still unresolved.
+#[test]
+fn continue_refuses_a_left_over_separator_beside_a_shared_setext_heading() {
+    let fx = Fx::new();
+    let t_md = conflicted_t_md_with_setext_heading(&fx);
+    let text = fx.read(&t_md);
+    let kept: Vec<&str> = text
+        .lines()
+        .filter(|l| !l.starts_with("<<<<<<< ") && !l.starts_with(">>>>>>> "))
+        .collect();
+    fx.write(&t_md, &(kept.join("\n") + "\n"));
+
+    let out = fx
+        .yman(&fx.b)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+}
+
+/// Resolved properly: all three of git's lines go, the heading stays.
+#[test]
+fn continue_accepts_a_resolved_t_md_that_keeps_its_setext_heading() {
+    let fx = Fx::new();
+    let t_md = conflicted_t_md_with_setext_heading(&fx);
+    let text = fx.read(&t_md);
+    let lines: Vec<&str> = text.lines().collect();
+    let git_separator = lines.iter().rposition(|l| *l == "=======").unwrap();
+    let kept: Vec<&str> = lines
+        .iter()
+        .enumerate()
+        .filter(|(i, l)| {
+            *i != git_separator && !l.starts_with("<<<<<<< ") && !l.starts_with(">>>>>>> ")
+        })
+        .map(|(_, l)| *l)
+        .collect();
+    let resolved = kept.join("\n") + "\n";
+    assert!(resolved.contains("Summary\n=======\n"), "{resolved}");
+    fx.write(&t_md, &resolved);
+
+    let out = fx
+        .yman(&fx.b)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+}
+
+/// Identical re-applied changes stage nothing. Git words that differently
+/// when an untracked or an unstaged file sits elsewhere in `.yman`; all three
+/// are success.
+#[test]
+fn identical_commit_with_untracked_or_unstaged_files_succeeds() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let set = || {
+        let out = fx
+            .yman(&fx.a)
+            .args(["state", "set", "-m", "X"])
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    };
+    set();
+
+    let scratch = fx.a.join(".yman/scratch.txt");
+    fx.write(&scratch, "scratch\n");
+    set();
+    std::fs::remove_file(&scratch).unwrap();
+
+    let t_md = fx.a.join(".yman/5.1.fix-login/t.md");
+    let mut text = fx.read(&t_md);
+    text.push_str("unsaved line\n");
+    fx.write(&t_md, &text);
+    set();
+    let porcelain = fx.git(&fx.a, &["-C", ".yman", "status", "--porcelain"]);
+    assert!(porcelain.contains("t.md"), "{porcelain}");
+}
+
+/// The merge stopped, then yman could not record the conflicts. The user is
+/// still mid-merge, so that is exit 3 with a way out, not exit 1.
+#[test]
+fn a_failure_after_the_merge_stops_keeps_exit_3() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v1_config(&fx.a);
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    fx.yman(&fx.a).args(["start", "1"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).args(["done", "1"]).assert().success();
+    let gitdir = fx.git(&fx.b.join(".yman"), &["rev-parse", "--absolute-git-dir"]);
+    std::fs::create_dir(std::path::Path::new(gitdir.trim()).join("YMAN_MARKED")).unwrap();
+
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    let err = stderr(&out);
+    assert!(
+        err.contains(
+            "error: merge stopped with conflicts, but yman could not list them: cannot write "
+        ),
+        "{err}"
+    );
+    assert!(
+        err.ends_with("; resolve then: yman sync --continue  (or: yman sync --abort)\n"),
+        "{err}"
+    );
+    fx.yman(&fx.b).args(["sync", "--abort"]).assert().success();
 }
 
 /// On a version 2 tracker the conflict is in the archived folder; resolving it

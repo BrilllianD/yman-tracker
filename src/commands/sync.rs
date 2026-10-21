@@ -4,7 +4,7 @@ use crate::errors::MergePending;
 use crate::ids;
 use crate::repo::{Context, FETCH_REFSPEC, LOCAL, REMOTE, REMOTE_REF};
 use crate::task::{self, FolderName};
-use anyhow::{Result, bail};
+use anyhow::{Context as _, Result, bail};
 use std::collections::{HashMap, HashSet};
 
 /// A successful push carries the commit it published: the caller counts and
@@ -165,7 +165,7 @@ fn resume(ctx: &mut Context, no_push: bool) -> Result<()> {
     let mut still: Vec<String> = Vec::new();
     let mut unmarked: Vec<String> = Vec::new();
     for (f, stages) in unmerged_paths(ctx)? {
-        if file_has_markers(&ctx.ydir.join(&f)) {
+        if unresolved(ctx, &f)? {
             still.push(f);
         } else if needs_a_side(stages) && !marked.contains(&f) {
             unmarked.push(f.clone());
@@ -339,8 +339,55 @@ fn file_has_markers(path: &std::path::Path) -> bool {
     text.lines().any(is_marker)
 }
 
+/// Markers left in an unmerged file, or a separator its sides never had.
+/// The three stage reads happen only when the file has a bare `=======`.
+fn unresolved(ctx: &Context, f: &str) -> Result<bool> {
+    let Ok(text) = std::fs::read_to_string(ctx.ydir.join(f)) else {
+        return Ok(false); // binary, or deleted by the user
+    };
+    if text.lines().any(is_marker) {
+        return Ok(true);
+    }
+    if separator_lines(&text) == 0 {
+        return Ok(false);
+    }
+    // Bare separators in stages 1 (base), 2 (ours) and 3 (theirs); a stage a
+    // side deleted counts as none.
+    let mut stages = [0; 3];
+    for (n, count) in stages.iter_mut().enumerate() {
+        let out = ctx
+            .wt
+            .run(&["cat-file", "blob", &format!(":{}:{f}", n + 1)])?;
+        if out.ok() {
+            *count = separator_lines(&out.stdout);
+        }
+    }
+    Ok(leftover_separator(&text, stages))
+}
+
+fn separator_lines(text: &str) -> usize {
+    text.lines().filter(|l| *l == "=======").count()
+}
+
+/// An unmerged file whose markers were removed by hand still has a
+/// forgotten separator when it holds more bare `=======` lines than a merge
+/// of the sides' own could: those of ours plus theirs, minus the ones both
+/// inherited from the base (counted twice otherwise), and never fewer than
+/// either side alone. Every other one is content.
+fn leftover_separator(text: &str, [base, ours, theirs]: [usize; 3]) -> bool {
+    let allowed = (ours + theirs).saturating_sub(base).max(ours).max(theirs);
+    separator_lines(text) > allowed
+}
+
+/// A line only a conflict writes. A bare `=======` is not one: a setext
+/// heading or a pasted separator is ordinary content; see
+/// `leftover_separator`. `|||||||` opens the base section
+/// `merge.conflictStyle=diff3` and `zdiff3` write.
 fn is_marker(l: &str) -> bool {
-    l.starts_with("<<<<<<< ") || l == "=======" || l.starts_with(">>>>>>> ")
+    l.starts_with("<<<<<<< ")
+        || l.starts_with(">>>>>>> ")
+        || l == "|||||||"
+        || l.starts_with("||||||| ")
 }
 
 fn has_conflict_markers(dir: &std::path::Path) -> Result<Option<String>> {
@@ -514,32 +561,45 @@ fn merge_remote(ctx: &Context) -> Result<()> {
         // A merge driver that could not run says why only here (`sh: ...:
         // not found`), and nothing else would tell the user.
         eprint!("{}", out.stderr);
-        let files = unmerged_paths(ctx)?;
-        eprintln!("note: unmerged files:");
-        let mut marked = String::new();
-        for (f, stages) in &files {
-            if file_has_markers(&ctx.ydir.join(f)) {
-                marked.push_str(f);
-                marked.push('\n');
-                eprintln!("  {f}");
-            } else if needs_a_side(*stages) {
-                eprintln!(
-                    "  {f}  (no conflict markers: binary, modify/delete, or the merge driver failed)"
-                );
-            } else {
-                eprintln!("  {f}");
-            }
-        }
-        std::fs::write(ctx.wt_gitdir.join(MARKED_FILE), marked)?;
-        report_split_closes(ctx)?;
+        // The merge is stopped; whatever fails now must still exit 3, or the
+        // user is left mid-merge with no hint how to leave it.
+        let n = report_stopped_merge(ctx).map_err(|e| {
+            MergePending::new(format!(
+                "merge stopped with conflicts, but yman could not list them: {e:#}; resolve then: yman sync --continue  (or: yman sync --abort)"
+            ))
+        })?;
         return Err(MergePending::new(format!(
-            "conflicts in {} file(s); edit them, remove markers, then: yman sync --continue  (or: yman sync --abort)",
-            files.len()
+            "conflicts in {n} file(s); edit them, remove markers, then: yman sync --continue  (or: yman sync --abort)"
         ))
         .into());
     }
     eprint!("{}", out.stderr);
     bail!("merge failed")
+}
+
+/// List the unmerged files, remember which ones git marked up, and name split
+/// closes. Returns the number of unmerged files.
+fn report_stopped_merge(ctx: &Context) -> Result<usize> {
+    let files = unmerged_paths(ctx)?;
+    eprintln!("note: unmerged files:");
+    let mut marked = String::new();
+    for (f, stages) in &files {
+        if file_has_markers(&ctx.ydir.join(f)) {
+            marked.push_str(f);
+            marked.push('\n');
+            eprintln!("  {f}");
+        } else if needs_a_side(*stages) {
+            eprintln!(
+                "  {f}  (no conflict markers: binary, modify/delete, or the merge driver failed)"
+            );
+        } else {
+            eprintln!("  {f}");
+        }
+    }
+    let path = ctx.wt_gitdir.join(MARKED_FILE);
+    std::fs::write(&path, marked).with_context(|| format!("cannot write {}", path.display()))?;
+    report_split_closes(ctx)?;
+    Ok(files.len())
 }
 
 /// Name the two folders when a task was closed to a different status on each
@@ -889,6 +949,28 @@ fn summary(ctx: &Context, totals: &Totals, no_push: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_bare_separator_is_not_a_marker() {
+        assert!(!is_marker("======="));
+        assert!(is_marker("<<<<<<< HEAD"));
+        assert!(leftover_separator("a\n=======\nb\n", [0, 0, 0]));
+        assert!(!leftover_separator("Summary\n=======\n", [0, 1, 0]));
+        assert!(leftover_separator("x\n=======\ny\n=======\n", [0, 1, 0]));
+        // A heading both sides inherited is one separator, not two.
+        let shared = "Summary\n=======\nx\n=======\ny\n";
+        assert!(leftover_separator(shared, [1, 1, 1]));
+        assert!(!leftover_separator("Summary\n=======\nx\n", [1, 1, 1]));
+        // A side's own new heading is allowed on top of the shared one.
+        assert!(!leftover_separator(shared, [1, 2, 1]));
+    }
+
+    #[test]
+    fn is_marker_knows_the_diff3_base_line() {
+        assert!(is_marker("||||||| 66a9ddb"));
+        assert!(is_marker("|||||||"));
+        assert!(!is_marker("|| x"));
+    }
 
     #[test]
     fn ref_status_finds_the_tasks_ref() {

@@ -49,6 +49,9 @@ fn task_log(ctx: &Context, id: &str, tip: &str, n: usize, lines: &mut Vec<String
     for commit in renumbered_away(ctx, id, tip)? {
         args.push(format!("^{commit}"));
     }
+    // The wrapper passes `--noglob-pathspecs`, so these two are the only
+    // globbing pathspecs yman sends, and `GIT_LITERAL_PATHSPECS` from the
+    // user's environment is stripped before it can turn them off.
     args.push("--".into());
     let pat = glob_escape(id);
     args.push(format!(":(glob)[0-9].{pat}.*/**"));
