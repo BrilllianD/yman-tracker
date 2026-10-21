@@ -29,8 +29,11 @@ Normative, as-built. Companion documents: [storage.md](storage.md),
    except `init`, `sync`, `refresh`, `status`, `hooks` and `git`. A failure here
    is downgraded to a `warning:` on stderr and never takes the real command
    down.
-5. **Autosync**, after a *mutating* command succeeded, when `yman.autosync` is
-   `push` and there is an `origin`: one push of `refs/yman/local` to
+5. **Autosync**, after a mutating command made at least one commit, including
+   one that then failed part-way (a multi-id verb stopping at a missing id,
+   `add --sections` stopping at a bad task), when `yman.autosync` is `push`
+   and there is an `origin`; the push runs before the error is printed, and
+   the exit code stays the failure's: one push of `refs/yman/local` to
    `refs/tasks/main`, skipped when `LOCAL` already equals `REMOTE`. It never
    fetches or merges. A push reports `note: pushed N task commit(s)`; a push
    rejected because origin moved (the race in [`sync`](#6-sync) step 8) prints

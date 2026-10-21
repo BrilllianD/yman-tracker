@@ -9,6 +9,9 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- Under `yman.autosync = push`, a command that committed some tasks and then
+  failed (`done 3 99`, `add --sections` stopping part-way) now pushes what it
+  committed instead of leaving it local.
 - Commands that write the task history on one clone now run one at a time,
   so parallel `yman add` calls (an agent's parallel tool calls) no longer mint
   the same id; a waiting command prints a note.

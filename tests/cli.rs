@@ -7674,6 +7674,34 @@ fn autosync_push_publishes_each_change() {
     assert!(text.contains("\"autosync\":\"push\""), "{text}");
 }
 
+/// A command that committed and then failed still publishes, and keeps
+/// the failure's exit code.
+#[test]
+fn autosync_publishes_the_part_a_failed_command_committed() {
+    let fx = Fx::new();
+    let out = fx.yman(&fx.a).arg("init").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    fx.git(&fx.a, &["config", "yman.autosync", "push"]);
+    let out = fx.yman(&fx.a).args(["add", "One"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+
+    let out = fx.yman(&fx.a).args(["done", "1", "99"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(4), "{}", stderr(&out));
+    let err = stderr(&out);
+    assert!(err.contains("note: pushed 1 task commit(s)\n"), "{err}");
+    assert!(err.ends_with("error: task 99 not found\n"), "{err}");
+    assert_eq!(
+        fx.git(&fx.remote, &["rev-parse", "refs/tasks/main"]),
+        fx.git(&fx.a, &["rev-parse", "refs/yman/local"])
+    );
+    assert_eq!(fx.status(&fx.a, "1"), "done");
+
+    // Control: nothing committed, nothing pushed.
+    let out = fx.yman(&fx.a).args(["done", "99"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(4), "{}", stderr(&out));
+    assert!(!stderr(&out).contains("pushed"), "{}", stderr(&out));
+}
+
 /// Unset means off: changes stay local until `yman sync`.
 #[test]
 fn autosync_is_off_by_default() {

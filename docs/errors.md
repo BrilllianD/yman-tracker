@@ -61,7 +61,7 @@ fails, a `git commit` that fails), ends
 Code 4 is only `task <id> not found`. A folder that exists but is broken or
 duplicated is a repository problem, not a missing task, and stays at code 1.
 A verb given several ids exits 4 at the first missing one, with the tasks
-before it already committed.
+before it already committed (and, under `yman.autosync = push`, pushed).
 
 Codes 3 and 4 travel as distinct error types (`src/errors.rs`) and are
 recognised in `main` by downcasting. Returning the same text as a plain
@@ -199,7 +199,7 @@ Never fatal, always stderr:
 | `warning: cannot read <path>: <why>` | `hooks status` or `hooks remove` met a hook it cannot read; it reports the hook as `unreadable` and leaves it alone |
 | `warning: refresh failed: <why>` | the lazy refresh before a command failed; the command still runs |
 | `warning: origin has new task commits; run: yman sync` | `yman.autosync = push` and the push after a change was rejected; nothing is merged, the change stays committed |
-| `warning: autosync failed: <why>; run: yman sync` | `yman.autosync = push` and the push after a change failed (offline, auth); the command still succeeds |
+| `warning: autosync failed: <why>; run: yman sync` | `yman.autosync = push` and the push after a change failed (offline, auth); the command's exit code is unchanged |
 | `warning: task <id> does not exist here; relating anyway` | `add --relate`/`--waits-on` or `set --relate`/`--waits-on` naming an id no folder here carries |
 | `warning: <id> closed with open tasks relating to it: <ids>` | a close (as for the note below) of a task tagged `epic` while tasks relating to it are still open; the close is committed |
 | `warning: skipped N unreadable task folder(s): <rels>` | `tags`, `tags rename`, `tags rm` and `rm` walking every task |
