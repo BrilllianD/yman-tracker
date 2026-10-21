@@ -2,3 +2,7 @@
 
 repro: REPRODUCED: Ry18 german_git probe (tests/cli.rs:3506, no fx.sandbox) ran git outside sandbox(): 2 start events argv git rev-parse in trace2.json; control init_offline_touches_no_remote: 0 events; Ry19 mutation tests/common/mod.rs:30 drops GIT_NAMESPACE from SCRUBBED_ENV: cargo test 373 passed, 0 failed, nothing flags it; control GIT_NAMESPACE=yman-probe: mutated 18 failed, unmutated 231 passed; Ry17 (/etc/gitattributes) NOT REPRODUCIBLE HERE: needs root to create /etc/gitattributes (uid 1000, /etc not writable, file absent); Ry17 XDG git/ignore '*': cargo test --test cli 0 passed, 231 failed (first failure: git commit -m initial in the seed repo); control empty git/ignore: 231 passed, 0 failed; git/attributes '* eol=crlf': 3 failed; not run: GIT_TRACE*/GIT_TEMPLATE_DIR passthrough, the configured_hooks unit test, the scripts/*.sh unset lists, skipped scenarios reported as ok
 
+## 2026-10-21T13:31:28Z — Bronnikov Aleksandr
+
+3406888: pin XDG/attr env, drop GIT_*, skip helper, list-coverage test
+
