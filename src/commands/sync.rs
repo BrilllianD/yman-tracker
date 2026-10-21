@@ -116,8 +116,13 @@ fn repair_merge(ctx: &Context, base: Option<&str>) -> Result<()> {
 /// commit and the duplicate-id gate sees the final tree. Anything that
 /// fails here leaves MERGE_HEAD in place: exit 3, and `--continue`
 /// reruns every step.
-fn finish_clean_merge(ctx: &Context, base: &str) -> Result<()> {
-    repair_merge(ctx, Some(base))
+fn finish_clean_merge(ctx: &mut Context, base: &str) -> Result<()> {
+    // The merged config is what the next attempt's renumber and every later
+    // command use, and one that does not load must not be committed and
+    // pushed (the same rule as `resume`).
+    Config::load(&ctx.ydir)
+        .map(|cfg| ctx.config = Some(cfg))
+        .and_then(|()| repair_merge(ctx, Some(base)))
         .and_then(|()| duplicate_ids_gate(ctx))
         .and_then(|()| ctx.wt.commit_merge())
         .map_err(still_pending)
@@ -379,6 +384,7 @@ fn normal(ctx: &mut Context, no_push: bool) -> Result<()> {
                 totals.pulled += count(ctx, &format!("{base}..{remote}"))?;
                 if base == local {
                     ctx.wt.ok(&["merge", "-q", "--ff-only", &remote])?;
+                    ctx.reload_config()?;
                 } else {
                     totals.renumbered += renumber_collisions(ctx, &base, &remote)?;
                     merge_remote(ctx, &remote)?;

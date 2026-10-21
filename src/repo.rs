@@ -1,6 +1,6 @@
 //! Discovery of the surrounding repository and the state of `.yman`.
 
-use crate::config::Config;
+use crate::config::{CONFIG_FILE, Config};
 use crate::errors::MergePending;
 use crate::git::{Git, indent_detail};
 use anyhow::{Result, bail};
@@ -29,6 +29,18 @@ fn read_gitdir_file(ydir: &Path) -> Option<PathBuf> {
         ydir.join(pointed)
     };
     Some(pointed.canonicalize().unwrap_or(pointed))
+}
+
+/// What `Context::preflight` does when a sync merge is pending and the
+/// working `config.toml` does not load (it conflicted, or a hand edit broke it).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MergeConfig {
+    /// Fail with the load error, as for any command outside a merge.
+    Strict,
+    /// Load nothing: the command settles the merge and loads the config itself (`sync`).
+    Skip,
+    /// Load the config committed at HEAD and print a note (the read-only commands).
+    Committed,
 }
 
 pub struct Context {
@@ -355,10 +367,12 @@ impl Context {
     ///
     /// The merge check comes before the config load: a sync merge that
     /// conflicted in `config.toml` leaves it unparseable, and that must still
-    /// read as exit 3. `settles_merge` commands (`sync`) get past an
-    /// unloadable config while merging, since getting out of that state is
-    /// their job and they read no config until it is over.
-    pub fn preflight(&mut self, mutating: bool, settles_merge: bool) -> Result<()> {
+    /// read as exit 3 for a command that writes. For the rest, `merge_config`
+    /// says what happens while a merge is pending and the config does not
+    /// load: `sync` gets past it without a config (settling the merge is its
+    /// job), the read-only commands use the config committed at `HEAD`, and
+    /// every other command fails with the load error.
+    pub fn preflight(&mut self, mutating: bool, merge_config: MergeConfig) -> Result<()> {
         if self.ydir_state() != YdirState::Worktree {
             bail!("{YDIR_NAME} is not initialized; run: yman init");
         }
@@ -372,8 +386,32 @@ impl Context {
         }
         match Config::load(&self.ydir) {
             Ok(cfg) => self.config = Some(cfg),
-            Err(_) if merging && settles_merge => {}
+            Err(_) if merging && merge_config == MergeConfig::Skip => {}
+            Err(_) if merging && merge_config == MergeConfig::Committed => {
+                self.config = Some(self.head_config()?);
+                eprintln!("note: sync merge in progress; using config.toml as committed at HEAD");
+            }
             Err(e) => return Err(e),
+        }
+        Ok(())
+    }
+
+    /// `config.toml` as committed at `HEAD`. During a sync merge `HEAD` is
+    /// this clone's side, committed before the merge started, so it is the
+    /// config the readers used a moment earlier.
+    fn head_config(&self) -> Result<Config> {
+        Config::parse(
+            &self
+                .wt
+                .out(&["cat-file", "blob", &format!("HEAD:{CONFIG_FILE}")])?,
+        )
+    }
+
+    /// Load `config.toml` again after `.yman` moved. A no-op when preflight
+    /// loaded none (a merge it let through).
+    pub fn reload_config(&mut self) -> Result<()> {
+        if self.config.is_some() {
+            self.config = Some(Config::load(&self.ydir)?);
         }
         Ok(())
     }

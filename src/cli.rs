@@ -1,6 +1,7 @@
 //! clap derive types. No logic lives here.
 
 use crate::config::Scheme;
+use crate::repo::MergeConfig;
 use clap::{ArgAction, ArgGroup, Args, Parser, Subcommand, ValueEnum, ValueHint};
 
 #[derive(Parser, Debug)]
@@ -632,10 +633,25 @@ impl Cmd {
         )
     }
 
-    /// Commands that exist to finish or abandon a sync merge, and so must
-    /// run while one is pending even when it left `config.toml` unparseable.
-    pub fn settles_merge(&self) -> bool {
-        matches!(self, Cmd::Sync(_))
+    /// What to do while a sync merge is pending and `config.toml` does not
+    /// load. `sync` exists to finish or abandon that merge, so it runs
+    /// without a config. The read-only commands, which are what an agent
+    /// reaches for to see what happened, use the config committed at `HEAD`:
+    /// `status`, `ls`, `show`, `plan`, `log`, `path`, and `state` and `tags`
+    /// without an action. `refresh` writes, so it fails like the rest.
+    pub fn merge_config(&self) -> MergeConfig {
+        match self {
+            Cmd::Sync(_) => MergeConfig::Skip,
+            Cmd::Status(_)
+            | Cmd::Ls(_)
+            | Cmd::Show(_)
+            | Cmd::Plan(_)
+            | Cmd::Log(_)
+            | Cmd::Path(_) => MergeConfig::Committed,
+            Cmd::State(a) if a.action.is_none() => MergeConfig::Committed,
+            Cmd::Tags(a) if a.action.is_none() => MergeConfig::Committed,
+            _ => MergeConfig::Strict,
+        }
     }
 
     /// Commands that do not need `.yman` to exist yet. `guide`,

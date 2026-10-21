@@ -23,13 +23,21 @@ Normative, as-built. Companion documents: [storage.md](storage.md),
    symbolic ref `refs/yman/local`; for *mutating* commands, an unresolved
    sync merge stops the command with exit 3; then `config.toml` must load and
    validate. The merge check comes first so that a merge which conflicted in
-   `config.toml` still exits 3, and `sync` is let through an unloadable
-   config while a merge is pending — `--abort` and `--continue` are how that
-   state ends.
+   `config.toml` still exits 3. While a merge is pending and `config.toml`
+   does not load, `sync` is let through without a config, because `--abort`
+   and `--continue` are how that state ends. The read-only commands (`status`,
+   `ls`, `show`, `plan`, `log`, `path`, and `state` and `tags` without an
+   action) run on the config committed at `HEAD` and print `note: sync merge
+   in progress; using config.toml as committed at HEAD` on stderr. Every other
+   command fails with the load error. A key `config.toml` does not define is
+   ignored and reported once per command as `warning: .yman/config.toml:
+   unknown key <key> ignored` (never under `refresh --quiet`).
 4. **Lazy refresh**, when `yman.refresh` is unset or `lazy`, for every command
    except `init`, `sync`, `refresh`, `status`, `hooks` and `git`. A failure here
    is downgraded to a `warning:` on stderr and never takes the real command
-   down.
+   down. When it fast-forwards, `config.toml` is loaded again, so the command
+   runs on the rules of the history it now stands on; a config that arrived
+   and does not load fails the command.
 5. **Autosync**, after a mutating command made at least one commit, including
    one that then failed part-way (a multi-id verb stopping at a missing id,
    `add --sections` stopping at a bad task), when `yman.autosync` is `push`
@@ -757,7 +765,8 @@ exit 1.
    returned, so a `git fetch` running alongside cannot move them.
 5. No merge base → fatal: the histories are unrelated, and the message spells
    out the re-init recipe.
-6. `base == remote` → nothing to merge. `base == local` → `merge --ff-only`.
+6. `base == remote` → nothing to merge. `base == local` → `merge --ff-only`
+   and loads `config.toml` again.
 7. Otherwise **renumber collisions** (below), then
    `merge --no-commit --no-ff --no-edit --no-verify` with
    `merge.directoryRenames=true`. `m.yml`
@@ -767,8 +776,9 @@ exit 1.
    merge. Conflicts print `note: unmerged files:`, then each file indented by
    two spaces, and exit 3; if yman cannot list or record them, it still exits 3,
    with `merge stopped with conflicts, but yman could not list them: <why>`. A
-   clean merge stays uncommitted while the **rejoin**, the **drop** and the
-   duplicate-id check (all below) run on it, and is then committed with its
+   clean merge stays uncommitted while the merged `config.toml` is loaded and
+   the **rejoin**, the **drop** and the duplicate-id check (all below) run on
+   it; a `config.toml` that does not load stops there like the rest, and is then committed with its
    `-m` subject. Any failure from that point leaves the merge in progress with
    exit 3, and `sync --continue` reruns the repairs and the check.
 8. Push, unless `--no-push`: resolve `LOCAL` once and push that commit,

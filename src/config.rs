@@ -18,6 +18,44 @@ pub struct Config {
     pub priorities: PrioCfg,
     #[serde(default)]
     pub slug: SlugCfg,
+    /// Keys of the file this schema does not define, dotted and sorted.
+    /// Not part of the file: `parse` fills it, `warn_unknown` reports it.
+    #[serde(skip)]
+    pub unknown: Vec<String>,
+}
+
+/// Every key `config.toml` defines: top-level keys, and for a table the
+/// keys allowed inside it.
+const KNOWN_KEYS: [(&str, &[&str]); 5] = [
+    ("version", &[]),
+    ("ids", &["scheme", "random_len"]),
+    (
+        "statuses",
+        &["list", "default", "start", "done", "cancel", "terminal"],
+    ),
+    ("priorities", &["default"]),
+    ("slug", &["max_bytes"]),
+];
+
+/// Keys in `text` that `KNOWN_KEYS` does not list. Empty when `text` is not
+/// TOML at all: the typed parse has already reported that.
+fn unknown_keys(text: &str) -> Vec<String> {
+    let Ok(table) = text.parse::<toml::Table>() else {
+        return Vec::new();
+    };
+    let mut found = Vec::new();
+    for (key, value) in &table {
+        let Some((_, subs)) = KNOWN_KEYS.iter().find(|(k, _)| k == key) else {
+            found.push(key.clone());
+            continue;
+        };
+        if let Some(inner) = value.as_table() {
+            for sub in inner.keys().filter(|s| !subs.contains(&s.as_str())) {
+                found.push(format!("{key}.{sub}"));
+            }
+        }
+    }
+    found
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -122,6 +160,7 @@ impl Config {
             },
             priorities: PrioCfg::default(),
             slug: SlugCfg::default(),
+            unknown: Vec::new(),
         }
     }
 
@@ -372,12 +411,21 @@ impl Config {
     }
 
     pub fn parse(text: &str) -> Result<Config> {
-        let cfg: Config = match toml::from_str(text) {
+        let mut cfg: Config = match toml::from_str(text) {
             Ok(c) => c,
             Err(e) => bail!("invalid .yman/config.toml: {}", first_line(&e.to_string())),
         };
         cfg.validate()?;
+        cfg.unknown = unknown_keys(text);
         Ok(cfg)
+    }
+
+    /// Print `warning: .yman/config.toml: unknown key <k> ignored` for each
+    /// key in `unknown`, so a typo is seen instead of silently doing nothing.
+    pub fn warn_unknown(&self) {
+        for key in &self.unknown {
+            eprintln!("warning: .yman/config.toml: unknown key {key} ignored");
+        }
     }
 
     pub fn load(ydir: &Path) -> Result<Config> {
@@ -869,5 +917,26 @@ mod tests {
         for n in ["done", "cancelled", "wont_fix", "on-hold", "Done2", "f"] {
             assert!(is_status_dir_name(n), "rejected {n}");
         }
+    }
+
+    #[test]
+    fn a_misspelled_key_still_parses_and_is_recorded() {
+        let text = base().replace("[statuses]\n", "[statuses]\nstrat = \"doing\"\n");
+        let cfg = Config::parse(&text).unwrap();
+        assert_eq!(cfg.unknown, ["statuses.strat"]);
+    }
+
+    #[test]
+    fn unknown_top_level_keys_and_tables_are_sorted() {
+        let text = format!("foo = 1\n{}\n[extra]\nx = 1\n", base());
+        let cfg = Config::parse(&text).unwrap();
+        assert_eq!(cfg.unknown, ["extra", "foo"]);
+    }
+
+    #[test]
+    fn a_written_config_has_no_unknown_keys() {
+        assert!(Config::parse(&base()).unwrap().unknown.is_empty());
+        let fresh = Config::new(Scheme::Seq).render();
+        assert!(Config::parse(&fresh).unwrap().unknown.is_empty());
     }
 }

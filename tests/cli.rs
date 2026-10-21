@@ -2189,6 +2189,179 @@ fn a_conflicted_config_toml_keeps_exit_3_and_abort() {
 }
 
 #[test]
+fn a_v2_opt_in_arriving_by_fetch_applies_at_once() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v1_config(&fx.a);
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    fx.v2_config(&fx.a);
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.git(&fx.b, &["fetch", "origin"]);
+
+    fx.yman(&fx.b).args(["done", "1"]).assert().success();
+    let rel = fx.task_rel(&fx.b, "1");
+    assert!(rel.starts_with("done/"), "{rel}");
+}
+
+const CONFIG_AT_HEAD: &str =
+    "note: sync merge in progress; using config.toml as committed at HEAD\n";
+
+/// `conflict_in_config_toml`, with a task and a state summary already in
+/// the shared history, so the readers have something to print.
+fn conflict_in_config_toml_with_a_task(fx: &Fx) {
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Shared task"])
+        .assert()
+        .success();
+    fx.yman(&fx.a)
+        .args(["state", "set", "-m", "now: S7"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    let config = fx.read(&fx.a.join(".yman/config.toml"));
+    fx.set_config(&fx.a, &config.replace("random_len = 4", "random_len = 5"));
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.set_config(&fx.b, &config.replace("random_len = 4", "random_len = 6"));
+
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+}
+
+#[test]
+fn status_reports_a_merge_that_conflicted_in_config_toml() {
+    let fx = Fx::new();
+    conflict_in_config_toml(&fx);
+
+    let out = fx.yman(&fx.b).arg("status").output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert!(
+        stdout(&out).contains("unmerged file(s): config.toml"),
+        "{}",
+        stdout(&out)
+    );
+    assert_eq!(stderr(&out), CONFIG_AT_HEAD);
+
+    let out = fx.yman(&fx.b).args(["status", "--json"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert!(
+        stdout(&out).contains("\"in_progress\":true"),
+        "{}",
+        stdout(&out)
+    );
+    assert!(
+        stdout(&out).contains("\"unmerged\":[\"config.toml\"]"),
+        "{}",
+        stdout(&out)
+    );
+
+    let out = fx.yman(&fx.b).args(["sync", "--abort"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+}
+
+#[test]
+fn readers_work_during_a_config_toml_conflict() {
+    let fx = Fx::new();
+    conflict_in_config_toml_with_a_task(&fx);
+
+    let readers: [(&[&str], &str); 9] = [
+        (&["ls"], "Shared task"),
+        (&["ls", "--json"], "\"title\":\"Shared task\""),
+        (&["show", "1"], "Shared task"),
+        (&["show", "1", "--json"], "\"title\":\"Shared task\""),
+        (&["state"], "now: S7"),
+        (&["plan", "1"], "Shared task"),
+        (&["log"], "yman"),
+        (&["tags"], ""),
+        (&["path", "1"], "shared-task"),
+    ];
+    for (args, want) in readers {
+        let out = fx.yman(&fx.b).args(args).output().unwrap();
+        assert_eq!(out.status.code(), Some(0), "{args:?}: {}", stderr(&out));
+        assert_eq!(stderr(&out), CONFIG_AT_HEAD, "{args:?}");
+        let text = stdout(&out);
+        assert!(text.contains(want), "{args:?}: {text}");
+        assert!(!text.contains("note:"), "{args:?}: {text}");
+        if args.contains(&"--json") {
+            let (open, close) = if args[0] == "ls" {
+                ('[', "]\n")
+            } else {
+                ('{', "}\n")
+            };
+            assert!(text.starts_with(open), "{args:?}: {text}");
+            assert!(text.ends_with(close), "{args:?}: {text}");
+        }
+    }
+
+    // A command that writes still stops at the merge check.
+    let out = fx.yman(&fx.b).args(["add", "Nope"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert_eq!(stderr(&out), MERGE_PENDING);
+}
+
+#[test]
+fn an_unknown_config_key_is_warned() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let text = fx.read(&fx.a.join(".yman/config.toml"));
+    fx.set_config(&fx.a, &text.replace("start = ", "strat = "));
+
+    let out = fx.yman(&fx.a).arg("ls").output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(
+        stderr(&out),
+        "warning: .yman/config.toml: unknown key statuses.strat ignored\n"
+    );
+    let out = fx
+        .yman(&fx.a)
+        .args(["refresh", "--quiet"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stderr(&out), "");
+}
+
+#[test]
+fn a_clean_sync_merge_that_breaks_config_toml_stops_with_exit_3() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    fx.yman(&fx.b).args(["add", "B local"]).assert().success();
+    let text = fx.read(&fx.a.join(".yman/config.toml"));
+    fx.set_config(&fx.a, &text.replace("version = 2", "version = 3"));
+    fx.git(
+        &fx.a,
+        &["push", "origin", "refs/yman/local:refs/tasks/main"],
+    );
+
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("invalid .yman/config.toml: unsupported version 3"),
+        "{}",
+        stderr(&out)
+    );
+    assert!(
+        stderr(&out).contains("the merge is still in progress"),
+        "{}",
+        stderr(&out)
+    );
+    let (ok, _, _) = fx.git_try(
+        &fx.b.join(".yman"),
+        &["rev-parse", "-q", "--verify", "MERGE_HEAD"],
+    );
+    assert!(ok, "MERGE_HEAD is gone");
+
+    let out = fx.yman(&fx.b).args(["sync", "--abort"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    fx.yman(&fx.b).arg("ls").assert().success();
+}
+
+#[test]
 fn every_mutating_command_exits_3_during_a_merge() {
     let fx = Fx::new();
     conflict_in_config_toml(&fx);

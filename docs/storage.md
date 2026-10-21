@@ -557,6 +557,11 @@ Validated on every load; each failure is reported as
 
 `[priorities]` and `[slug]` may be omitted entirely.
 
+A key outside this file's schema is ignored and reported as
+`warning: .yman/config.toml: unknown key <key> ignored`, so a typo such as
+`strat` for `start` is visible instead of silently restoring the positional
+default.
+
 ### Status roles
 
 Three roles name the statuses the verbs move to, and one list says which

@@ -9,6 +9,17 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- The first command after a `config.toml` change arrives through `git pull` or
+  `git fetch` (the v1 to v2 opt-in, for one) now uses the new config, so
+  `yman done` archives under `done/` instead of leaving the task at top level.
+- `yman status` and the other read-only commands (`ls`, `show`, `plan`, `log`,
+  `path`, bare `state` and `tags`) work during a sync merge that conflicted in
+  `config.toml`, on the committed config, instead of failing with
+  `invalid .yman/config.toml`.
+- A key `config.toml` does not define (a typo such as `strat` for `start`) is
+  now reported on stderr instead of being ignored.
+- A clean `yman sync` merge whose merged `config.toml` does not load now stops
+  with exit 3 instead of committing and pushing it.
 - `yman init` no longer rewrites a `.git/info/exclude` it cannot decode as UTF-8
   down to the single line `.yman/`; it appends and keeps every other byte.
 - A `yman init` that failed after creating `refs/yman/local` (`git worktree

@@ -110,14 +110,20 @@ fn run(cli: Cli) -> anyhow::Result<()> {
     };
 
     if !cli.cmd.skips_preflight() {
-        ctx.preflight(cli.cmd.is_mutating(), cli.cmd.settles_merge())?;
+        ctx.preflight(cli.cmd.is_mutating(), cli.cmd.merge_config())?;
     }
 
     if !cli.cmd.skips_lazy_refresh() {
         // A failing refresh must never take the actual command down with it.
-        if let Err(err) = refresh::lazy(&ctx, true) {
-            eprintln!("warning: refresh failed: {err:#}");
+        match refresh::lazy(&ctx, true) {
+            // History moved: its config.toml may have too.
+            Ok(r) if r.applied > 0 => ctx.reload_config()?,
+            Ok(_) => {}
+            Err(err) => eprintln!("warning: refresh failed: {err:#}"),
         }
+    }
+    if !quiet_refresh && let Some(cfg) = &ctx.config {
+        cfg.warn_unknown();
     }
 
     let mutating = cli.cmd.is_mutating();
