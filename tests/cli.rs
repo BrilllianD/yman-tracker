@@ -1621,6 +1621,101 @@ fn a_removed_task_does_not_leave_its_new_files_behind() {
     }
 }
 
+/// Under `--continue` the drop runs on a tree the user has touched. A
+/// modify/delete conflict on `d.md` that the user settled by keeping the file
+/// must not be undone by the drop: the command stops with exit 3 and the
+/// kept file is still there.
+#[test]
+fn continue_does_not_drop_a_d_md_the_user_kept() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["comment", "1", "-m", "first"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    fx.yman(&fx.b).args(["rm", "-f", "1"]).assert().success();
+    fx.yman(&fx.b).arg("sync").assert().success();
+
+    // d.md edited by hand on A: m.yml stays put, so only d.md conflicts.
+    let ydir = fx.a.join(".yman");
+    let d = "5.1.fix-login/d.md";
+    fx.write(
+        &ydir.join(d),
+        "## 2026-10-05T10:00:00Z — Test A\n\nkeep me\n\n",
+    );
+    let out = fx.yman(&fx.a).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    fx.yman(&fx.a).args(["git", "add", d]).assert().success();
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains(
+            "error: 5.1.fix-login holds file(s) that are in no commit or that you staged \
+             by hand; delete 5.1.fix-login to let the removal of task 1 win, then: \
+             yman sync --continue  (or: yman sync --abort)"
+        ),
+        "{}",
+        stderr(&out)
+    );
+    assert!(fx.read(&ydir.join(d)).contains("keep me"));
+}
+
+/// A remnant under `--continue` that holds only the other side's plain new
+/// file is still dropped, as it is in a clean merge.
+#[test]
+fn continue_still_drops_a_plain_remnant() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).args(["add", "Other"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    fx.yman(&fx.b).args(["rm", "-f", "1"]).assert().success();
+    let bin = "5.2.other/f/log.bin";
+    for (clone, bytes) in [(&fx.a, "from a\0"), (&fx.b, "from b\0")] {
+        let ydir = clone.join(".yman");
+        fx.write(&ydir.join(bin), bytes);
+        fx.git(&ydir, &["add", "--", bin]);
+        fx.git(&ydir, &["commit", "-q", "-m", "attach"]);
+    }
+    fx.write(
+        &fx.a.join(".yman/5.1.fix-login/d.md"),
+        "## 2026-10-05T10:00:00Z — Test A\n\nhi\n\n",
+    );
+    fx.yman(&fx.b).arg("sync").assert().success();
+    let out = fx.yman(&fx.a).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    fx.yman(&fx.a)
+        .args(["git", "checkout", "--ours", "--", bin])
+        .assert()
+        .success();
+    fx.yman(&fx.a).args(["git", "add", bin]).assert().success();
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains(
+            "note: dropped 5.1.fix-login: task 1 was removed on one side; \
+             1 file(s) added on the other are gone"
+        ),
+        "{}",
+        stderr(&out)
+    );
+    assert!(!fx.a.join(".yman/5.1.fix-login").exists());
+}
+
 /// The rejoin and the remnant drop are staged into the merge commit, not
 /// committed on top of it, so one sync does both and still pushes.
 #[test]

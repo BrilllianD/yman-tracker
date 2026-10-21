@@ -72,22 +72,27 @@ fn resume(ctx: &mut Context, no_push: bool) -> Result<()> {
     // Staged into the merge commit itself, and before the checks, which
     // would otherwise read the left-behind folder as a duplicate id, or a
     // removed task's remnant as an unloadable task.
-    let base = ctx.wt.merge_base("HEAD", "MERGE_HEAD")?;
+    let base = ctx
+        .wt
+        .merge_base("HEAD", "MERGE_HEAD")
+        .map_err(still_pending)?;
     repair_merge(ctx, base.as_deref()).map_err(still_pending)?;
-    check_resolved_tasks(ctx)?;
+    check_resolved_tasks(ctx).map_err(still_pending)?;
 
     // What the merge brings in, counted before the commit makes it ours.
+    let pulled = ctx
+        .wt
+        .out(&["rev-list", "--count", "HEAD..MERGE_HEAD"])
+        .map_err(still_pending)?;
     let mut totals = Totals {
-        pulled: ctx
-            .wt
-            .out(&["rev-list", "--count", "HEAD..MERGE_HEAD"])?
-            .trim()
-            .parse()
-            .unwrap_or(0),
+        pulled: pulled.trim().parse().unwrap_or(0),
         ..Totals::default()
     };
-    ctx.wt.ok(&["add", "-A"])?;
-    ctx.wt.commit_merge()?;
+    ctx.wt
+        .ok(&["add", "-A"])
+        .map(|_| ())
+        .and_then(|()| ctx.wt.commit_merge())
+        .map_err(still_pending)?;
     forget_marked(ctx);
 
     if !no_push {
@@ -633,8 +638,16 @@ fn drop_deleted_remnants(ctx: &Context, base: &str, ours: &str, theirs: &str) ->
         if !base_ids.contains(&id) || (our_ids.contains(&id) && their_ids.contains(&id)) {
             continue;
         }
-        let files = ctx.wt.out(&["ls-files", "--", &rel])?;
+        let files = ctx.wt.out(&["ls-files", "-s", "--", &rel])?;
         let n = files.lines().filter(|l| !l.trim().is_empty()).count();
+        if n > 0 && !only_merged_in(ctx, &rel, &files, [base, ours, theirs])? {
+            return Err(MergePending::new(format!(
+                "{rel} holds file(s) that are in no commit or that you staged by hand; \
+                 delete {rel} to let the removal of task {id} win, then: \
+                 yman sync --continue  (or: yman sync --abort)"
+            ))
+            .into());
+        }
         // `yman rm` leaves ignored and untracked files behind (`*.swp`, a note
         // dropped in by hand), so the folder can outlive the task with nothing
         // tracked in it. `git rm` would fail on that pathspec, and there is
@@ -658,6 +671,35 @@ fn drop_deleted_remnants(ctx: &Context, base: &str, ours: &str, theirs: &str) ->
         dropped += 1;
     }
     Ok(dropped)
+}
+
+/// Is everything tracked under `rel` something the merge itself staged, so
+/// that `git rm -f` loses nothing? That is a file the base never had (not a
+/// modify/delete conflict the user settled by keeping it), whose index entry
+/// is exactly one side's blob (not hand-resolved content) and whose worktree
+/// copy matches the index (no edit in no commit). `staged` is the
+/// `ls-files -s` listing of `rel`.
+fn only_merged_in(ctx: &Context, rel: &str, staged: &str, revs: [&str; 3]) -> Result<bool> {
+    let [base, ours, theirs] = revs;
+    if !ctx.wt.run(&["diff", "--quiet", "--", rel])?.ok() {
+        return Ok(false);
+    }
+    for line in staged.lines().filter(|l| !l.trim().is_empty()) {
+        let Some((meta, path)) = line.split_once('\t') else {
+            return Ok(false);
+        };
+        let mut f = meta.split_whitespace();
+        let (_mode, oid, stage) = (f.next(), f.next().unwrap_or(""), f.next());
+        if stage != Some("0") || ctx.wt.rev_parse(&format!("{base}:{path}"))?.is_some() {
+            return Ok(false);
+        }
+        let ours_oid = ctx.wt.rev_parse(&format!("{ours}:{path}"))?;
+        let theirs_oid = ctx.wt.rev_parse(&format!("{theirs}:{path}"))?;
+        if ours_oid.as_deref() != Some(oid) && theirs_oid.as_deref() != Some(oid) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// Every task id in `rev`'s tree, read from the folder names alone.

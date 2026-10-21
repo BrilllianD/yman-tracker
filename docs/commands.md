@@ -811,7 +811,12 @@ listed as broken. Untracked and ignored files stay on disk, and with them the
 folder; one holding nothing tracked at all — what `rm` leaves behind around a
 `*.swp` — has nothing to remove from git and is passed over without a note.
 The parents compared are the merge commit's own. The removal goes into the
-merge commit, in a clean merge and under `--continue` alike.
+merge commit, in a clean merge and under `--continue` alike. Under
+`--continue` the drop never discards what the user touched: a folder whose
+tracked file the merge base had (a modify/delete conflict settled by keeping
+it), whose staged version is neither side's, or whose file differs from the
+index, is not dropped; the sync stops with exit 3 and
+`<rel> holds file(s) that are in no commit or that you staged by hand; delete <rel> to let the removal of task <id> win, then: yman sync --continue  (or: yman sync --abort)`.
 
 ### `--continue` and `--abort`
 

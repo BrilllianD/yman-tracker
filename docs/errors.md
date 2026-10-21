@@ -49,7 +49,13 @@ merge (clean or resumed) that would leave two folders for one id reports
 `duplicate task id <id>: <relA>, <relB>; delete one folder, then: yman sync --continue`,
 and one whose rejoin finds the same file in both folders reports
 `task <id> is split: <old> holds file(s) <live> already has; keep one copy of each in <live>, delete <old>, then: yman sync --continue  (or: yman sync --abort)`.
-Any other failure after a clean merge started (a `git mv` that fails) ends
+A removed task's leftover folder is dropped only when everything tracked in
+it came from the merge itself; one holding a file the merge base had (a
+modify/delete conflict you settled by keeping it), a staged version that is
+neither side's, or an edit in no commit reports
+`<rel> holds file(s) that are in no commit or that you staged by hand; delete <rel> to let the removal of task <id> win, then: yman sync --continue  (or: yman sync --abort)`.
+Any other failure after a merge started, clean or resumed (a `git mv` that
+fails, a `git commit` that fails), ends
 `; the merge is still in progress; fix that, then: yman sync --continue  (or: yman sync --abort)`.
 
 Code 4 is only `task <id> not found`. A folder that exists but is broken or
@@ -184,7 +190,7 @@ Never fatal, always stderr:
 | `warning: origin already points at <url>; --remote ignored` | `init --remote <url>` where origin already exists with a different URL; the same URL is accepted silently |
 | `warning: remote already had tasks; adopted remote state` | two clones initialized the tracker at once |
 | `warning: not published to origin (<why>); run: yman sync` | a fresh `init` created the tracker but its push failed (`push failed`, after git's stderr), lost the race three times (`origin keeps moving`) or lost it and then failed the refetch (`fetch failed`, after git's stderr); hooks and the summary still follow, exit 0 |
-| `warning: refs/tasks/main disappeared from origin; will recreate it` | the ref was deleted server-side (`sync`, or `init` with no local tracker) |
+| `warning: refs/tasks/main disappeared from origin; will recreate it` | the ref was deleted server-side (`sync`, or `init`, with or without a local tracker) |
 | `warning: <name> is N MiB; git is not great at large binaries` | attaching a file over 5 MiB |
 | `warning: installing into core.hooksPath=<p>` | hooks redirected away from `.git/hooks` (a whitespace-only value included, untrimmed); `<p>` is the directory as git resolves it (`~/` expanded, a relative value joined onto the toplevel) |
 | `warning: cannot read <path>: <why>` | `hooks status` or `hooks remove` met a hook it cannot read; it reports the hook as `unreadable` and leaves it alone |

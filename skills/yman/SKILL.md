@@ -263,8 +263,19 @@ yman sync --continue         # or: yman sync --abort
 
 `sync` or `--continue` can also stop with
 `duplicate task id <id>: <a>, <b>; delete one folder, then: yman sync --continue`
-(still exit 3): both sides closed the same task, to two different statuses.
-There are no markers to remove; delete the folder you do not want and continue.
+(still exit 3): two folders ended up with one id, for example both sides closed
+the same task to two different statuses. There are no markers to remove; delete
+the folder you do not want and continue.
+
+Any other failure once the merge has started ends
+`<cause>; the merge is still in progress; fix that, then: yman sync --continue
+(or: yman sync --abort)`, also exit 3 with no unmerged files: read the cause
+first, fix it, then continue or abort.
+
+`<folder> holds file(s) that are in no commit or that you staged by hand; delete
+<folder> to let the removal of task <id> win, …`: one side removed the task, and
+the other side's files in its folder are ones you edited or kept. Delete the
+folder to let the removal win, or abort.
 
 It can also stop with `task <id> is split: <old> holds file(s) <live> already
 has; keep one copy of each in <live>, delete <old>, …`: one side moved the task
