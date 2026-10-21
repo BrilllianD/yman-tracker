@@ -17,7 +17,8 @@ under [Releasing](README.md#releasing) in the README.
 - `yman init --hooks` with a hook yman does not own (husky, lefthook) now
   finishes with exit 0 and its summary, reporting the hook on stderr.
 - Commands run in a linked worktree of the project (`git worktree add`) now
-  use the main clone's `.yman` instead of asking for `yman init`, and yman's
+  use the main clone's `.yman` (or their own, when only they have one)
+  instead of asking for `yman init`, and yman's
   hooks stay silent there.
 - `yman refresh --quiet`, which the hooks run, no longer prints an error in a
   repository without a tracker (for example under a global `core.hooksPath`).

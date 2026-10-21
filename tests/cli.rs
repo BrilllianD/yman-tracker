@@ -2812,7 +2812,8 @@ fn init_names_an_info_exclude_it_cannot_write() {
     std::fs::write(&path, "*.log\n").unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).unwrap();
     if std::fs::OpenOptions::new().append(true).open(&path).is_ok() {
-        return; // root ignores the mode; nothing to prove
+        skip("running as root, read-only files are writable");
+        return;
     }
     let out = fx.yman(&fx.a).arg("init").output().unwrap();
     assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));

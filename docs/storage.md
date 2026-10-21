@@ -7,7 +7,7 @@ Companion documents: [commands.md](commands.md), [errors.md](errors.md).
 
 | Term | Meaning | Source |
 |---|---|---|
-| `ROOT` | main repo toplevel | `git rev-parse --path-format=absolute --show-toplevel --git-common-dir --git-dir`, first line; from a linked worktree, whose `--git-dir` differs from `--git-common-dir`, the parent of an `.yman` toplevel that is ours, else the first record of `git worktree list --porcelain -z`, unless only the current worktree holds our `.yman` |
+| `ROOT` | main repo toplevel | `git rev-parse --path-format=absolute --show-toplevel --git-common-dir --git-dir`, first line; from a linked worktree (`--git-dir` differs from `--git-common-dir`) the parent of an `.yman` toplevel that is ours, else the first record of `git worktree list --porcelain -z` (the main worktree), except that the current toplevel stays `ROOT` when the main repository is bare or when only the current worktree holds our `.yman` |
 | `COMMON` | main repo common git dir, absolute | the same call, second line |
 | `YDIR` | `ROOT/.yman` | |
 | `WT_GITDIR` | private git dir of the `.yman` worktree | read from `YDIR/.git` |
@@ -69,13 +69,14 @@ other than ours holds the ref.
 
 Discovery runs one `rev-parse`. In the main worktree its `--show-toplevel`
 is `ROOT`. In a linked worktree of the project, whose `--git-dir` differs from
-`--git-common-dir`, `ROOT` is the first record of `git worktree list
---porcelain -z` (one more process), so commands there use the main clone's
-`.yman` and `init` takes the repair path rather than nesting a second
-worktree. Inside `.yman` itself the toplevel is `.yman`; when it is named
-`.yman` and `our_worktree_gitdir` accepts it, `ROOT` is its parent, read off
-disk. A bare main repository has no toplevel, so there the current toplevel
-stands (or the `.yman` parent just described).
+`--git-common-dir`, `ROOT` is the main worktree: first the parent of the
+toplevel when that is an `.yman` accepted by `our_worktree_gitdir`, read off
+disk at no process cost, otherwise the first record of `git worktree list
+--porcelain -z` (one more process). Commands there use the main clone's
+`.yman`, and `init` takes the repair path rather than nesting a second
+worktree. Two exceptions keep the current toplevel as `ROOT`: the main
+repository is bare (it has no toplevel), or only the current worktree holds
+our `.yman` (a tracker v0.9.0 created there) while the main checkout has none.
 
 ### Refs are read from disk, with `git` as the fallback
 
