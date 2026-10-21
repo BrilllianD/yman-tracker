@@ -110,20 +110,25 @@ fn create(
 ) -> Result<()> {
     let id = ids::new_id(ctx, taken)?;
     taken.insert(id.clone());
-    let folder = FolderName {
-        priority: spec.priority,
-        id: id.clone(),
-        slug: task::slugify(&title, ctx.config().slug.max_bytes),
-    };
+    let folder = FolderName::for_title(spec.priority, &id, &title, ctx.config().slug.max_bytes);
     // A task added straight into a closed status is born in its archive
     // directory rather than being created and immediately moved.
     let parent = ctx.config().archive_dir(&spec.status).map(str::to_string);
-    let dir = match &parent {
-        Some(p) => ctx.ydir.join(p).join(folder.to_string()),
-        None => ctx.ydir.join(folder.to_string()),
+    let mut meta = Meta::new(spec.status.clone(), spec.tags.clone());
+    meta.assignee = spec.assignee.clone();
+    meta.links = spec.links.clone();
+    meta.related = spec.related.clone();
+    let mut t = Task {
+        folder,
+        parent,
+        ydir: ctx.ydir.clone(),
+        title,
+        body,
+        meta,
     };
+    let dir = t.dir();
     if dir.exists() {
-        bail!("folder already exists: {}", folder);
+        bail!("folder already exists: {}", t.folder);
     }
 
     // The archive directory may not exist yet. Note the outermost directory
@@ -138,24 +143,12 @@ fn create(
     }
     let created = created.to_path_buf();
     std::fs::create_dir_all(&dir)?;
-    let mut meta = Meta::new(spec.status.clone(), spec.tags.clone());
-    meta.assignee = spec.assignee.clone();
-    meta.links = spec.links.clone();
-    meta.related = spec.related.clone();
-    let mut t = Task {
-        folder,
-        parent,
-        dir,
-        title,
-        body,
-        meta,
-    };
     t.write_md()?;
     t.write_meta()?;
 
     if spec.edit {
-        let edited = run_editor(&t.dir.join(task::MD_FILE), "task not added").and_then(|()| {
-            task::load(&ctx.ydir, &t.dir)
+        let edited = run_editor(&t.dir().join(task::MD_FILE), "task not added").and_then(|()| {
+            task::load(&ctx.ydir, &t.dir())
                 .and_then(|edited| task::clean_title(&edited.title).map(|_| edited))
                 .map_err(|e| anyhow!("t.md invalid after edit: {e:#}; task not added"))
         });
@@ -176,14 +169,9 @@ fn create(
         // is a plain rename rather than a `git mv`.
         let slug = task::slugify(&t.title, ctx.config().slug.max_bytes);
         if slug != t.folder.slug {
-            let name = format!("{}.{}.{}", t.folder.priority, t.folder.id, slug);
-            let new_dir = match &t.parent {
-                Some(p) => ctx.ydir.join(p).join(&name),
-                None => ctx.ydir.join(&name),
-            };
-            std::fs::rename(&t.dir, &new_dir)?;
+            let old_rel = t.rel();
             t.folder.slug = slug;
-            t.dir = new_dir;
+            t.relocate(None, &old_rel)?;
         }
     }
 
@@ -204,14 +192,15 @@ fn create(
 /// Take back a task folder `add` made but did not commit, and the archive
 /// directories made for it.
 fn discard(t: &Task, created: &Path) {
-    if let Err(rm) = std::fs::remove_dir_all(&t.dir) {
+    let dir = t.dir();
+    if let Err(rm) = std::fs::remove_dir_all(&dir) {
         eprintln!("warning: cannot remove {}: {rm}", t.rel());
     }
     // An archive directory made for this task goes too. Git ignores an empty
     // directory, so `.yman` would read clean while it stayed on disk.
     // `remove_dir` refuses a non-empty one, which leaves anything another
     // process put there.
-    let mut up = t.dir.parent();
+    let mut up = dir.parent();
     while let Some(d) = up {
         if !d.starts_with(created) || std::fs::remove_dir(d).is_err() {
             break;

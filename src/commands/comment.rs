@@ -107,7 +107,7 @@ pub fn run(ctx: &mut Context, a: CommentArgs) -> Result<()> {
 
     let author = super::actor(ctx)?;
     discussion::append_entry(
-        &t.dir.join(task::DISCUSSION_FILE),
+        &t.dir().join(task::DISCUSSION_FILE),
         task::now(),
         &author,
         text.trim(),

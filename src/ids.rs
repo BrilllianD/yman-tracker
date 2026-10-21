@@ -66,6 +66,28 @@ pub fn ever_assigned(ctx: &Context, refs: &[&str]) -> Result<HashSet<String>> {
     assigned_in(ctx, &present)
 }
 
+/// Start of the commit subject a sync collision renumber writes.
+pub const RENUMBER_PREFIX: &str = "yman: renumber ";
+
+/// `[("2","3"), ("7","8")]` -> `yman: renumber 2->3, 7->8 (sync collision)`
+pub fn renumber_subject(moves: &[(String, String)]) -> String {
+    let pairs: Vec<String> = moves.iter().map(|(o, n)| format!("{o}->{n}")).collect();
+    format!("{RENUMBER_PREFIX}{} (sync collision)", pairs.join(", "))
+}
+
+/// The inverse of `renumber_subject`; any subject that does not start with
+/// `RENUMBER_PREFIX` gives no pairs.
+pub fn renumber_pairs(subject: &str) -> Vec<(String, String)> {
+    let Some(rest) = subject.strip_prefix(RENUMBER_PREFIX) else {
+        return Vec::new();
+    };
+    let rest = rest.strip_suffix(" (sync collision)").unwrap_or(rest);
+    rest.split(", ")
+        .filter_map(|p| p.split_once("->"))
+        .map(|(old, new)| (old.to_string(), new.to_string()))
+        .collect()
+}
+
 /// `ever_assigned` for revisions known to exist. A pinned sha must come
 /// through here: `Context::resolve_ref` reads a bare sha as a missing ref.
 pub fn assigned_in(ctx: &Context, revs: &[&str]) -> Result<HashSet<String>> {
@@ -341,5 +363,32 @@ mod tests {
             err,
             "author prefix \"v.i\" from yman.author must be letters, digits, \"_\" or \"-\""
         );
+    }
+
+    #[test]
+    fn renumber_subject_round_trips() {
+        let moves = vec![
+            ("2".to_string(), "3".to_string()),
+            ("iv-7".to_string(), "iv-8".to_string()),
+        ];
+        assert_eq!(
+            renumber_subject(&moves),
+            "yman: renumber 2->3, iv-7->iv-8 (sync collision)"
+        );
+        assert_eq!(renumber_pairs(&renumber_subject(&moves)), moves);
+        let one = vec![("2".to_string(), "3".to_string())];
+        assert_eq!(renumber_pairs(&renumber_subject(&one)), one);
+    }
+
+    #[test]
+    fn parses_renumber_subjects() {
+        assert_eq!(
+            renumber_pairs("yman: renumber 2->3, iv-7->iv-8 (sync collision)"),
+            vec![
+                ("2".to_string(), "3".to_string()),
+                ("iv-7".to_string(), "iv-8".to_string())
+            ]
+        );
+        assert!(renumber_pairs("task(2): set title").is_empty());
     }
 }

@@ -4126,6 +4126,24 @@ fn visual_wins_over_editor() {
 }
 
 #[test]
+fn add_with_editor_retitles_inside_the_archive_dir() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v2_config(&fx.a);
+
+    let editor = fx.editor_writing("ed-retitle-archive", "# Real title\n");
+    let out = fx
+        .yman(&fx.a)
+        .env("EDITOR", &editor)
+        .args(["add", "Placeholder", "-s", "done", "-e"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(fx.task_rel(&fx.a, "1"), "done/5.1.real-title");
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["status", "--porcelain"]), "");
+}
+
+#[test]
 fn add_with_editor_uses_the_edited_title() {
     let fx = Fx::new();
     fx.yman(&fx.a).arg("init").assert().success();

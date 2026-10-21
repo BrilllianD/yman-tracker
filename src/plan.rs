@@ -198,7 +198,7 @@ mod tests {
         Task {
             folder: FolderName::parse(&name).unwrap(),
             parent: None,
-            dir: PathBuf::from("/tmp/.yman").join(&name),
+            ydir: PathBuf::from("/tmp/.yman"),
             title: format!("Task {id}"),
             body: String::new(),
             meta,

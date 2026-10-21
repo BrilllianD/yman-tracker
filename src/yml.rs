@@ -752,7 +752,7 @@ fn attachments_value(rest: &str, lines: &[&str], i: &mut usize) -> Result<Vec<At
         // `f/<name>` and every reader locates the file by `name`. Refusing a
         // mismatch would turn a cosmetic hand edit into a broken task.
         out.push(Attachment {
-            path: format!("{}/{}", crate::task::FILES_DIR, name),
+            path: crate::task::attachment_rel(&name),
             name,
             added: timestamp(&added, "added")?,
             by: get("by").unwrap_or_default(),

@@ -53,12 +53,12 @@ pub fn run_editor(path: &Path, aftermath: &str) -> Result<()> {
 
 pub fn run(ctx: &mut Context, id: &str) -> Result<()> {
     let before = task::find(&ctx.ydir, id)?;
-    open_editor(&before.dir.join(task::MD_FILE))?;
+    open_editor(&before.dir().join(task::MD_FILE))?;
 
     // A refused title takes the same path as an unparsable file: the text
     // stays on disk for the user to fix, nothing is committed.
     let loaded =
-        task::load(&ctx.ydir, &before.dir).and_then(|t| task::clean_title(&t.title).map(|_| t));
+        task::load(&ctx.ydir, &before.dir()).and_then(|t| task::clean_title(&t.title).map(|_| t));
     let mut t = loaded.map_err(|e| {
         anyhow::anyhow!("t.md invalid after edit: {e:#}; fix the file then run: yman edit {id}")
     })?;
@@ -89,10 +89,6 @@ pub fn rename_for_title(ctx: &Context, t: &mut Task) -> Result<()> {
     }
     let old = t.rel();
     t.folder.slug = slug;
-    // `rel`, not the bare folder: a closed task lives under its status
-    // directory and must stay there.
-    let new = t.rel();
-    ctx.wt.ok(&["mv", "--", &old, &new])?;
-    t.dir = ctx.ydir.join(&new);
+    t.relocate(Some(&ctx.wt), &old)?;
     Ok(())
 }

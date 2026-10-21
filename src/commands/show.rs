@@ -12,7 +12,7 @@ pub fn run(ctx: &mut Context, a: ShowArgs) -> Result<()> {
     // Both output forms trim the discussion the same way: `-n` keeps the last
     // N entries in time order, and `total` is what the file held before
     // trimming.
-    let dpath = t.dir.join(task::DISCUSSION_FILE);
+    let dpath = t.dir().join(task::DISCUSSION_FILE);
     let text = discussion::read_for_display(&dpath, &t.rel());
     let mut entries = discussion::sort_by_time(discussion::parse(&text));
     let total = entries.len();
@@ -83,7 +83,7 @@ fn print_text(
     if !related_by.is_empty() {
         println!("related by: {}", related_by.join(", "));
     }
-    println!("folder:   {}", ctx.display_path(&t.dir));
+    println!("folder:   {}", ctx.display_path(&t.dir()));
 
     let body = t.body.trim_matches('\n');
     if !body.is_empty() {
