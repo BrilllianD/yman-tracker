@@ -357,8 +357,10 @@ related:
   their key are all accepted. A flow sequence may be followed by a comment
   (`tags: [a, b]  # note`), and folded blocks fold as YAML does: a single
   line break becomes a space, a blank line becomes one newline, and lines
-  indented further keep their breaks. An explicit block indentation indicator
-  larger than the text's indentation (`|3` over two spaces) is a parse error.
+  indented further keep their breaks. One difference from libyaml: a
+  whitespace-only line is read as a blank line even when it has more spaces
+  than the block indent (libyaml keeps it as more-indented content). An
+  explicit block indentation indicator larger than the text's indentation (`|3` over two spaces) is a parse error.
   A key repeated at
   the top level or inside an `attachments` item keeps its **last** occurrence,
   which is the half of a conflict a person usually means to keep. An

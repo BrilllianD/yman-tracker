@@ -593,9 +593,21 @@ fn flow_items(rest: &str) -> Result<Option<Vec<String>>> {
     let b = body.as_bytes();
     let mut k = 0;
     let mut close = None;
+    // A quote opens a quoted scalar only at an item's first non-space byte;
+    // mid-word (`it's`) it is a plain character.
+    let mut item_start = true;
     while k < b.len() {
+        let at_start = std::mem::replace(&mut item_start, false);
         match b[k] {
-            q @ (b'\'' | b'"') => {
+            b' ' | b'\t' => {
+                item_start = at_start;
+                k += 1;
+            }
+            b',' => {
+                item_start = true;
+                k += 1;
+            }
+            q @ (b'\'' | b'"') if at_start => {
                 let inner = &body[k + 1..];
                 match closing_quote(inner, q as char) {
                     Some(end) => k += end + 2,
@@ -1226,6 +1238,10 @@ updated: 2026-09-16T10:00:00Z
         assert_eq!(m.tags, ["a #b"]);
         let m = parse(&with_stamps("attachments: [] # x")).unwrap();
         assert!(m.attachments.is_empty());
+        let m = parse(&with_stamps("tags: [it's, b]")).unwrap();
+        assert_eq!(m.tags, ["it's", "b"]);
+        let m = parse(&with_stamps("tags: [a\"b, 'c']")).unwrap();
+        assert_eq!(m.tags, ["a\"b", "c"]);
         let err = parse(&with_stamps("tags: [a, b] x")).unwrap_err();
         assert_eq!(
             err.to_string(),

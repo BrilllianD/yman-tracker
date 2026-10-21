@@ -585,10 +585,11 @@ taken from the source, must also be portable: no `:` `*` `?` `"` `<` `>` `|`
 or control character, no trailing `.` or space, not empty, not a reserved
 device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`, any
 case, with or without an extension) — the names a
-Windows checkout cannot hold. Names compare ignoring case throughout, in the `m.yml` merge driver too, so two clones attaching one name in two cases conflict on `sync` (exit 3), since
-`a.png` and `A.png` are one file on macOS and Windows. Two sources that would
-land under the same name are refused with `attachment "<name>" given more than
-once`, `--force` or not. Every source is checked before any is copied, so a
+Windows checkout cannot hold. Names compare ignoring case throughout (`a.png`
+and `A.png` are one file on macOS and Windows), in the `m.yml` merge driver
+too, so two clones attaching one name in two cases conflict on `sync`
+(exit 3). Two sources that would land under the same name are refused with
+`attachment "<name>" given more than once`, `--force` or not. Every source is checked before any is copied, so a
 refusal leaves nothing behind: no file under `f/`, no `m.yml` entry, no
 commit. A copy that fails anyway (a full disk) is rolled back: files already
 copied are removed, files `--force` was replacing are restored, and `m.yml`,

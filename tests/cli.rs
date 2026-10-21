@@ -577,10 +577,11 @@ fn detach_refuses_an_attachment_name_that_escapes_f() {
         .args(["attach", "1", src.to_str().unwrap()])
         .assert()
         .success();
-    let meta = fx.a.join(".yman/5.1.fix-login/m.yml");
+    let dir = fx.task_dir(&fx.a, "1");
+    let meta = dir.join("m.yml");
     let text = std::fs::read_to_string(&meta).unwrap();
     assert!(text.contains("name: a.png"), "{text}");
-    std::fs::write(&meta, text.replace("name: a.png", "name: ../t.md")).unwrap();
+    fx.write(&meta, &text.replace("name: a.png", "name: ../t.md"));
 
     let out = fx
         .yman(&fx.a)
@@ -594,7 +595,7 @@ fn detach_refuses_an_attachment_name_that_escapes_f() {
         "{}",
         stderr(&out)
     );
-    assert!(fx.a.join(".yman/5.1.fix-login/t.md").exists());
+    assert!(dir.join("t.md").exists());
     let shown = stdout(&fx.yman(&fx.a).args(["show", "1"]).output().unwrap());
     assert!(
         shown.contains("../t.md") && shown.contains("(missing)"),
