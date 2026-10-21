@@ -208,6 +208,7 @@ Never fatal, always stderr:
 | `warning: git config yman.autosync "<v>" is not off or push; using off` | `yman.autosync` holds another value (`Push` too); it acts as `off`; from `status` and after every mutating command |
 | `warning: merge driver merge.ymanmeta.driver is not set; run: yman init` | `yman status` found no merge driver in this clone's git config |
 | `warning: merge driver merge.ymanmeta.driver runs <program>, which does not exist; run: yman init` | `yman status` found a merge driver whose program is missing (a package upgrade moved the binary) |
+| `note: hook <name> carries the yman marker but was edited; delete it by hand: <path>` | `hooks remove` met a marked hook that differs from the script yman writes; it prints `hook <name>: edited, left alone` and exits 0 |
 | `warning: yman is not on PATH, so the installed hooks do nothing` | `hooks status`, `hooks install` or `status` with hooks installed and no executable `yman` on `PATH` |
 | `warning: refresh failed: <why>` | the lazy refresh before a command failed; the command still runs (a refresh that succeeded but brought a `config.toml` that does not load fails the command with exit 1 instead) |
 | `warning: origin has new task commits; run: yman sync` | `yman.autosync = push` and the push after a change was rejected; nothing is merged, the change stays committed |

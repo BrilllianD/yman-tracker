@@ -734,6 +734,13 @@ command -v yman >/dev/null 2>&1 && yman refresh --quiet
 exit 0
 ```
 
+A hook without the marker that already runs `yman refresh` (a non-comment
+line containing it) is `chained`: never touched, counted as installed, and
+`install` reports `hook <name>: already runs yman refresh`. `remove` deletes a
+marked hook only when it is exactly the script above; one the user edited is
+left with `hook <name>: edited, left alone` and a note naming its path.
+`status` reports `installed`, `chained`, `foreign`, `unreadable` or `absent`.
+
 The script needs `yman` on `PATH`; `install`, `status` and `yman status` warn
 with `warning: yman is not on PATH, so the installed hooks do nothing` when it
 is not.

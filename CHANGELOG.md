@@ -9,6 +9,11 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- A husky or lefthook style hook that already runs `yman refresh --quiet`, as
+  `hooks install` told the user to add, now counts as installed (`chained`)
+  instead of "not installed" forever.
+- `yman hooks remove` no longer deletes a yman hook the user added their own
+  commands to; it leaves it and names the file.
 - `yman status` and the `init` summary show the refresh and autosync policy
   actually in effect, and an invalid value (`Push`, `Lazy`) is reported
   instead of silently acting as off or manual.

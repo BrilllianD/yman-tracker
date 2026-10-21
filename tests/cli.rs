@@ -3439,6 +3439,82 @@ fn hooks_install_remove_status() {
 }
 
 #[test]
+fn hooks_count_a_foreign_hook_that_runs_yman_refresh() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let hook = fx.a.join(".git/hooks/post-merge");
+    let chained = "#!/bin/sh\necho mine\nyman refresh --quiet\n";
+    fx.write(&hook, chained);
+
+    let out = fx.yman(&fx.a).args(["hooks", "install"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert!(
+        text.contains("hook post-merge: already runs yman refresh"),
+        "{text}"
+    );
+    assert!(text.contains("hook post-checkout: installed"), "{text}");
+    assert!(
+        !stderr(&out).contains("note: hook post-merge exists"),
+        "{}",
+        stderr(&out)
+    );
+
+    let text = stdout(&fx.yman(&fx.a).args(["hooks", "status"]).output().unwrap());
+    assert!(text.contains("hook post-merge: chained"), "{text}");
+    let text = stdout(&fx.yman(&fx.a).arg("status").output().unwrap());
+    assert!(text.contains("hooks: installed)"), "{text}");
+
+    let out = fx.yman(&fx.a).args(["hooks", "remove"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stdout(&out).contains("hook post-merge: not ours, left alone"),
+        "{}",
+        stdout(&out)
+    );
+    assert_eq!(fx.read(&hook), chained);
+
+    // A comment that mentions the command does not count.
+    fx.write(&hook, "#!/bin/sh\n# yman refresh --quiet\n");
+    let out = fx.yman(&fx.a).args(["hooks", "install"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("1 hook(s) not installed: post-merge"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn hooks_remove_keeps_an_edited_marked_hook() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["hooks", "install"]).assert().success();
+    let hook = fx.a.join(".git/hooks/post-merge");
+    let edited = format!("{}echo mine\n", fx.read(&hook));
+    fx.write(&hook, &edited);
+
+    let out = fx.yman(&fx.a).args(["hooks", "remove"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert!(
+        text.contains("hook post-merge: edited, left alone"),
+        "{text}"
+    );
+    assert!(text.contains("hook post-checkout: removed"), "{text}");
+    let note = format!(
+        "note: hook post-merge carries the yman marker but was edited; delete it by hand: {}",
+        hook.display()
+    );
+    assert!(stderr(&out).contains(&note), "{}", stderr(&out));
+    assert_eq!(fx.read(&hook), edited);
+    assert!(!fx.a.join(".git/hooks/post-checkout").exists());
+
+    let text = stdout(&fx.yman(&fx.a).args(["hooks", "status"]).output().unwrap());
+    assert!(text.contains("hook post-merge: installed"), "{text}");
+}
+
+#[test]
 fn hooks_refresh_on_pull() {
     let fx = Fx::new();
     fx.yman(&fx.a).args(["init", "--hooks"]).assert().success();

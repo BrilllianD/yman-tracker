@@ -581,7 +581,9 @@ pushed. `yman refresh` and `yman status` explain why when it does.
 `yman refresh --quiet`, so a plain `git pull` updates your tasks as a side
 effect. Hooks somebody else wrote are reported and left alone, never overwritten
 or deleted — yman tells you the one line to add instead; a hook it cannot read
-is refused the same way. `core.hooksPath` is honoured, `~/` included.
+is refused the same way. A hook that already runs `yman refresh` counts as
+installed, and `yman hooks remove` leaves a yman hook you edited in place.
+`core.hooksPath` is honoured, `~/` included.
 
 ---
 
