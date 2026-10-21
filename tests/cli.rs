@@ -2213,7 +2213,7 @@ const CONFIG_AT_HEAD: &str =
 fn conflict_in_config_toml_with_a_task(fx: &Fx) {
     fx.yman(&fx.a).arg("init").assert().success();
     fx.yman(&fx.a)
-        .args(["add", "Shared task"])
+        .args(["add", "Shared task", "-t", "epic"])
         .assert()
         .success();
     fx.yman(&fx.a)
@@ -2274,8 +2274,8 @@ fn readers_work_during_a_config_toml_conflict() {
         (&["show", "1", "--json"], "\"title\":\"Shared task\""),
         (&["state"], "now: S7"),
         (&["plan", "1"], "Shared task"),
-        (&["log"], "yman"),
-        (&["tags"], ""),
+        (&["log"], "task(1): add"),
+        (&["tags"], "epic"),
         (&["path", "1"], "shared-task"),
     ];
     for (args, want) in readers {
@@ -2359,6 +2359,30 @@ fn a_clean_sync_merge_that_breaks_config_toml_stops_with_exit_3() {
     let out = fx.yman(&fx.b).args(["sync", "--abort"]).output().unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
     fx.yman(&fx.b).arg("ls").assert().success();
+}
+
+#[test]
+fn a_sync_fast_forward_loads_the_config_it_brings() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    let text = fx.read(&fx.a.join(".yman/config.toml"));
+    fx.set_config(&fx.a, &text.replace("version = 2", "version = 3"));
+    fx.git(
+        &fx.a,
+        &["push", "origin", "refs/yman/local:refs/tasks/main"],
+    );
+
+    // B has no commits of its own, so sync fast-forwards. The run goes on
+    // with the new config.toml, so the one it cannot load stops it here.
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("invalid .yman/config.toml: unsupported version 3"),
+        "{}",
+        stderr(&out)
+    );
 }
 
 #[test]

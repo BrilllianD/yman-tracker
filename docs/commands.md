@@ -30,8 +30,9 @@ Normative, as-built. Companion documents: [storage.md](storage.md),
    action) run on the config committed at `HEAD` and print `note: sync merge
    in progress; using config.toml as committed at HEAD` on stderr. Every other
    command fails with the load error. A key `config.toml` does not define is
-   ignored and reported once per command as `warning: .yman/config.toml:
-   unknown key <key> ignored` (never under `refresh --quiet`).
+   ignored and reported once per command that loads the config (not `init`,
+   `hooks`, `git`) as `warning: .yman/config.toml: unknown key <key> ignored`
+   (never under `refresh --quiet`).
 4. **Lazy refresh**, when `yman.refresh` is unset or `lazy`, for every command
    except `init`, `sync`, `refresh`, `status`, `hooks` and `git`. A failure here
    is downgraded to a `warning:` on stderr and never takes the real command
@@ -778,9 +779,10 @@ exit 1.
    with `merge stopped with conflicts, but yman could not list them: <why>`. A
    clean merge stays uncommitted while the merged `config.toml` is loaded and
    the **rejoin**, the **drop** and the duplicate-id check (all below) run on
-   it; a `config.toml` that does not load stops there like the rest, and is then committed with its
-   `-m` subject. Any failure from that point leaves the merge in progress with
-   exit 3, and `sync --continue` reruns the repairs and the check.
+   it, and is then committed with its `-m` subject. A `config.toml` that does
+   not load stops it there, like any failure from that point: the merge stays
+   in progress with exit 3, and `sync --continue` reruns the repairs and the
+   check.
 8. Push, unless `--no-push`: resolve `LOCAL` once and push that commit,
    `<sha>:refs/tasks/main`, with `--porcelain`, and read git's verdict from
    the `refs/tasks/main` line on stdout. Four reasons on a `!` line mean
