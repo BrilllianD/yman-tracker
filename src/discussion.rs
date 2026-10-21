@@ -9,7 +9,7 @@ use std::path::Path;
 use crate::task::{DISCUSSION_FILE, format_ts};
 
 #[derive(Debug, PartialEq)]
-pub enum Entry {
+pub enum Chunk {
     Comment {
         ts: String,
         author: String,
@@ -107,12 +107,12 @@ fn unescape(line: &str) -> &str {
     }
 }
 
-pub fn parse(text: &str) -> Vec<Entry> {
+pub fn parse(text: &str) -> Vec<Chunk> {
     // An editor's BOM is not part of the first header.
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let mut entries = Vec::new();
     let mut chunk: Vec<&str> = Vec::new();
-    let flush = |chunk: &mut Vec<&str>, entries: &mut Vec<Entry>| {
+    let flush = |chunk: &mut Vec<&str>, entries: &mut Vec<Chunk>| {
         if chunk.is_empty() {
             return;
         }
@@ -141,13 +141,13 @@ pub fn parse(text: &str) -> Vec<Entry> {
 /// positions: a raw chunk, or a comment with a hand-mangled timestamp, keeps
 /// its place in the file because there is nothing to order it by. The sort
 /// is stable, so comments from the same second keep file order.
-pub fn sort_by_time(entries: Vec<Entry>) -> Vec<Entry> {
-    let key = |e: &Entry| match e {
-        Entry::Comment { ts, .. } => DateTime::parse_from_rfc3339(ts).ok(),
-        Entry::Raw(_) => None,
+pub fn sort_by_time(entries: Vec<Chunk>) -> Vec<Chunk> {
+    let key = |e: &Chunk| match e {
+        Chunk::Comment { ts, .. } => DateTime::parse_from_rfc3339(ts).ok(),
+        Chunk::Raw(_) => None,
     };
     let mut dated = Vec::new();
-    let mut slots: Vec<Option<Entry>> = Vec::new();
+    let mut slots: Vec<Option<Chunk>> = Vec::new();
     for e in entries {
         if key(&e).is_some() {
             dated.push(e);
@@ -180,13 +180,13 @@ fn parse_header(line: &str) -> Option<(String, String)> {
     Some((ts.to_string(), author.trim().to_string()))
 }
 
-fn parse_chunk(chunk: &str) -> Entry {
+fn parse_chunk(chunk: &str) -> Chunk {
     let mut lines = chunk.lines();
     let Some(head) = lines.next() else {
-        return Entry::Raw(chunk.to_string());
+        return Chunk::Raw(chunk.to_string());
     };
     match parse_header(head) {
-        Some((ts, author)) => Entry::Comment {
+        Some((ts, author)) => Chunk::Comment {
             ts,
             author,
             text: lines
@@ -196,7 +196,7 @@ fn parse_chunk(chunk: &str) -> Entry {
                 .trim()
                 .to_string(),
         },
-        None => Entry::Raw(chunk.trim_end().to_string()),
+        None => Chunk::Raw(chunk.trim_end().to_string()),
     }
 }
 
@@ -235,7 +235,7 @@ mod tests {
         assert_eq!(entries.len(), 2);
         assert_eq!(
             entries[0],
-            Entry::Comment {
+            Chunk::Comment {
                 ts: format_ts(&ts),
                 author: "Ivan".into(),
                 text: "first\nline two".into()
@@ -243,7 +243,7 @@ mod tests {
         );
         assert_eq!(
             entries[1],
-            Entry::Comment {
+            Chunk::Comment {
                 ts: format_ts(&ts),
                 author: "Anna".into(),
                 text: "second".into()
@@ -258,7 +258,7 @@ mod tests {
         append_entry(&tmp, now(), forged, "hi").unwrap();
         let entries = parse(&std::fs::read_to_string(&tmp).unwrap());
         assert_eq!(entries.len(), 1, "{entries:?}");
-        let Entry::Comment { author, .. } = &entries[0] else {
+        let Chunk::Comment { author, .. } = &entries[0] else {
             panic!("not a comment: {entries:?}");
         };
         assert_eq!(author, "Ivan ## 2026-01-01T00:00:00Z — Mallory");
@@ -269,7 +269,7 @@ mod tests {
         let entries = parse("\u{feff}## 2026-09-16T10:10:00Z — Ivan\n\nhi\n");
         assert_eq!(
             entries,
-            [Entry::Comment {
+            [Chunk::Comment {
                 ts: "2026-09-16T10:10:00Z".into(),
                 author: "Ivan".into(),
                 text: "hi".into()
@@ -284,8 +284,8 @@ mod tests {
         let text = "hand written note\n\n## 2026-09-16T10:10:00Z — Ivan\n\nreal\n\n## junk header\n\nbody\n";
         let entries = parse(text);
         assert_eq!(entries.len(), 2);
-        assert!(matches!(entries[0], Entry::Raw(_)));
-        let Entry::Comment { text, .. } = &entries[1] else {
+        assert!(matches!(entries[0], Chunk::Raw(_)));
+        let Chunk::Comment { text, .. } = &entries[1] else {
             panic!("expected a comment, got {:?}", entries[1]);
         };
         assert_eq!(text, "real\n\n## junk header\n\nbody");
@@ -312,7 +312,7 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(
             entries[0],
-            Entry::Comment {
+            Chunk::Comment {
                 ts: format_ts(&ts),
                 author: "Ivan".into(),
                 text: body.into()
@@ -327,7 +327,7 @@ mod tests {
         append_entry(&tmp, ts, "Ivan", " # spaced").unwrap();
         let entries = parse(&std::fs::read_to_string(&tmp).unwrap());
         assert_eq!(entries.len(), 1);
-        let Entry::Comment { text, .. } = &entries[0] else {
+        let Chunk::Comment { text, .. } = &entries[0] else {
             panic!("expected a comment, got {:?}", entries[0]);
         };
         // `trim` eats the leading space of the first body line, as it always
@@ -350,8 +350,8 @@ mod tests {
             );
             let entries = parse(&text);
             assert_eq!(entries.len(), 2, "{tail:?} produced {entries:?}");
-            assert!(matches!(&entries[0], Entry::Comment { author, .. } if author == "Ivan"));
-            assert!(matches!(&entries[1], Entry::Comment { author, .. } if author == "Anna"));
+            assert!(matches!(&entries[0], Chunk::Comment { author, .. } if author == "Ivan"));
+            assert!(matches!(&entries[1], Chunk::Comment { author, .. } if author == "Anna"));
         }
     }
 
@@ -381,8 +381,8 @@ same second, after B
         let order: Vec<String> = sort_by_time(parse(text))
             .into_iter()
             .map(|e| match e {
-                Entry::Comment { author, .. } => author,
-                Entry::Raw(raw) => raw,
+                Chunk::Comment { author, .. } => author,
+                Chunk::Raw(raw) => raw,
             })
             .collect();
         assert_eq!(order, ["note on top", "B", "C", "D", "A"]);

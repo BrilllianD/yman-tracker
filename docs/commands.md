@@ -143,7 +143,11 @@ asked for.
 Touches no git itself; only the lazy refresh of §1 may. Filters, then sorts by
 `(priority, status index, id)`, where the status index is the position in
 `config.statuses.list`. Ids order as plain numbers first (numerically), then
-`prefix-N` ids by prefix and numeric tail, then everything else lexically.
+`prefix-N` ids by prefix and numeric tail, then random ids (`t-` and 2 to 16
+lowercase hex digits holding a letter or starting with `0`) by their hex, then
+everything else lexically. A random id of decimal digits only and no leading
+zero (`t-1234`) cannot be told from an author id whose prefix is `t`, and
+sorts as one.
 
 Default filtering hides tasks in any **terminal** status — `statuses.terminal`,
 or the done status when that key is unset; `-a` includes them, and naming one

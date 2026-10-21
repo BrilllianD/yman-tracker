@@ -51,13 +51,13 @@ fn apply(ctx: &mut Context, a: SetArgs) -> Result<Option<String>> {
     }
 
     if let Some(p) = a.priority
-        && p != t.folder.priority
+        && p != t.priority()
     {
         changes.push(Change {
-            token: format!("priority={}->{}", t.folder.priority, p),
-            line: format!("priority {} -> {}", t.folder.priority, p),
+            token: format!("priority={}->{}", t.priority(), p),
+            line: format!("priority {} -> {}", t.priority(), p),
         });
-        t.folder.priority = p;
+        t.folder.set_priority(p)?;
     }
 
     if let Some(title) = a.title {
@@ -150,8 +150,8 @@ fn apply(ctx: &mut Context, a: SetArgs) -> Result<Option<String>> {
     // so a task sitting in the wrong place — a hand edit, a resolved merge, a
     // config that grew a terminal status — is put right by `yman move <id>
     // <its own status>` rather than needing a separate repair command.
-    let old_parent = t.parent.clone();
-    t.parent = ctx.config().archive_dir(&t.meta.status).map(str::to_string);
+    let old_status_dir = t.status_dir.clone();
+    t.status_dir = ctx.config().archive_dir(&t.meta.status).map(str::to_string);
     let new_rel = t.rel();
     let relocating = new_rel != old_rel;
 
@@ -168,7 +168,7 @@ fn apply(ctx: &mut Context, a: SetArgs) -> Result<Option<String>> {
 
     if relocating {
         t.relocate(Some(&ctx.wt), &old_rel)?;
-        if old_parent != t.parent {
+        if old_status_dir != t.status_dir {
             // stdout is data. Someone who had cd'd into the folder needs to
             // hear that it moved, but `yman path` must stay pipeable.
             eprintln!("note: task folder is now {new_rel}");

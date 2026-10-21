@@ -3,10 +3,24 @@
 //! sequence of fixed-key maps — so a full YAML implementation costs more than
 //! the dependency list should pay.
 //!
-//! The writer is byte-compatible with the `serde_yaml` output this replaced,
-//! so upgrading yman never rewrites a task folder on its own. The one
-//! deliberate difference: a value with Unicode whitespace at an edge (a
-//! trailing U+00A0) is quoted, because written plain it would not read back.
+//! The writer is byte-compatible with the `serde_yaml` 0.9.34 output this
+//! replaced, so upgrading yman never rewrites a task folder on its own, except
+//! for these values (found by writing a 115-value corpus through both
+//! writers; every other value came out identical, non-BMP and private-use
+//! characters included):
+//!
+//! - `nan`, `NaN`, `inf`, `-inf` and `0X1F` are written plain by serde_yaml
+//!   and quoted here.
+//! - U+0007, U+0008, U+000B, U+000C and U+0085 are `\a`, `\b`, `\v`, `\f` and
+//!   `\N` there and `\x07`, `\x08`, `\x0B`, `\x0C` and `\x85` here (the reader
+//!   takes both).
+//! - U+2028 and U+2029 are single-quoted with two trailing spaces there and
+//!   double-quoted as `\u2028` and `\u2029` here.
+//! - U+FEFF, U+FFFE and U+FFFF are `\uFEFF` and so on there and written plain
+//!   here.
+//! - Unicode whitespace at an edge (U+00A0, U+3000) is written plain there and
+//!   quoted here, because written plain it would not read back.
+//!
 //! The reader is more forgiving than the writer: `m.yml` is a file people
 //! edit by hand and resolve merge conflicts in, so it also takes comments
 //! after quoted scalars and the full libyaml escape set.

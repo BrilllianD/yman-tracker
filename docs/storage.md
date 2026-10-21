@@ -587,6 +587,11 @@ statuses count as closed:
 | `statuses.cancel` | `yman cancel` | the command refuses |
 | `statuses.terminal` | closed: hidden by `ls` | `[done status]` |
 
+`blocked` is not a role. It is a fixed status name: `--waits-on` sets it and
+`yman plan` reads it as waiting. A project without it in `statuses.list` does
+not get `--waits-on`, which is refused before anything is written (see
+`errors.md`).
+
 Naming them is what stops a reordered `list` from silently changing what
 `yman start` means. For the same reason `statuses.done` is required as soon as
 `statuses.terminal` names more than one status: with one closed status the
@@ -643,6 +648,12 @@ project.
 | `seq` | `1`, `2`, `14` | highest all-digit id taken, plus one |
 | `author` | `iv-1`, `an-3` | highest `{prefix}-N` taken, plus one |
 | `random` | `t-7f3a` | `t-` plus `random_len` hex chars, redrawn until free |
+
+Ids are classified by shape, whatever the configured scheme, because a tracker
+may have switched schemes: all digits is `seq`, `prefix-N` with all-digit `N`
+is `author`, and `t-` plus 2 to 16 lowercase hex digits is `random` unless it
+is also `t-N` of an author whose prefix is `t` (no letter, no leading zero),
+which stays `author` so that scheme never re-mints a taken number.
 
 A scheme with no id left fails instead of looping or wrapping: `random` once
 every `random_len`-character id is taken, `seq` and `author` past

@@ -9,6 +9,9 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- `ls`, `show` and `plan` no longer sort random ids such as `t-0042` among
+  author ids, and a sync renumber under the author scheme no longer reads
+  `t-0042` as author `t`.
 - Ctrl-C in the editor during `add -e` or `comment -e` no longer kills yman
   and leaves the new task folder or the temp file behind; the command fails
   with `editor was killed by a signal; task not added` (or `comment not

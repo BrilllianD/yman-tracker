@@ -167,6 +167,26 @@ impl Fx {
         assert_cmd::Command::from_std(cmd)
     }
 
+    /// The setup most two-clone scenarios start from: `init` in `a`, then
+    /// `prepare` (config edits, adds, hand commits, in the order they ran
+    /// inline), then `sync` in `a`, then `init` in `b`, each asserted to
+    /// succeed.
+    pub fn shared(&self, prepare: impl FnOnce()) {
+        self.yman(&self.a).arg("init").assert().success();
+        prepare();
+        self.yman(&self.a).arg("sync").assert().success();
+        self.yman(&self.b).arg("init").assert().success();
+    }
+
+    /// `shared` whose `prepare` adds each title in `a`.
+    pub fn shared_titles(&self, titles: &[&str]) {
+        self.shared(|| {
+            for title in titles {
+                self.yman(&self.a).args(["add", title]).assert().success();
+            }
+        });
+    }
+
     /// How many `git` processes one `yman` invocation spawns.
     ///
     /// A shim earlier on `PATH` records each spawn and execs the real binary —

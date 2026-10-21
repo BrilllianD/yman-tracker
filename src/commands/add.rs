@@ -105,17 +105,17 @@ fn create(
 ) -> Result<()> {
     let id = ids::new_id(ctx, taken)?;
     taken.insert(id.clone());
-    let folder = FolderName::for_title(spec.priority, &id, &title, ctx.config().slug.max_bytes);
+    let folder = FolderName::for_title(spec.priority, &id, &title, ctx.config().slug.max_bytes)?;
     // A task added straight into a closed status is born in its archive
     // directory rather than being created and immediately moved.
-    let parent = ctx.config().archive_dir(&spec.status).map(str::to_string);
+    let status_dir = ctx.config().archive_dir(&spec.status).map(str::to_string);
     let mut meta = Meta::new(spec.status.clone(), spec.tags.clone());
     meta.assignee = spec.assignee.clone();
     meta.links = spec.links.clone();
     meta.related = spec.related.clone();
     let mut t = Task {
         folder,
-        parent,
+        status_dir,
         ydir: ctx.ydir.clone(),
         title,
         body,
