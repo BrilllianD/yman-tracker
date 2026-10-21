@@ -200,6 +200,7 @@ Never fatal, always stderr:
 | `warning: refresh failed: <why>` | the lazy refresh before a command failed; the command still runs |
 | `warning: origin has new task commits; run: yman sync` | `yman.autosync = push` and the push after a change was rejected; nothing is merged, the change stays committed |
 | `warning: autosync failed: <why>; run: yman sync` | `yman.autosync = push` and the push after a change failed (offline, auth); the command's exit code is unchanged |
+| `warning: could not undo the failed change: <why>; run: yman status` | a mutating command failed and putting `.yman` back (unstaging, or restoring the last commit) failed too; the exit code is the original failure's |
 | `warning: task <id> does not exist here; relating anyway` | `add --relate`/`--waits-on` or `set --relate`/`--waits-on` naming an id no folder here carries |
 | `warning: <id> closed with open tasks relating to it: <ids>` | a close (as for the note below) of a task tagged `epic` while tasks relating to it are still open; the close is committed |
 | `warning: skipped N unreadable task folder(s): <rels>` | `tags`, `tags rename`, `tags rm` and `rm` walking every task |

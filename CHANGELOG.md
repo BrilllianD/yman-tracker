@@ -9,6 +9,12 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- A mutating command whose commit fails (a failing GPG signature, a held
+  `index.lock`) no longer leaves its files staged for the next command to commit
+  under its own subject; `.yman` is put back as the last commit left it, `add` no
+  longer leaves a half-made task for a retry to duplicate, `attach` no longer
+  reports files it did not commit, and `rm` of a hand-edited task no longer stages
+  the rewrite of other tasks' `related`.
 - Under `yman.autosync = push`, a command that committed some tasks and then
   failed (`done 3 99`, `add --sections` stopping part-way) now pushes what it
   committed instead of leaving it local.

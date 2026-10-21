@@ -10424,3 +10424,138 @@ fn an_unopenable_lock_file_stops_a_writer() {
     assert!(err.starts_with(&want), "{err}");
     assert_eq!(stdout(&out), "");
 }
+
+/// Makes every commit in clone `a` fail: git is told to sign and the signing
+/// program is `false`.
+fn fail_signing(fx: &Fx) {
+    fx.git(&fx.a, &["config", "commit.gpgSign", "true"]);
+    fx.git(&fx.a, &["config", "gpg.program", "false"]);
+}
+
+/// A commit that fails (here, a signature) leaves nothing staged, no half-made
+/// task folder and no attachment lines on stdout; once it works again the next
+/// commit holds only its own task.
+#[test]
+fn a_failed_signature_leaves_nothing_behind() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Before"]).assert().success();
+    let head = fx.git(&fx.a, &["rev-parse", "refs/yman/local"]);
+    let dir = fx.task_dir(&fx.a, "1");
+    let rel = fx.task_rel(&fx.a, "1");
+    let meta = std::fs::read(dir.join("m.yml")).unwrap();
+    fail_signing(&fx);
+    let porcelain = |fx: &Fx| {
+        stdout(
+            &fx.yman(&fx.a)
+                .args(["git", "status", "--porcelain"])
+                .output()
+                .unwrap(),
+        )
+    };
+
+    let out = fx.yman(&fx.a).args(["add", "X"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("gpg failed to sign the data"),
+        "{}",
+        stderr(&out)
+    );
+    assert_eq!(stdout(&out), "");
+    assert_eq!(porcelain(&fx), "");
+    assert!(!fx.has_task(&fx.a, "2"));
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["set", "1", "--title", "Renamed"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(porcelain(&fx), "");
+    assert_eq!(fx.task_dir(&fx.a, "1"), dir);
+    assert_eq!(std::fs::read(dir.join("m.yml")).unwrap(), meta);
+
+    let src = fx.tmp.path().join("a.png");
+    fx.write(&src, "one");
+    let out = fx
+        .yman(&fx.a)
+        .args(["attach", "1", src.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "", "attach printed before it committed");
+    assert!(!dir.join("f").exists());
+    assert_eq!(porcelain(&fx), "");
+    assert_eq!(fx.git(&fx.a, &["rev-parse", "refs/yman/local"]), head);
+
+    fx.git(&fx.a, &["config", "--unset", "commit.gpgSign"]);
+    fx.yman(&fx.a).args(["add", "Y"]).assert().success();
+    let names = fx.git(
+        &fx.a.join(".yman"),
+        &["show", "--name-only", "--format=", "HEAD"],
+    );
+    assert!(
+        names.lines().all(|l| !l.starts_with(&rel)),
+        "HEAD touches the first task: {names}"
+    );
+    assert!(names.contains("y"), "{names}");
+}
+
+/// `rm` of a task with a hand edit is refused by `git rm`; it must stop before
+/// it rewrites any other task's `related`.
+#[test]
+fn rm_of_a_hand_edited_task_leaves_others_untouched() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "One"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Other", "--relate", "1"])
+        .assert()
+        .success();
+    let other = fx.task_dir(&fx.a, "2").join("m.yml");
+    let before = std::fs::read(&other).unwrap();
+    let rel = fx.task_rel(&fx.a, "1");
+    let md = fx.task_dir(&fx.a, "1").join("t.md");
+    let mut text = std::fs::read_to_string(&md).unwrap();
+    text.push_str("hand edit\n");
+    std::fs::write(&md, text).unwrap();
+
+    let out = fx.yman(&fx.a).args(["rm", "-f", "1"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(stderr(&out).contains("git rm failed"), "{}", stderr(&out));
+    assert_eq!(std::fs::read(&other).unwrap(), before);
+    let porcelain = stdout(
+        &fx.yman(&fx.a)
+            .args(["git", "status", "--porcelain"])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(porcelain.trim_end(), format!(" M {rel}/t.md"));
+    assert!(fx.has_task(&fx.a, "1"));
+}
+
+/// `edit` holds the user's own text: a failed commit unstages it but keeps it.
+#[test]
+fn a_failed_edit_keeps_the_users_text() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "One"]).assert().success();
+    fail_signing(&fx);
+    let editor = fx.editor_writing("ed", "# One\n\nnew body\n");
+    let out = fx
+        .yman(&fx.a)
+        .env("EDITOR", &editor)
+        .args(["edit", "1"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    let md = std::fs::read_to_string(fx.task_dir(&fx.a, "1").join("t.md")).unwrap();
+    assert!(md.contains("new body"), "{md}");
+    let staged = stdout(
+        &fx.yman(&fx.a)
+            .args(["git", "diff", "--cached", "--name-only"])
+            .output()
+            .unwrap(),
+    );
+    assert_eq!(staged, "");
+}

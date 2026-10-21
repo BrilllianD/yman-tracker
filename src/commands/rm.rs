@@ -25,11 +25,13 @@ pub fn run(ctx: &mut Context, a: RmArgs) -> Result<()> {
         }
     }
 
-    // Staged before the removal so both land in one commit: a task that is
-    // gone and a reference that still names it must never be two states of
-    // the repository anyone can observe.
-    let (dropped, waiters, skipped) = drop_related(ctx, &id)?;
+    // The removal is staged first because `git rm` refuses a folder with local
+    // edits, and refusing before anything else is written leaves the other
+    // tasks untouched. Both still land in one commit: a task that is gone and
+    // a reference that still names it must never be two states of the
+    // repository anyone can observe.
     ctx.wt.ok(&["rm", "-rq", "--", &t.rel()])?;
+    let (dropped, waiters, skipped) = drop_related(ctx, &id)?;
     ctx.wt
         .commit(&format!("task({id}): remove \"{}\"", quote_title(&t.title)))?;
     if !skipped.is_empty() {

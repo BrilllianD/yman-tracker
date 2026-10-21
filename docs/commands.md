@@ -49,6 +49,13 @@ not mutating. `sync` is excluded because it handles `MERGE_HEAD` itself (it
 still takes the lock). The same list decides when step 5 runs, and, together
 with `sync`, when step 2 runs.
 
+When a mutating command fails, nothing it staged stays staged. If `.yman` had no
+uncommitted changes when the command started, the files it wrote are put back to
+the last commit (commits it already made stay). If `.yman` already had uncommitted
+changes, or the command is `edit`, its files are only unstaged and left on disk. If
+the undo itself fails, `warning: could not undo the failed change: <why>; run: yman
+status` is printed and the exit code stays the failure's.
+
 `guide`, `completions` and `man` run none of these steps. They are
 documentation compiled into the binary and are answered before the repository
 is looked for, so they work from any directory. `merge-driver` skips all
@@ -74,7 +81,8 @@ for every such name, read once per command with `git config --get-regexp` and
 only when a `.yman` call is made. The `update-ref`, `fetch` and `push` yman
 runs in the main repo on its own refs get the same treatment, so a
 `reference-transaction` hook never sees `refs/yman/*` or `refs/tasks/main`. GPG signing is deliberately left
-to the user's configuration.
+to the user's configuration. A failed signature exits 1 with nothing staged, like any
+failed commit.
 
 | Command | Subject |
 |---|---|
@@ -571,6 +579,8 @@ On a terminal, prompts `remove task 14 "Fix login"? [y/N]` on stderr; anything b
 aborts. Without a terminal and without `-f`, it refuses rather than assume
 consent.
 
+The removal is staged first: `git rm` refuses a folder with local edits, and that
+refusal stops the command before any other task's `related` is rewritten.
 Every other task's `related` loses the removed id in the **same commit** as the
 removal, so a task that is gone and a reference still naming it are never two
 states of the repository anyone can observe. The count goes to stderr as
@@ -615,7 +625,9 @@ the entry is simply dropped. `detach` finds the entry ignoring case (an exact
 match wins if a task holds both spellings) and removes, reports and commits it
 under the name stored in `m.yml`, so `detach 3 A.png` drops an `a.png`. An entry whose `name` a hand edit made something other than a plain file name (`../t.md`, `a/b.png`) is refused. Each copied file is staged with `git add -f`, so a
 name matching `.yman/.gitignore` (`*.swp`, `*~`, `.#*`, `*.orig`) is committed
-like any other: naming a file to attach overrides the ignore rule.
+like any other: naming a file to attach overrides the ignore rule. The
+`attached <name> -> <path>` lines are printed only after the commit succeeded; a
+failed commit puts back `m.yml` and the files and prints nothing on stdout.
 
 ### `comment`
 

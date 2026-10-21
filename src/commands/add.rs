@@ -7,6 +7,7 @@ use crate::tags;
 use crate::task::{self, FolderName, Meta, Task};
 use anyhow::{Result, anyhow, bail};
 use std::collections::HashSet;
+use std::path::Path;
 
 use super::edit::run_editor;
 use super::quote_title;
@@ -165,20 +166,7 @@ fn create(
                 // there is to undo. Left behind, `ls` would list it, the
                 // lazy refresh would skip a dirty tree, and the next `sync`
                 // would snapshot and publish the task the user abandoned.
-                if let Err(rm) = std::fs::remove_dir_all(&t.dir) {
-                    eprintln!("warning: cannot remove {}: {rm}", t.rel());
-                }
-                // An archive directory made for this task goes too. Git
-                // ignores an empty directory, so `.yman` would read clean
-                // while it stayed on disk. `remove_dir` refuses a non-empty
-                // one, which leaves anything another process put there.
-                let mut up = t.dir.parent();
-                while let Some(d) = up {
-                    if !d.starts_with(&created) || std::fs::remove_dir(d).is_err() {
-                        break;
-                    }
-                    up = d.parent();
-                }
+                discard(&t, &created);
                 return Err(e);
             }
         };
@@ -199,9 +187,35 @@ fn create(
         }
     }
 
-    ctx.wt.ok(&["add", "--", &t.rel()])?;
-    ctx.wt
-        .commit(&format!("task({id}): add \"{}\"", quote_title(&t.title)))?;
+    let committed = ctx.wt.ok(&["add", "--", &t.rel()]).and_then(|_| {
+        ctx.wt
+            .commit(&format!("task({id}): add \"{}\"", quote_title(&t.title)))
+    });
+    if let Err(e) = committed {
+        // Without this a dirty `.yman` keeps the folder (the generic cleanup
+        // only unstages there), and a retried `add` would duplicate the task.
+        discard(&t, &created);
+        return Err(e);
+    }
     println!("added {id}  {}", t.rel());
     Ok(())
+}
+
+/// Take back a task folder `add` made but did not commit, and the archive
+/// directories made for it.
+fn discard(t: &Task, created: &Path) {
+    if let Err(rm) = std::fs::remove_dir_all(&t.dir) {
+        eprintln!("warning: cannot remove {}: {rm}", t.rel());
+    }
+    // An archive directory made for this task goes too. Git ignores an empty
+    // directory, so `.yman` would read clean while it stayed on disk.
+    // `remove_dir` refuses a non-empty one, which leaves anything another
+    // process put there.
+    let mut up = t.dir.parent();
+    while let Some(d) = up {
+        if !d.starts_with(created) || std::fs::remove_dir(d).is_err() {
+            break;
+        }
+        up = d.parent();
+    }
 }

@@ -123,36 +123,50 @@ pub fn run(ctx: &mut Context, a: AttachArgs) -> Result<()> {
         .map(|n| n.to_string_lossy().into_owned())
         .filter(|n| !names.contains(n))
         .collect();
+    let rel = t.rel();
+    let staged = (|| -> Result<()> {
+        // On a case-insensitive checkout `git add` would update the index entry
+        // under its old spelling, so the entry goes first and the add records the
+        // name `m.yml` holds.
+        for old in &dropped {
+            ctx.wt.ok(&[
+                "rm",
+                "--cached",
+                "-q",
+                "--ignore-unmatch",
+                "--",
+                &format!("{rel}/{}/{old}", task::FILES_DIR),
+            ])?;
+        }
+        // Only `m.yml`, not the folder: files `--force` moved aside are still
+        // under `f/` until the commit has gone through, and must not be staged.
+        ctx.wt
+            .ok(&["add", "--", &format!("{rel}/{}", task::META_FILE)])?;
+        // `.yman/.gitignore` carries the editor-junk patterns `init` writes, and a
+        // plain `git add <dir>` skips an ignored path without saying so: the entry
+        // landed in `m.yml`, the file never reached a commit, and every other clone
+        // saw a dangling attachment after `sync`. The user named this file, so the
+        // ignore rule does not apply to it — stage each one by force.
+        for name in &names {
+            let file = format!("{rel}/{}/{name}", task::FILES_DIR);
+            ctx.wt.ok(&["add", "-f", "--", &file])?;
+        }
+        ctx.wt
+            .commit(&format!("task({}): attach {}", t.id(), names.join(", ")))
+    })();
+    if let Err(e) = staged {
+        // Nothing was committed: put back `m.yml` and the files, so a failed
+        // attach is not reported as done nor left for the next commit.
+        if let Err(w) = std::fs::write(&meta_path, &before) {
+            eprintln!("warning: cannot restore {}: {w}", meta_path.display());
+        }
+        placed.undo();
+        return Err(e);
+    }
     placed.keep();
     for (_, name, dest, _) in &plan {
         println!("attached {name} -> {}", ctx.display_path(dest));
     }
-    let rel = t.rel();
-    // On a case-insensitive checkout `git add` would update the index entry
-    // under its old spelling, so the entry goes first and the add records the
-    // name `m.yml` holds.
-    for old in &dropped {
-        ctx.wt.ok(&[
-            "rm",
-            "--cached",
-            "-q",
-            "--ignore-unmatch",
-            "--",
-            &format!("{rel}/{}/{old}", task::FILES_DIR),
-        ])?;
-    }
-    ctx.wt.ok(&["add", "--", &rel])?;
-    // `.yman/.gitignore` carries the editor-junk patterns `init` writes, and a
-    // plain `git add <dir>` skips an ignored path without saying so: the entry
-    // landed in `m.yml`, the file never reached a commit, and every other clone
-    // saw a dangling attachment after `sync`. The user named this file, so the
-    // ignore rule does not apply to it — stage each one by force.
-    for name in &names {
-        let file = format!("{rel}/{}/{name}", task::FILES_DIR);
-        ctx.wt.ok(&["add", "-f", "--", &file])?;
-    }
-    ctx.wt
-        .commit(&format!("task({}): attach {}", t.id(), names.join(", ")))?;
     Ok(())
 }
 
