@@ -10,9 +10,9 @@
 /// write to a closed pipe into an `EPIPE` error, and `println!` panics on
 /// that. Children are unaffected: `std::process::Command` already resets
 /// SIGPIPE to the default in every child it spawns. The one place yman itself
-/// writes into a child, `Git::with_stdin`, only feeds `mktree` an empty tree
-/// and `update-ref` a few lines; a caller that streams real data there would
-/// now be killed, not handed an error, if git exited before reading it all.
+/// writes into a child, `Git::with_stdin`, only feeds `mktree` an empty tree;
+/// a caller that streams real data there would now be killed, not handed an
+/// error, if git exited before reading it all.
 #[cfg(unix)]
 pub fn restore_sigpipe() {
     // SAFETY: `signal` is async-signal-safe and called once, before any other

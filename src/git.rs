@@ -539,6 +539,33 @@ mod tests {
     /// reaches the user is git's own.
     #[test]
     fn with_stdin_reports_git_failure_over_a_failed_write() {
+        // Runs git, so it runs in a child process whose HOME and global
+        // config are empty, whatever the developer has.
+        if std::env::var_os("YMAN_UNIT_SANDBOXED").is_none() {
+            let home = tempfile::tempdir().unwrap();
+            let gitconfig = home.path().join("gitconfig");
+            std::fs::write(&gitconfig, "").unwrap();
+            let out = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "git::tests::with_stdin_reports_git_failure_over_a_failed_write",
+                    "--test-threads=1",
+                ])
+                .env("YMAN_UNIT_SANDBOXED", "1")
+                .env("HOME", home.path())
+                .env("XDG_CONFIG_HOME", home.path().join(".config"))
+                .env("GIT_CONFIG_GLOBAL", &gitconfig)
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .output()
+                .unwrap();
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            assert!(
+                out.status.success() && stdout.contains("test result: ok. 1 passed"),
+                "stdout:\n{stdout}\nstderr:\n{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         let err = Git::new(dir.path())
             .with_stdin(

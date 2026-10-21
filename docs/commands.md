@@ -468,10 +468,12 @@ a `vi` waiting on a pipe. The same rule covers `add -e` and `comment -e`. A
 non-zero editor exit aborts and leaves the file alone (under `add -e` it
 removes the new folder instead, under `comment -e` its temp file; see `add`
 and `comment`). While the editor runs, yman ignores SIGINT and SIGQUIT, so a
-Ctrl-C reaches only the editor and is reported as a failed editor run. If the
-file no longer parses, or
-its title carries a control character (the rule under `add`), the command fails
-with `t.md invalid after edit: <why>; fix the file then run: yman edit <id>`,
+Ctrl-C reaches only the editor and is reported as a failed editor run, and the
+cleanup under `add` and `comment` still runs; yman killed by another signal
+(SIGTERM, SIGKILL), or a power loss, leaves the new folder or the temp file
+behind. If the file no longer parses, or its title carries a control character
+(the rule under `add`), the command fails with
+`t.md invalid after edit: <why>; fix the file then run: yman edit <id>`,
 commits nothing and **does not revert the user's text**; the next `sync`
 snapshots it. When nothing changed, it prints
 `no changes` and commits nothing. A changed title re-slugs the folder with
@@ -695,11 +697,13 @@ new, empty file in the temp dir (on unix `$TMPDIR`, else `/tmp`) named
 on unix: an existing path, a symlink included, is never opened, truncated or
 followed — another name is tried instead. While the editor runs, yman ignores
 SIGINT and SIGQUIT, so a Ctrl-C reaches only the editor and the cleanup below
-still runs; yman killed by another signal (SIGTERM, SIGKILL) leaves the file
-behind. Otherwise the file is removed on every path but one: after the comment is committed, when the editor fails
-(`editor exited with status N; comment not added`), and when the text is
-empty. When the editor's text cannot be read back (it saved Latin-1, say) the
-command fails with
+still runs; yman killed by another signal (SIGTERM, SIGKILL), or a power loss,
+leaves the file behind. In every other case it is removed: after the comment is
+committed, when the editor fails
+(`editor exited with status N; comment not added`), when the text is empty, and
+when a later step fails (the entry cannot be written, the commit fails). The
+one exception is an unreadable text: when the editor's text cannot be read back
+(it saved Latin-1, say) the command fails with
 `cannot read the comment from <path>: <why>; the file is kept`,
 names the file, keeps it and commits nothing. A temp file the editor
 removed counts as empty text (`empty comment`). A refused editor creates no

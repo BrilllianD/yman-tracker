@@ -282,8 +282,9 @@ behave differently off Linux and is not checked:
 - **Windows names.** A terminal status called `con`, `nul`, `aux` or another
   reserved device name passes validation but cannot be a directory there, and
   so can an attachment of that name. Otherwise `attach` refuses what Windows
-  cannot hold: `:`, `*`, `?`, `"`, `<`, `>`, `|`, control characters (including the bidi and invisible
-  marks a title may not carry) and a trailing `.` or space.
+  cannot hold: `:`, `*`, `?`, `"`, `<`, `>`, `|`, control characters
+  (including the bidi and invisible marks a title may not carry) and a trailing
+  `.` or space.
 
 ## 6. File formats
 
