@@ -114,6 +114,9 @@ pub fn discover() -> Result<Context> {
         // ask separately, without the flag.
         _ => discover_separately(&here)?,
     };
+    for p in [&top, &common, &git_dir] {
+        check_utf8_path(p)?;
+    }
     let root = if same_dir(&git_dir, &common) {
         top
     } else {
@@ -151,6 +154,16 @@ pub fn discover() -> Result<Context> {
         wt_gitdir,
         config: None,
     })
+}
+
+/// git's answers are read as UTF-8 text, lossily. A path that was not UTF-8
+/// comes back with U+FFFD in it and names nothing on disk, so every later
+/// `-C` on it would fail obscurely. A real U+FFFD in a directory name exists.
+fn check_utf8_path(p: &Path) -> Result<()> {
+    if p.to_string_lossy().contains('\u{FFFD}') && !p.is_dir() {
+        bail!("repository path is not valid UTF-8: {}", p.display());
+    }
+    Ok(())
 }
 
 fn same_dir(a: &Path, b: &Path) -> bool {

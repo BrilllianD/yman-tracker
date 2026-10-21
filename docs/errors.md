@@ -80,6 +80,7 @@ commit.
 | Situation | Message |
 |---|---|
 | not in a repository | `not inside a git repository`, then git's own stderr, each line indented two spaces (`  fatal: this operation must be run in a work tree` in a bare repository, or the `safe.directory` refusal) |
+| repository path not UTF-8 | `repository path is not valid UTF-8: <path>`, exit 1, before anything is created |
 | `.yman` missing | `.yman is not initialized; run: yman init` |
 | `.yman` HEAD wrong | `.yman worktree is not on refs/yman/local; run: yman init` |
 | `init` cannot re-attach HEAD without losing work | `.yman HEAD has commits or changes not on refs/yman/local; resolve them with yman git, then rerun: yman init` |

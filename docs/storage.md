@@ -22,6 +22,13 @@ Two git runners exist, both over the same object store and refs
 - **in wt** — `git -C YDIR …`: anything touching task files — add, mv, rm,
   commit, merge, status, diff, log.
 
+yman reads the paths git prints as UTF-8. A repository whose path (toplevel,
+common dir or git dir) is not UTF-8 is refused by every command that discovers
+the repository, with `repository path is not valid UTF-8: <path>`, exit 1; the
+path shown has U+FFFD for the bytes that are not UTF-8. A task folder under
+`.yman` whose name is not UTF-8 is listed by `ls` as broken, under that lossy
+name, which does not exist on disk.
+
 ### `WT_GITDIR` is read, never constructed
 
 Git derives a linked worktree's private directory name from the basename and

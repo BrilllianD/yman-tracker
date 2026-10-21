@@ -4110,6 +4110,121 @@ fn edit_reports_an_editor_that_fails() {
     assert_eq!(fx.title(&fx.a, "1"), "Fix login");
 }
 
+/// An editor that interrupts both yman (its parent) and itself, as a Ctrl-C
+/// in a terminal does to the whole foreground process group.
+#[cfg(unix)]
+const SIGINT_EDITOR: &str = "sleep 0.2\nkill -INT $PPID\nkill -INT $$\n";
+
+#[cfg(unix)]
+#[test]
+fn add_e_survives_sigint_and_removes_its_folder() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    let editor = fx.script("ed-sigint", SIGINT_EDITOR);
+    let out = fx
+        .yman(&fx.a)
+        .env("EDITOR", &editor)
+        .args(["add", "-e", "Fix login"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(
+        stderr(&out).trim(),
+        "error: editor was killed by a signal; task not added"
+    );
+    assert!(fx.task_dirs(&fx.a).is_empty());
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["status", "--porcelain"]), "");
+}
+
+#[cfg(unix)]
+#[test]
+fn comment_e_survives_sigint_and_removes_its_temp_file() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let tmpdir = fx.tmp.path().join("scratch");
+    std::fs::create_dir(&tmpdir).unwrap();
+    let editor = fx.script("ed-sigint", SIGINT_EDITOR);
+    let out = fx
+        .yman(&fx.a)
+        .env("EDITOR", &editor)
+        .env("TMPDIR", &tmpdir)
+        .args(["comment", "1", "-e"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(
+        stderr(&out).trim(),
+        "error: editor was killed by a signal; comment not added"
+    );
+    assert_eq!(std::fs::read_dir(&tmpdir).unwrap().count(), 0);
+}
+
+/// A directory name with a byte that is not UTF-8, inside the fixture's
+/// tempdir. `None` when the filesystem refuses such a name.
+#[cfg(target_os = "linux")]
+fn non_utf8_dir(fx: &Fx) -> Option<std::path::PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    let dir = fx
+        .tmp
+        .path()
+        .join(std::ffi::OsStr::from_bytes(b"repo-\xff"));
+    std::fs::create_dir(&dir).ok()?;
+    Some(dir)
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn utf8_repository_path_is_refused() {
+    let fx = Fx::new();
+    let Some(dir) = non_utf8_dir(&fx) else {
+        skip("the filesystem refuses a non-UTF-8 directory name");
+        return;
+    };
+    fx.git(&dir, &["init", "-q"]);
+    let before = std::fs::read_dir(fx.tmp.path()).unwrap().count();
+    for args in [&["ls"][..], &["init"][..]] {
+        let out = fx.yman(&dir).args(args).output().unwrap();
+        assert_eq!(out.status.code(), Some(1), "{args:?}: {}", stderr(&out));
+        assert!(
+            stderr(&out).starts_with("error: repository path is not valid UTF-8: "),
+            "{args:?}: {}",
+            stderr(&out)
+        );
+    }
+    assert_eq!(std::fs::read_dir(fx.tmp.path()).unwrap().count(), before);
+    assert!(!dir.join(".yman").exists());
+}
+
+/// Characterization: the lossy name does not exist on disk, and `ls` still
+/// lists the folder, as broken, instead of skipping it.
+#[cfg(target_os = "linux")]
+#[test]
+fn utf8_task_folder_name_is_listed_as_broken() {
+    use std::os::unix::ffi::OsStrExt;
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Cafe"]).assert().success();
+    let src = fx.task_dir(&fx.a, "1");
+    let dst =
+        fx.a.join(".yman")
+            .join(std::ffi::OsStr::from_bytes(b"5.9.caf\xff"));
+    if std::fs::create_dir(&dst).is_err() {
+        skip("the filesystem refuses a non-UTF-8 directory name");
+        return;
+    }
+    for f in ["t.md", "m.yml"] {
+        std::fs::copy(src.join(f), dst.join(f)).unwrap();
+    }
+    let out = fx.yman(&fx.a).arg("ls").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stdout(&out).contains("5.9.caf\u{FFFD}  broken"),
+        "{}",
+        stdout(&out)
+    );
+}
+
 #[test]
 fn visual_wins_over_editor() {
     let fx = Fx::new();

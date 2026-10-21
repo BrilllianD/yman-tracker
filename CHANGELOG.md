@@ -9,6 +9,13 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- Ctrl-C in the editor during `add -e` or `comment -e` no longer kills yman
+  and leaves the new task folder or the temp file behind; the command fails
+  with `editor was killed by a signal; task not added` (or `comment not
+  added`) and cleans up.
+- A repository at a path that is not valid UTF-8 is refused with
+  `repository path is not valid UTF-8: <path>` instead of failing later with
+  a git error about a directory that does not exist.
 - Attachment names, assignees, links and related ids are refused when they
   hold a bidi or invisible character (U+202E, U+200E, U+200B, U+FEFF and the
   like) or a line break, and the same characters are refused in titles and
