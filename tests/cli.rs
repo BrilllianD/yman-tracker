@@ -531,6 +531,78 @@ fn attach_force_case_change_reaches_the_index() {
     assert_eq!(fx.git(&fx.a, &["-C", ".yman", "status", "--porcelain"]), "");
 }
 
+/// Two clones attaching one name in two cases conflict: the merge driver keys
+/// attachments the way `attach` does, so it cannot merge them into two entries.
+#[test]
+fn two_clones_attaching_one_name_in_two_cases_conflict() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v1_config(&fx.a);
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+    let upper = fx.a.join("A.png");
+    fx.write(&upper, "one");
+    fx.yman(&fx.a)
+        .args(["attach", "1", upper.to_str().unwrap()])
+        .assert()
+        .success();
+    let lower = fx.b.join("a.png");
+    fx.write(&lower, "two");
+    fx.yman(&fx.b)
+        .args(["attach", "1", lower.to_str().unwrap()])
+        .assert()
+        .success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("note: unmerged files:\n  5.1.fix-login/m.yml\n"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+/// A hand edit can set an attachment `name` that is not a plain file name.
+/// `detach` refuses it rather than `git rm` a path outside `f/`, and `show`
+/// reports it missing instead of looking outside `f/`.
+#[test]
+fn detach_refuses_an_attachment_name_that_escapes_f() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let src = fx.tmp.path().join("a.png");
+    fx.write(&src, "one");
+    fx.yman(&fx.a)
+        .args(["attach", "1", src.to_str().unwrap()])
+        .assert()
+        .success();
+    let dir = fx.task_dir(&fx.a, "1");
+    let meta = dir.join("m.yml");
+    let text = std::fs::read_to_string(&meta).unwrap();
+    assert!(text.contains("name: a.png"), "{text}");
+    fx.write(&meta, &text.replace("name: a.png", "name: ../t.md"));
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["detach", "1", "../t.md"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success());
+    assert!(
+        stderr(&out)
+            .contains("task 1 has an attachment named \"../t.md\", which is not a plain file name"),
+        "{}",
+        stderr(&out)
+    );
+    assert!(dir.join("t.md").exists());
+    let shown = stdout(&fx.yman(&fx.a).args(["show", "1"]).output().unwrap());
+    assert!(
+        shown.contains("../t.md") && shown.contains("(missing)"),
+        "{shown}"
+    );
+}
+
 /// `detach` compares names ignoring case, as `attach` does, and removes the
 /// file under the spelling it was stored with, not the one typed.
 #[test]
@@ -3091,6 +3163,67 @@ fn broken_task_is_listed_not_fatal() {
 
     let text = stdout(&fx.yman(&fx.a).arg("status").output().unwrap());
     assert!(text.contains("(1 broken)"), "{text}");
+}
+
+#[test]
+fn an_m_yml_indentation_indicator_cannot_crash_ls() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let bad = "status: |3\n  я\ncreated: 2026-01-01T00:00:00Z\nupdated: 2026-01-01T00:00:00Z\n";
+    fx.write(&fx.task_dir(&fx.a, "1").join("m.yml"), bad);
+
+    let out = fx.yman(&fx.a).arg("ls").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert!(text.contains("broken"), "{text}");
+    assert!(text.contains("indentation indicator"), "{text}");
+
+    // The merge driver takes the same text and must not panic either.
+    let dir = tempfile::tempdir().unwrap();
+    let good = "status: todo\ntags: []\nassignee: null\ncreated: 2026-01-01T00:00:00Z\n\
+                updated: 2026-01-01T00:00:00Z\nattachments: []\nlinks: []\nrelated: []\n";
+    for (name, text) in [("base", good), ("ours", bad), ("theirs", good)] {
+        std::fs::write(dir.path().join(name), text).unwrap();
+    }
+    let out = fx
+        .yman(dir.path())
+        .args(["merge-driver", "base", "ours", "theirs"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert!(!stderr(&out).contains("panicked"), "{}", stderr(&out));
+}
+
+#[test]
+fn a_flow_sequence_comment_is_not_a_tag() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let path = fx.task_dir(&fx.a, "1").join("m.yml");
+    fx.write(
+        &path,
+        "status: todo\ntags: [a, b]  # note\nassignee: null\ncreated: 2026-01-01T00:00:00Z\n\
+         updated: 2026-01-01T00:00:00Z\nattachments: []\nlinks: []\nrelated: [] # x\n",
+    );
+
+    let json = stdout(
+        &fx.yman(&fx.a)
+            .args(["show", "1", "--json"])
+            .output()
+            .unwrap(),
+    );
+    assert!(json.contains(r#""tags":["a","b"]"#), "{json}");
+    assert!(json.contains(r#""related":[]"#), "{json}");
+
+    fx.yman(&fx.a)
+        .args(["set", "1", "--status", "doing"])
+        .assert()
+        .success();
+    let text = fx.read(&path);
+    assert!(text.contains("tags:\n- a\n- b\n"), "{text}");
+    assert!(text.contains("related: []\n"), "{text}");
+    assert!(!text.contains("'[a, b]'"), "{text}");
 }
 
 // ------------------------------------------------------------- editor paths

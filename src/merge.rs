@@ -13,7 +13,7 @@
 //! resolve by hand is exactly the file they would have seen before this
 //! existed. See `src/commands/merge_driver.rs` for the git side.
 
-use crate::task::{Attachment, Meta, Unknown};
+use crate::task::{self, Attachment, Meta, Unknown};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// The merged metadata, or `None` when a field was changed differently on both
@@ -23,6 +23,16 @@ use std::collections::{BTreeMap, BTreeSet};
 /// and never conflict: `updated` takes the later of the two, `created` the
 /// earlier. The list fields are merged entry by entry — see [`merge_list`].
 pub fn three_way(base: &Meta, ours: &Meta, theirs: &Meta) -> Option<Meta> {
+    let mut ambiguous: BTreeSet<String> = BTreeSet::new();
+    for list in [&base.attachments, &ours.attachments, &theirs.attachments] {
+        let mut seen: BTreeSet<String> = BTreeSet::new();
+        for a in list {
+            let f = task::fold_name(&a.name);
+            if !seen.insert(f.clone()) {
+                ambiguous.insert(f);
+            }
+        }
+    }
     Some(Meta {
         status: pick(&base.status, &ours.status, &theirs.status)?,
         tags: merge_list(&base.tags, &ours.tags, &theirs.tags, String::clone)?,
@@ -33,7 +43,16 @@ pub fn three_way(base: &Meta, ours: &Meta, theirs: &Meta) -> Option<Meta> {
             &base.attachments,
             &ours.attachments,
             &theirs.attachments,
-            |a: &Attachment| a.path.clone(),
+            // The folded name is `attach`'s identity. A name already present
+            // in two spellings within one list (from before `attach`
+            // case-folded, or a hand edit) is keyed by its exact spelling so
+            // `merge_list` does not collapse the two; the set is taken over
+            // all three inputs so the merge stays commutative.
+            |a: &Attachment| {
+                let f = task::fold_name(&a.name);
+                let exact = ambiguous.contains(&f).then(|| a.name.clone());
+                (f, exact)
+            },
         )?,
         links: merge_list(&base.links, &ours.links, &theirs.links, String::clone)?,
         related: merge_list(&base.related, &ours.related, &theirs.related, String::clone)?,
@@ -60,6 +79,7 @@ pub fn three_way(base: &Meta, ours: &Meta, theirs: &Meta) -> Option<Meta> {
 /// of the same set and conflict on the *next* sync. Instead: entries that were
 /// already in the base keep the base's order, and everything new is appended
 /// sorted by key. That is commutative, so both clones reach the same list.
+/// Attachments are keyed by `attach`'s identity, the case-folded name.
 /// Duplicate keys within one list — only reachable by hand-editing — collapse
 /// to their first entry.
 fn merge_list<T, K, F>(base: &[T], ours: &[T], theirs: &[T], key: F) -> Option<Vec<T>>
@@ -138,6 +158,53 @@ mod tests {
             links: Vec::new(),
             related: Vec::new(),
             unknown: Vec::new(),
+        }
+    }
+
+    fn att(name: &str) -> Attachment {
+        Attachment {
+            path: format!("f/{name}"),
+            name: name.into(),
+            added: ts("2026-01-01T00:00:00Z"),
+            by: "x".into(),
+        }
+    }
+
+    fn with(names: &[&str]) -> Meta {
+        let mut m = meta();
+        m.attachments = names.iter().map(|n| att(n)).collect();
+        m
+    }
+
+    fn names(m: &Meta) -> Vec<&str> {
+        m.attachments.iter().map(|a| a.name.as_str()).collect()
+    }
+
+    #[test]
+    fn a_case_only_attachment_clash_conflicts() {
+        let base = meta();
+        let (upper, lower) = (with(&["A.png"]), with(&["a.png"]));
+        assert!(three_way(&base, &upper, &lower).is_none());
+        assert!(three_way(&base, &lower, &upper).is_none());
+    }
+
+    #[test]
+    fn the_same_attachment_with_another_case_on_one_side_is_one_entry() {
+        let (base, ours, theirs) = (with(&["a.png"]), with(&["A.png"]), with(&["a.png"]));
+        let m = three_way(&base, &ours, &theirs).unwrap();
+        assert_eq!(names(&m), ["A.png"]);
+    }
+
+    #[test]
+    fn a_task_holding_both_spellings_keeps_them_apart() {
+        let base = with(&["A.png", "a.png"]);
+        let drop_lower = with(&["A.png"]);
+        let drop_upper = with(&["a.png"]);
+        for (ours, theirs) in [(&drop_lower, &base), (&base, &drop_lower)] {
+            assert_eq!(names(&three_way(&base, ours, theirs).unwrap()), ["A.png"]);
+        }
+        for (ours, theirs) in [(&drop_upper, &base), (&base, &drop_upper)] {
+            assert_eq!(names(&three_way(&base, ours, theirs).unwrap()), ["a.png"]);
         }
     }
 

@@ -427,7 +427,7 @@ fn scalar_value(rest: &str, lines: &[&str], i: &mut usize) -> Result<String> {
 /// carried by the more-indented lines that follow.
 fn opt_scalar_value(rest: &str, lines: &[&str], i: &mut usize) -> Result<Option<String>> {
     if let Some(block) = block_header(rest) {
-        return Ok(Some(read_block(block, lines, i, 0)));
+        return Ok(Some(read_block(block, lines, i, 0)?));
     }
     if rest.trim().is_empty() {
         skip_block(lines, i);
@@ -479,19 +479,19 @@ fn block_header(rest: &str) -> Option<BlockHeader> {
 /// Every following line more indented than `parent`, dedented by the smallest
 /// indentation among them — which is the block's own indentation, whether or
 /// not the header spelled it out.
-fn read_block(header: BlockHeader, lines: &[&str], i: &mut usize, parent: usize) -> String {
-    let mut raw: Vec<&str> = Vec::new();
+fn read_block(header: BlockHeader, lines: &[&str], i: &mut usize, parent: usize) -> Result<String> {
+    let mut raw: Vec<(usize, &str)> = Vec::new();
     while *i < lines.len() {
         let line = lines[*i];
         if reads_blank(line) {
-            raw.push("");
+            raw.push((*i, ""));
             *i += 1;
             continue;
         }
         if indent_of(line) <= parent {
             break;
         }
-        raw.push(line);
+        raw.push((*i, line));
         *i += 1;
     }
     // An explicit indicator wins: it is there precisely because the body's own
@@ -500,19 +500,37 @@ fn read_block(header: BlockHeader, lines: &[&str], i: &mut usize, parent: usize)
         Some(n) => parent + n,
         None => raw
             .iter()
-            .filter(|l| !reads_blank(l))
-            .map(|l| indent_of(l))
+            .filter(|(_, l)| !reads_blank(l))
+            .map(|(_, l)| indent_of(l))
             .min()
             .unwrap_or(0),
     };
+    if header.indent.is_some() {
+        for &(idx, l) in &raw {
+            if !reads_blank(l) && indent_of(l) < base {
+                bail!(
+                    "line {} is indented less than its block's indentation indicator",
+                    idx + 1
+                );
+            }
+        }
+    }
     let mut blanks = 0;
-    while raw.last().is_some_and(|l| reads_blank(l)) {
+    while raw.last().is_some_and(|(_, l)| reads_blank(l)) {
         raw.pop();
         blanks += 1;
     }
+    // `indent_of` counts ASCII spaces only, so `base` is always a char boundary
+    // of a non-blank line.
     let body: Vec<String> = raw
         .iter()
-        .map(|l| l[base.min(l.len())..].to_string())
+        .map(|&(_, l)| {
+            if reads_blank(l) {
+                String::new()
+            } else {
+                l[base..].to_string()
+            }
+        })
         .collect();
     let mut text = if header.folded {
         fold(&body)
@@ -535,40 +553,127 @@ fn read_block(header: BlockHeader, lines: &[&str], i: &mut usize, parent: usize)
             }
         }
     }
-    text
+    Ok(text)
 }
 
-/// Folded style: a single newline between non-empty lines becomes a space.
+/// Folded style, libyaml's rule. A line is "normal" when it is non-empty and
+/// does not start with a space or tab. Between two normal lines the break
+/// becomes a space; a normal line followed by empty lines and then another
+/// normal line loses its own break (the empty lines each stay one newline);
+/// every other break, next to a more-indented line or at the ends, is kept.
 fn fold(body: &[String]) -> String {
+    let normal = |l: &String| !l.is_empty() && !l.starts_with([' ', '\t']);
     let mut out = String::new();
     for (n, line) in body.iter().enumerate() {
-        if n == 0 {
-            out.push_str(line);
-            continue;
+        if n > 0 {
+            let prev = &body[n - 1];
+            if normal(prev) && normal(line) {
+                out.push(' ');
+            } else if normal(prev) && line.is_empty() {
+                let next = body[n..].iter().find(|l| !l.is_empty());
+                if !next.is_some_and(normal) {
+                    out.push('\n');
+                }
+            } else {
+                out.push('\n');
+            }
         }
-        if line.is_empty() || out.ends_with('\n') {
-            out.push('\n');
-            out.push_str(line);
-        } else {
-            out.push(' ');
-            out.push_str(line);
-        }
+        out.push_str(line);
     }
     out
 }
 
+/// A flow sequence `[a, b]` on one line, optionally followed by a comment.
+/// `None` when `rest` is not one. Items are split on every `,` before they
+/// are unquoted, so a quoted item cannot hold a comma.
+fn flow_items(rest: &str) -> Result<Option<Vec<String>>> {
+    let Some(body) = rest.strip_prefix('[') else {
+        return Ok(None);
+    };
+    let b = body.as_bytes();
+    let mut k = 0;
+    let mut close = None;
+    // A quote opens a quoted scalar only at an item's first non-space byte;
+    // mid-word (`it's`) it is a plain character.
+    let mut item_start = true;
+    while k < b.len() {
+        let at_start = std::mem::replace(&mut item_start, false);
+        match b[k] {
+            b' ' | b'\t' => {
+                item_start = at_start;
+                k += 1;
+            }
+            b',' => {
+                item_start = true;
+                k += 1;
+            }
+            q @ (b'\'' | b'"') if at_start => {
+                let inner = &body[k + 1..];
+                match closing_quote(inner, q as char) {
+                    Some(end) => k += end + 2,
+                    None => break,
+                }
+            }
+            b']' => {
+                close = Some(k);
+                break;
+            }
+            _ => k += 1,
+        }
+    }
+    let Some(close) = close else {
+        bail!("unterminated flow sequence: {rest}");
+    };
+    let after = &body[close + 1..];
+    let comment = after.starts_with([' ', '\t']) && after.trim_start().starts_with('#');
+    if !after.is_empty() && !comment {
+        bail!("text after the closing bracket of a flow sequence: {rest}");
+    }
+    body[..close]
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(read_scalar)
+        .collect::<Result<Vec<_>>>()
+        .map(Some)
+}
+
+/// The next `- ` item of a block sequence starting at `*i`: skips blank and
+/// comment lines, fixes the item indentation on the first item, and stops
+/// (returns `None` without consuming) at a line that is not an item at that
+/// indentation. On `Some((indent, text))` `*i` is past the item's own line;
+/// `text` is what follows `- ` (empty for a bare `-`).
+fn next_item<'a>(
+    lines: &[&'a str],
+    i: &mut usize,
+    item_indent: &mut Option<usize>,
+) -> Option<(usize, &'a str)> {
+    while *i < lines.len() {
+        let line = lines[*i];
+        if is_blank(line) {
+            *i += 1;
+            continue;
+        }
+        let ind = indent_of(line);
+        if ind != *item_indent.get_or_insert(ind) {
+            return None;
+        }
+        let bare = line.trim_start();
+        let item = match bare.strip_prefix("- ") {
+            Some(item) => item,
+            None if bare == "-" => "",
+            None => return None,
+        };
+        *i += 1;
+        return Some((ind, item));
+    }
+    None
+}
+
 fn seq_value(rest: &str, lines: &[&str], i: &mut usize) -> Result<Vec<String>> {
     let rest = rest.trim();
-    if rest == "[]" {
-        return Ok(Vec::new());
-    }
-    if let Some(inner) = rest.strip_prefix('[').and_then(|r| r.strip_suffix(']')) {
-        return inner
-            .split(',')
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(read_scalar)
-            .collect();
+    if let Some(items) = flow_items(rest)? {
+        return Ok(items);
     }
     if !rest.is_empty() {
         // A bare scalar where a list belongs; take it as a one-element list.
@@ -578,25 +683,9 @@ fn seq_value(rest: &str, lines: &[&str], i: &mut usize) -> Result<Vec<String>> {
     // A block sequence may be written flush with its key or indented under it;
     // whichever the first item uses is what the rest have to match.
     let mut item_indent: Option<usize> = None;
-    while *i < lines.len() {
-        let line = lines[*i];
-        if is_blank(line) {
-            *i += 1;
-            continue;
-        }
-        let ind = indent_of(line);
-        if ind != *item_indent.get_or_insert(ind) {
-            break;
-        }
-        let bare = line.trim_start();
-        let item = match bare.strip_prefix("- ") {
-            Some(item) => item,
-            None if bare == "-" => "",
-            None => break,
-        };
-        *i += 1;
+    while let Some((ind, item)) = next_item(lines, i, &mut item_indent) {
         match block_header(item) {
-            Some(h) => out.push(read_block(h, lines, i, ind)),
+            Some(h) => out.push(read_block(h, lines, i, ind)?),
             None => out.push(read_scalar(item)?),
         }
     }
@@ -604,7 +693,7 @@ fn seq_value(rest: &str, lines: &[&str], i: &mut usize) -> Result<Vec<String>> {
 }
 
 fn attachments_value(rest: &str, lines: &[&str], i: &mut usize) -> Result<Vec<Attachment>> {
-    if rest.trim() == "[]" {
+    if strip_comment(rest.trim()).trim_end() == "[]" {
         return Ok(Vec::new());
     }
     if !rest.trim().is_empty() {
@@ -612,30 +701,14 @@ fn attachments_value(rest: &str, lines: &[&str], i: &mut usize) -> Result<Vec<At
     }
     let mut out = Vec::new();
     let mut item_indent: Option<usize> = None;
-    while *i < lines.len() {
-        let line = lines[*i];
-        if is_blank(line) {
-            *i += 1;
-            continue;
-        }
-        let ind = indent_of(line);
-        if ind != *item_indent.get_or_insert(ind) {
-            break;
-        }
-        let bare = line.trim_start();
-        let first = match bare.strip_prefix("- ") {
-            Some(f) => f,
-            None if bare == "-" => "",
-            None => break,
-        };
-        *i += 1;
+    while let Some((ind, first)) = next_item(lines, i, &mut item_indent) {
         let mut fields: Vec<(String, String)> = Vec::new();
         if !first.trim().is_empty() {
             let (k, v) = split_key(first, *i)?;
             // The mapping inside a `- ` item starts one level in, so that is
             // what a block scalar here has to out-indent.
             let value = match block_header(v) {
-                Some(h) => read_block(h, lines, i, ind + STEP),
+                Some(h) => read_block(h, lines, i, ind + STEP)?,
                 None => read_scalar(v)?,
             };
             fields.push((k, value));
@@ -655,7 +728,7 @@ fn attachments_value(rest: &str, lines: &[&str], i: &mut usize) -> Result<Vec<At
             let cont_indent = indent_of(cont);
             *i += 1;
             let value = match block_header(v) {
-                Some(h) => read_block(h, lines, i, cont_indent),
+                Some(h) => read_block(h, lines, i, cont_indent)?,
                 None => read_scalar(v)?,
             };
             fields.push((k, value));
@@ -669,14 +742,17 @@ fn attachments_value(rest: &str, lines: &[&str], i: &mut usize) -> Result<Vec<At
                 .find(|(k, _)| k == name)
                 .map(|(_, v)| v.clone())
         };
-        let (Some(path), Some(name)) = (get("path"), get("name")) else {
+        let (Some(_), Some(name)) = (get("path"), get("name")) else {
             bail!("an attachment is missing `path` or `name`");
         };
         let Some(added) = get("added") else {
             bail!("attachment {name} is missing `added`");
         };
+        // `path` must be present but is not read: storage.md says it is always
+        // `f/<name>` and every reader locates the file by `name`. Refusing a
+        // mismatch would turn a cosmetic hand edit into a broken task.
         out.push(Attachment {
-            path,
+            path: format!("{}/{}", crate::task::FILES_DIR, name),
             name,
             added: timestamp(&added, "added")?,
             by: get("by").unwrap_or_default(),
@@ -856,6 +932,22 @@ mod tests {
     }
 
     #[test]
+    fn an_attachment_path_is_derived_from_its_name() {
+        let doc = |path: &str| {
+            let mut text = render(&meta());
+            text = text.replace("path: f/screenshot.png", &format!("path: {path}"));
+            parse(&text).unwrap()
+        };
+        for path in ["f/other.png", "elsewhere/screenshot.png"] {
+            let m = doc(path);
+            assert_eq!(m.attachments[0].path, "f/screenshot.png");
+            assert!(render(&m).contains("- path: f/screenshot.png"));
+        }
+        let text = render(&meta());
+        assert_eq!(render(&parse(&text).unwrap()), text);
+    }
+
+    #[test]
     fn renders_the_documented_shape() {
         assert_eq!(
             render(&meta()),
@@ -946,6 +1038,7 @@ mod tests {
             // A blank assignee reads back as unassigned by design.
             m.assignee = (!crate::task::is_unassigned(value)).then(|| value.to_string());
             m.attachments[0].name = value.to_string();
+            m.attachments[0].path = format!("f/{value}");
             m.links = vec![value.to_string()];
             let text = render(&m);
             let back = parse(&text).unwrap_or_else(|e| panic!("{value:?}: {e:#}\n{text}"));
@@ -1108,6 +1201,94 @@ updated: 2026-09-16T10:00:00Z
             let text =
                 format!("{bad}\ncreated: 2026-09-16T10:00:00Z\nupdated: 2026-09-16T10:00:00Z\n");
             assert!(parse(&text).is_err(), "{bad}");
+        }
+    }
+
+    fn with_stamps(head: &str) -> String {
+        let status = if head.contains("status:") {
+            ""
+        } else {
+            "status: todo\n"
+        };
+        format!("{status}{head}\ncreated: 2026-09-16T10:00:00Z\nupdated: 2026-09-16T10:00:00Z\n")
+    }
+
+    #[test]
+    fn an_indentation_indicator_past_the_text_is_an_error() {
+        let msg = "line 2 is indented less than its block's indentation indicator";
+        for bad in ["status: |3\n  я", "status: |3\n  ab"] {
+            let err = parse(&with_stamps(bad)).unwrap_err();
+            assert_eq!(err.to_string(), msg, "{bad}");
+        }
+        assert!(parse(&with_stamps("tags:\n- |4\n  я")).is_err());
+        for ok in ["status: |2\n   x", "status: |1\n  x"] {
+            assert_eq!(parse(&with_stamps(ok)).unwrap().status, " x\n", "{ok}");
+        }
+    }
+
+    #[test]
+    fn a_flow_sequence_may_carry_a_comment() {
+        let m = parse(&with_stamps("tags: [a, b]  # c")).unwrap();
+        assert_eq!(m.tags, ["a", "b"]);
+        let m = parse(&with_stamps("related: [] # x")).unwrap();
+        assert!(m.related.is_empty());
+        let m = parse(&with_stamps("links: ['a]b', \"c\"] # z")).unwrap();
+        assert_eq!(m.links, ["a]b", "c"]);
+        let m = parse(&with_stamps("tags: ['a #b']")).unwrap();
+        assert_eq!(m.tags, ["a #b"]);
+        let m = parse(&with_stamps("attachments: [] # x")).unwrap();
+        assert!(m.attachments.is_empty());
+        let m = parse(&with_stamps("tags: [it's, b]")).unwrap();
+        assert_eq!(m.tags, ["it's", "b"]);
+        let m = parse(&with_stamps("tags: [a\"b, 'c']")).unwrap();
+        assert_eq!(m.tags, ["a\"b", "c"]);
+        let err = parse(&with_stamps("tags: [a, b] x")).unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "text after the closing bracket of a flow sequence: [a, b] x"
+        );
+        assert!(parse(&with_stamps("tags: [a, b]#c")).is_err());
+        let err = parse(&with_stamps("tags: [a, b")).unwrap_err();
+        assert_eq!(err.to_string(), "unterminated flow sequence: [a, b");
+    }
+
+    #[test]
+    fn folded_blocks_fold_like_yaml() {
+        let fold = |body: &str| {
+            parse(&with_stamps(&format!("assignee: >-\n{body}")))
+                .unwrap()
+                .assignee
+                .unwrap()
+        };
+        assert_eq!(fold("  a\n\n  b"), "a\nb");
+        assert_eq!(fold("  a\n\n\n  b"), "a\n\nb");
+        assert_eq!(fold("  a\n  b"), "a b");
+        assert_eq!(fold("  a\n    x\n  b"), "a\n  x\nb");
+        assert_eq!(fold("  a\n\n    x"), "a\n\n  x");
+        assert_eq!(fold("\n  a"), "\na");
+    }
+
+    #[test]
+    fn both_sequence_readers_share_item_rules() {
+        let text = with_stamps(
+            "tags:\n  - a\n# comment\n  -\n  - b\nattachments:\n  - path: p\n# comment\n    name: n\n    added: 2026-09-16T10:00:00Z\n  - path: q\n    name: m\n    added: 2026-09-16T10:00:00Z",
+        );
+        let m = parse(&text).unwrap();
+        assert_eq!(m.tags, ["a", "", "b"]);
+        assert_eq!(m.attachments.len(), 2);
+        for key in ["tags", "attachments"] {
+            let item = if key == "tags" {
+                "x"
+            } else {
+                "path: p\n    name: n\n    added: 2026-09-16T10:00:00Z"
+            };
+            let text = with_stamps(&format!("{key}:\n  - {item}\n- x"));
+            let err = parse(&text).unwrap_err();
+            assert!(
+                err.to_string()
+                    .starts_with("unexpected indentation on line"),
+                "{key}"
+            );
         }
     }
 

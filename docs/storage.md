@@ -252,8 +252,12 @@ behave differently off Linux and is not checked:
   prefixes are not lowercased, though. `attach` compares names ignoring case,
   so it never creates `A.png` beside `a.png`, and `attach --force a.png` over
   an existing `A.png` replaces the file, the entry and the index path (the old
-  spelling is dropped from the index first, so a case-only change reaches every clone). A hand edit or a
-  merge can still bring two such files together. Two prefixes that differ only in case (`IV` and `iv`) mint
+  spelling is dropped from the index first, so a case-only change reaches every clone). A hand edit can
+  still bring two such entries together; a merge cannot, since the `m.yml`
+  driver treats them as one entry and conflicts (see
+  [Merging `m.yml`](#merging-myml)). The files themselves still merge side by
+  side under `f/`, so after resolving the conflict the dropped spelling's file
+  is left unlisted until removed. Two prefixes that differ only in case (`IV` and `iv`) mint
   ids that name distinct folders on Linux and can fold into one elsewhere.
 - **Unicode normalization.** HFS+ stores names in NFD; APFS, the macOS default
   since 2017, keeps whatever form it is given. A Cyrillic slug minted on Linux
@@ -309,7 +313,12 @@ related:
 - Every field but `status`, `created` and `updated` defaults to empty.
 - Timestamps are RFC 3339, UTC, **second precision** (`task::now()` zeroes the
   nanoseconds), serialized with a `Z` suffix.
-- `attachments[].path` is always `f/<name>`.
+- `attachments[].path` is always `f/<name>`. The reader enforces it: `path`
+  is derived from `name` and whatever a hand edit wrote there is ignored, so
+  `name` is an attachment's identity and the next write corrects the file. A
+  `name` that is not a single plain file name (empty, `.`, `..`, or containing
+  `/` or `\`) is kept as read, but `show` reports it missing and `detach`
+  refuses it, so nothing outside `f/` is ever touched.
 - `tags` entries written by yman are trimmed, lowercased and free of
   whitespace, commas and control characters (see
   [commands.md §4](commands.md#add)). The reader enforces none of that: a
@@ -345,15 +354,24 @@ related:
   too, `status: 'todo'  # x`), flow sequences (`tags: [a, b]`), single- and
   double-quoted scalars with the full libyaml escape set (`\a \b \v \f \N
   \_ \L \P` included), folded blocks (`>-`) and sequences indented under
-  their key are all accepted. A key repeated at
-  the top level or inside an `attachments` item keeps its **last** occurrence,
+  their key are all accepted. A flow sequence may be followed by a comment
+  (`tags: [a, b]  # note`), and folded blocks fold as YAML does: a single
+  line break becomes a space, a blank line becomes one newline, and lines
+  indented further keep their breaks. One difference from libyaml: a
+  whitespace-only line is read as a blank line even when it has more spaces
+  than the block indent (libyaml keeps it as more-indented content). An
+  explicit block indentation indicator larger than the text's indentation
+  (`|3` over two spaces) is a parse error. A key repeated at the top level
+  or inside an `attachments` item keeps its **last** occurrence,
   which is the half of a conflict a person usually means to keep. An
   `assignee` that is blank or `-` reads as absent, so a hand edit to `''` and
   the `-` an older `set -a -` stored both mean unassigned.
 - A flow sequence is split on every `,` before its items are unquoted, so a
   quoted item cannot contain a comma: `tags: ['a,b']` is rejected with
   `unterminated single-quoted string: 'a` (and `["a,b"]` with its
-  double-quoted counterpart). The writer never produces flow form, so this
+  double-quoted counterpart). A flow sequence with no closing `]`, or with
+  anything but a comment after it, is rejected (`unterminated flow sequence:
+  …`, `text after the closing bracket of a flow sequence: …`). The writer never produces flow form, so this
   only bites a hand edit; write such an item as a block sequence
   (`- 'a,b'`) instead.
 - A `status` outside `config.statuses.list` is reported, never a hard error, so
@@ -398,10 +416,12 @@ A list is merged one entry at a time, so a tag added on each clone keeps both.
 Each entry is the same three-way decision as a scalar, over "is it there, and
 with what value": added on one side stays, removed on one side goes, and only an
 entry *changed* differently on both sides conflicts. Entries are identified by
-themselves for `tags`, `links` and `related`, by `path` for `attachments`, and
+themselves for `tags`, `links` and `related`, by `name` ignoring case (the comparison `attach` uses) for `attachments`, and
 by the top-level key for an unknown block — so two clones attaching different
-files under one name, or writing the same unknown key with different text, do
-conflict.
+files under one name, two clones attaching `A.png` and `a.png`, or writing the same unknown key with different text, do
+conflict. A task that already holds both spellings in one list, which only a
+hand edit or a yman older than case-folding `attach` could produce, keeps them
+as two entries keyed by exact name; `detach` one of them to clean it up.
 
 The result's **order** is the one thing the driver cannot take from either side.
 Git hands `%A` and `%B` over the other way round on the other clone, so anything

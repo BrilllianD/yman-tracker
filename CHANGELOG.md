@@ -9,6 +9,17 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- Two clones attaching the same name in different case (`A.png` and `a.png`)
+  now conflict on `sync` instead of merging into two entries that `attach`
+  itself would refuse, and an attachment `path` that a hand edit changed is
+  read as `f/<name>`, the file `show` and `detach` actually use. An attachment
+  `name` such as `../t.md` can no longer make `show` or `detach` reach outside
+  `f/`: `show` lists it as missing and `detach` refuses it.
+- A hand-edited `m.yml` no longer crashes `ls` and the merge driver with a
+  block indentation indicator larger than the text's indentation (`|3`);
+  `tags: [a, b]  # note` reads as two tags instead of storing `'[a, b]'` on
+  the next write (`related: [] # x` likewise); and folded blocks (`>`) no
+  longer add a blank line at each paragraph break.
 - The user's git configuration no longer changes what yman's own git calls do:
   `color.*`, `log.decorate` and `log.showSignature` cannot leak into
   `yman log`, `status.showUntrackedFiles=no` no longer hides hand-made files

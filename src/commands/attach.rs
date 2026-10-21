@@ -47,7 +47,10 @@ pub fn run(ctx: &mut Context, a: AttachArgs) -> Result<()> {
         // `--force` replaces an attachment already on the task; it cannot
         // make two of this call's files one. Case-folded, because on macOS
         // and Windows `a.png` and `A.png` are one file.
-        if plan.iter().any(|(_, n, _, _)| fold(n) == fold(&name)) {
+        if plan
+            .iter()
+            .any(|(_, n, _, _)| task::fold_name(n) == task::fold_name(&name))
+        {
             bail!("attachment \"{name}\" given more than once");
         }
         // The entry and the file are checked alike: an entry whose file is
@@ -56,7 +59,7 @@ pub fn run(ctx: &mut Context, a: AttachArgs) -> Result<()> {
             .meta
             .attachments
             .iter()
-            .any(|x| fold(&x.name) == fold(&name))
+            .any(|x| task::fold_name(&x.name) == task::fold_name(&name))
             || !same_name_files(&fdir, &name)?.is_empty();
         if taken && !a.force {
             bail!(
@@ -95,7 +98,7 @@ pub fn run(ctx: &mut Context, a: AttachArgs) -> Result<()> {
             .meta
             .attachments
             .iter()
-            .position(|x| fold(&x.name) == fold(name))
+            .position(|x| task::fold_name(&x.name) == task::fold_name(name))
         {
             Some(i) => t.meta.attachments[i] = entry,
             None => t.meta.attachments.push(entry),
@@ -260,10 +263,6 @@ fn aside_name(fdir: &Path, name: &str) -> PathBuf {
     }
 }
 
-fn fold(name: &str) -> String {
-    name.to_lowercase()
-}
-
 /// Files under `f/` whose name equals `name` ignoring case.
 fn same_name_files(fdir: &Path, name: &str) -> Result<Vec<String>> {
     let entries = match std::fs::read_dir(fdir) {
@@ -274,7 +273,7 @@ fn same_name_files(fdir: &Path, name: &str) -> Result<Vec<String>> {
     let mut out = Vec::new();
     for entry in entries {
         let n = entry?.file_name().to_string_lossy().into_owned();
-        if fold(&n) == fold(name) {
+        if task::fold_name(&n) == task::fold_name(name) {
             out.push(n);
         }
     }
@@ -330,19 +329,26 @@ pub fn run_detach(ctx: &mut Context, a: DetachArgs) -> Result<()> {
     // so a task that holds both spellings from before `attach` case-folded
     // can lose either one.
     let atts = &t.meta.attachments;
-    let found = atts
-        .iter()
-        .position(|x| x.name == a.name)
-        .or_else(|| atts.iter().position(|x| fold(&x.name) == fold(&a.name)));
+    let found = atts.iter().position(|x| x.name == a.name).or_else(|| {
+        atts.iter()
+            .position(|x| task::fold_name(&x.name) == task::fold_name(&a.name))
+    });
     let Some(i) = found else {
         bail!("no attachment \"{}\" on task {}", a.name, t.id());
     };
     // Everything below uses the stored spelling, not the typed one: that is
     // the file git tracks.
     let name = t.meta.attachments[i].name.clone();
+    let Some(file) = t.attachment_path(&t.meta.attachments[i]) else {
+        bail!(
+            "task {} has an attachment named \"{}\", which is not a plain file name; edit m.yml by hand",
+            t.id(),
+            name
+        );
+    };
     let rel = format!("{}/{}/{}", t.rel(), task::FILES_DIR, name);
     // A listed attachment whose file is already gone just loses its entry.
-    if t.attachment_path(&t.meta.attachments[i]).exists() {
+    if file.exists() {
         ctx.wt.ok(&["rm", "-q", "--", &rel])?;
     }
     t.meta.attachments.remove(i);
