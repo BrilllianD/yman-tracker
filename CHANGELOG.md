@@ -9,6 +9,9 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- `init` in a clone with no local tracker no longer adopts a
+  `refs/yman/remote` that origin has since deleted; like `sync`, it drops the
+  stale ref with a warning and creates a fresh tracker.
 - Two clones attaching the same name in different case (`A.png` and `a.png`)
   now conflict on `sync` instead of merging into two entries that `attach`
   itself would refuse, and an attachment `path` that a hand edit changed is

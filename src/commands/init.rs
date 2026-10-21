@@ -1,11 +1,10 @@
 use crate::cli::InitArgs;
 use crate::config::{Config, Scheme};
 use crate::hooks;
-use crate::repo::{Context, FETCH_REFSPEC, LOCAL, REMOTE, REMOTE_REF, YDIR_NAME, YdirState};
+use crate::repo::{Context, LOCAL, REMOTE, REMOTE_REF, YDIR_NAME, YdirState};
 use crate::task;
+use crate::transport::{self, PUSH_ATTEMPTS, PushResult, push};
 use anyhow::{Result, bail};
-
-use super::sync::{PUSH_ATTEMPTS, PushResult, push};
 
 const GITIGNORE: &str = "*.swp\n*~\n.#*\n*.orig\n";
 const GITATTRIBUTES: &str = "**/d.md merge=union\n**/m.yml merge=ymanmeta\n";
@@ -54,7 +53,7 @@ pub fn run(ctx: &mut Context, a: InitArgs) -> Result<()> {
     register_merge_driver(ctx)?;
 
     if !offline {
-        fetch_tasks(ctx, "fetch failed (see above); use --offline to skip")?;
+        transport::fetch(ctx, "fetch failed (see above); use --offline to skip")?;
     }
 
     // Where does the new worktree start, and whose history is it?
@@ -131,7 +130,7 @@ fn publish_fresh(ctx: &mut Context) -> Result<Option<anyhow::Error>> {
             Ok(_) => return Ok(None),
             Err(e) => return Ok(Some(e)),
         }
-        if let Err(e) = fetch_tasks(ctx, "fetch failed") {
+        if let Err(e) = transport::fetch(ctx, "fetch failed") {
             return Ok(Some(e));
         }
         if ctx.main.rev_parse(REMOTE)?.is_some() {
@@ -259,28 +258,6 @@ fn resolve_remote(ctx: &Context, requested: Option<&str>) -> Result<Option<Strin
             Ok(None)
         }
     }
-}
-
-/// Fetch `refs/tasks/main`. A remote that simply has no tasks yet is not an
-/// error; anything else is.
-fn fetch_tasks(ctx: &Context, failure_msg: &str) -> Result<()> {
-    // `FETCH_HEAD` is the user's; see `sync::fetch`.
-    // The user's hooks, a `reference-transaction` one included, are not for
-    // yman's own refs.
-    let out = ctx.main.without_hooks().run(&[
-        "fetch",
-        "--no-write-fetch-head",
-        "origin",
-        FETCH_REFSPEC,
-    ])?;
-    if out.ok() {
-        return Ok(());
-    }
-    if out.stderr.contains("couldn't find remote ref") {
-        return Ok(());
-    }
-    eprint!("{}", out.stderr);
-    bail!("{failure_msg}")
 }
 
 /// `.yman` is added with `--detach`, and git guards only branches against a

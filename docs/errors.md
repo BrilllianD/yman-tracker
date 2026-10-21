@@ -180,7 +180,7 @@ Never fatal, always stderr:
 | `warning: origin already points at <url>; --remote ignored` | `init --remote <url>` where origin already exists with a different URL; the same URL is accepted silently |
 | `warning: remote already had tasks; adopted remote state` | two clones initialized the tracker at once |
 | `warning: not published to origin (<why>); run: yman sync` | a fresh `init` created the tracker but its push failed (`push failed`, after git's stderr), lost the race three times (`origin keeps moving`) or lost it and then failed the refetch (`fetch failed`, after git's stderr); hooks and the summary still follow, exit 0 |
-| `warning: refs/tasks/main disappeared from origin; will recreate it` | the ref was deleted server-side |
+| `warning: refs/tasks/main disappeared from origin; will recreate it` | the ref was deleted server-side (`sync`, or `init` with no local tracker) |
 | `warning: <name> is N MiB; git is not great at large binaries` | attaching a file over 5 MiB |
 | `warning: installing into core.hooksPath=<p>` | hooks redirected away from `.git/hooks` (a whitespace-only value included, untrimmed); `<p>` is the directory as git resolves it (`~/` expanded, a relative value joined onto the toplevel) |
 | `warning: cannot read <path>: <why>` | `hooks status` or `hooks remove` met a hook it cannot read; it reports the hook as `unreadable` and leaves it alone |

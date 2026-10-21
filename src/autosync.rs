@@ -8,8 +8,8 @@
 //! stop on a conflict and leave every later mutation exiting 3; when origin has
 //! moved, the user gets pointed at `yman sync` instead.
 
-use crate::commands::sync::{PushResult, push};
 use crate::repo::{Context, LOCAL, REMOTE};
+use crate::transport::{PushResult, push};
 use anyhow::Result;
 
 /// Is the push policy in effect? Unset, `off` or anything else counts as off.

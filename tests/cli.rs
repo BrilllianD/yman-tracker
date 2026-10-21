@@ -1471,6 +1471,40 @@ fn sync_leaves_fetch_head_alone() {
     assert_eq!(fx.read(&fx.b.join(".git/FETCH_HEAD")), "sentinel\n");
 }
 
+/// `init` fetches the way `sync` does: a `refs/yman/remote` that origin has
+/// since deleted is dropped, not adopted as the new tracker.
+#[test]
+fn init_drops_a_remote_ref_origin_deleted() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).arg("init").assert().success();
+
+    fx.git(&fx.remote, &["update-ref", "-d", "refs/tasks/main"]);
+    std::fs::remove_dir_all(fx.b.join(".yman")).unwrap();
+    fx.git(&fx.b, &["worktree", "prune"]);
+    fx.git(&fx.b, &["update-ref", "-d", "refs/yman/local"]);
+    assert!(
+        fx.git_try(&fx.b, &["rev-parse", "--verify", "-q", "refs/yman/remote"])
+            .0
+    );
+
+    let out = fx.yman(&fx.b).arg("init").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert!(
+        stderr(&out)
+            .contains("warning: refs/tasks/main disappeared from origin; will recreate it\n"),
+        "{}",
+        stderr(&out)
+    );
+    assert!(fx.task_dirs(&fx.b).is_empty());
+    assert_eq!(
+        fx.git(&fx.remote, &["rev-list", "--count", "refs/tasks/main"]),
+        "2"
+    );
+}
+
 /// A committed symlink loop under a task folder must not send the marker
 /// scan of `sync --continue` round in circles; the summary counts what the
 /// merge pulled.
