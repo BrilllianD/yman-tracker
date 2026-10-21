@@ -150,11 +150,11 @@ pub fn dispatch(ctx: &mut Context, cmd: Cmd) -> Result<()> {
         Cmd::Status(a) => status::run(ctx, a),
         Cmd::Tags(a) => tags::run(ctx, a),
         Cmd::State(a) => state::run(ctx, a),
-        Cmd::Guide => guide::run(),
-        Cmd::Completions(a) => completions::run(a),
-        Cmd::Man(a) => completions::run_man(a),
-        // `main` answers this one before discovery; it never reaches dispatch.
-        Cmd::MergeDriver(_) => unreachable!("merge-driver is dispatched in main"),
+        // `main` answers documentation commands and `merge-driver` before
+        // discovery; they never reach dispatch.
+        Cmd::Guide | Cmd::Completions(_) | Cmd::Man(_) | Cmd::MergeDriver(_) => {
+            unreachable!("main answers documentation commands and merge-driver before discovery")
+        }
         Cmd::Refresh(a) => refresh::run(ctx, a),
         Cmd::Hooks(a) => hooks::run(ctx, a),
         Cmd::Sync(a) => sync::run(ctx, a),

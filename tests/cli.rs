@@ -2153,6 +2153,40 @@ fn a_conflicted_config_toml_keeps_exit_3_and_abort() {
 }
 
 #[test]
+fn every_mutating_command_exits_3_during_a_merge() {
+    let fx = Fx::new();
+    conflict_in_config_toml(&fx);
+    let wt = fx.b.join(".yman");
+    let head = fx.git(&wt, &["rev-parse", "HEAD"]);
+
+    let table: [&[&str]; 16] = [
+        &["add", "Nope"],
+        &["edit", "1"],
+        &["set", "1", "--title", "X"],
+        &["start", "1"],
+        &["done", "1"],
+        &["move", "1", "doing"],
+        &["cancel", "1"],
+        &["reopen", "1"],
+        &["prio", "1", "2"],
+        &["rm", "-f", "1"],
+        &["attach", "1", "x.txt"],
+        &["detach", "1", "x.txt"],
+        &["comment", "1", "-m", "x"],
+        &["tags", "rename", "a", "b"],
+        &["tags", "rm", "-f", "a"],
+        &["state", "set", "-m", "x"],
+    ];
+    for argv in table {
+        let out = fx.yman(&fx.b).args(argv).output().unwrap();
+        assert_eq!(out.status.code(), Some(3), "{argv:?}: {}", stderr(&out));
+        assert_eq!(stderr(&out), MERGE_PENDING, "{argv:?}");
+        assert_eq!(stdout(&out), "", "{argv:?}");
+    }
+    assert_eq!(fx.git(&wt, &["rev-parse", "HEAD"]), head);
+}
+
+#[test]
 fn a_conflicted_config_toml_can_be_continued() {
     let fx = Fx::new();
     conflict_in_config_toml(&fx);

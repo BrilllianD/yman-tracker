@@ -560,8 +560,12 @@ pub struct MergeDriverArgs {
 }
 
 impl Cmd {
-    /// Commands that mutate the task history (preflight refuses while a sync
-    /// merge is unresolved).
+    /// Commands that mutate the task history: preflight refuses them while a
+    /// sync merge is unresolved, and they are the ones that autosync after
+    /// they succeed.
+    ///
+    /// The match is exhaustive on purpose: a new command does not compile
+    /// until someone decides which side of the line it is on.
     pub fn is_mutating(&self) -> bool {
         match self {
             // `tags` is two commands sharing a name: the bare form is a
@@ -569,22 +573,37 @@ impl Cmd {
             // `ls`, while its subcommands rewrite every task carrying a tag.
             Cmd::Tags(a) => a.action.is_some(),
             Cmd::State(a) => a.action.is_some(),
-            _ => matches!(
-                self,
-                Cmd::Add(_)
-                    | Cmd::Edit(_)
-                    | Cmd::Set(_)
-                    | Cmd::Start(_)
-                    | Cmd::Done(_)
-                    | Cmd::Move(_)
-                    | Cmd::Cancel(_)
-                    | Cmd::Reopen(_)
-                    | Cmd::Prio(_)
-                    | Cmd::Rm(_)
-                    | Cmd::Attach(_)
-                    | Cmd::Detach(_)
-                    | Cmd::Comment(_)
-            ),
+            Cmd::Add(_)
+            | Cmd::Edit(_)
+            | Cmd::Set(_)
+            | Cmd::Start(_)
+            | Cmd::Done(_)
+            | Cmd::Move(_)
+            | Cmd::Cancel(_)
+            | Cmd::Reopen(_)
+            | Cmd::Prio(_)
+            | Cmd::Rm(_)
+            | Cmd::Attach(_)
+            | Cmd::Detach(_)
+            | Cmd::Comment(_) => true,
+            // Readers; `sync` handles `MERGE_HEAD` itself; `init`, `hooks`
+            // and `git` sit outside preflight; documentation and
+            // `merge-driver` are answered before discovery.
+            Cmd::Init(_)
+            | Cmd::Ls(_)
+            | Cmd::Show(_)
+            | Cmd::Plan(_)
+            | Cmd::Path(_)
+            | Cmd::Log(_)
+            | Cmd::Status(_)
+            | Cmd::Refresh(_)
+            | Cmd::Hooks(_)
+            | Cmd::Sync(_)
+            | Cmd::Git(_)
+            | Cmd::Guide
+            | Cmd::Completions(_)
+            | Cmd::Man(_)
+            | Cmd::MergeDriver(_) => false,
         }
     }
 
