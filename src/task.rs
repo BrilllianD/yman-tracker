@@ -281,14 +281,14 @@ pub enum Entry {
 impl Entry {
     /// Leaf folder name of this entry, parsed or not.
     pub fn dir_name(&self) -> String {
-        let dir = match self {
-            Entry::Task(t) => return t.folder.to_string(),
-            Entry::Broken { dir, .. } => dir,
-        };
-        dir.file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .into_owned()
+        match self {
+            Entry::Task(t) => t.folder.to_string(),
+            Entry::Broken { dir, .. } => dir
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned(),
+        }
     }
 
     /// Path relative to `.yman`, status directory included. What error

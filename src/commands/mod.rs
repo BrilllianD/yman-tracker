@@ -32,8 +32,7 @@ use std::io::{BufRead, IsTerminal, Write};
 
 /// The confirmation `rm` and `tags rm` ask before removing anything: off a
 /// terminal it refuses outright; on one it asks `<question>` plus the yes-or-no
-/// suffix on stderr, and
-/// anything but `y`/`Y` refuses.
+/// suffix on stderr, and anything but `y`/`Y` refuses.
 pub fn confirm_remove(question: &str) -> Result<()> {
     if !std::io::stdin().is_terminal() {
         bail!("refusing to remove without -f");
