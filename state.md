@@ -5,7 +5,7 @@ Audit backlog, epic #86. Outline with per-slice loop, global constraints and les
 `~/.claude/plans/any-tasks-remains-distributed-bear.md` (Handoff section is current). Slice
 index with every plan, report and review: `~/mem/projects/yman/notes/2026-10-21-audit-fix-run.md`.
 
-- S1-S10 merged into local `main` (155424a). `main` is NOT pushed to origin; ask before pushing.
+- S1-S10 merged into `main` (155424a), pushed to origin 2026-10-22.
 - S11 docs (#98, #107, #108) next: branch off `main`, designer writes the S11 plan.
 
 ## Next
