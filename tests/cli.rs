@@ -203,7 +203,7 @@ fn add_ls_show() {
         text.contains("priority: 2   status: todo   assignee: -   tags: auth, bug"),
         "{text}"
     );
-    assert!(text.contains("folder:   .yman/2.1.fix-login"), "{text}");
+    assert!(text.contains("folder:   2.1.fix-login"), "{text}");
     assert!(text.contains("\nbody text\n"), "{text}");
     assert!(!text.contains("attachments:"), "{text}");
     assert!(!text.contains("discussion:"), "{text}");
@@ -4747,7 +4747,7 @@ fn comment_editor_temp_file_is_private_and_always_removed() {
         .unwrap();
     assert_eq!(
         stderr(&out).trim(),
-        "error: no terminal for vi; set $EDITOR, or use -m / --body-file"
+        "error: no terminal for vi; set $EDITOR, or use -m"
     );
     assert_eq!(leftovers(), Vec::<String>::new());
 
@@ -7424,10 +7424,19 @@ fn edit_without_editor_or_tty_fails_fast() {
     fx.yman(&fx.a).arg("init").assert().success();
     fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
 
-    for args in [
-        vec!["edit", "1"],
-        vec!["comment", "1", "-e"],
-        vec!["add", "Another", "-e"],
+    for (args, expected) in [
+        (
+            vec!["edit", "1"],
+            "error: no terminal for vi; set $EDITOR, or use yman set 1 --body / --body-file",
+        ),
+        (
+            vec!["comment", "1", "-e"],
+            "error: no terminal for vi; set $EDITOR, or use -m",
+        ),
+        (
+            vec!["add", "Another", "-e"],
+            "error: no terminal for vi; set $EDITOR, or use -m / --body-file",
+        ),
     ] {
         let out = fx
             .yman(&fx.a)
@@ -7437,11 +7446,7 @@ fn edit_without_editor_or_tty_fails_fast() {
             .output()
             .unwrap();
         assert_eq!(out.status.code(), Some(1), "{args:?}");
-        assert_eq!(
-            stderr(&out).trim(),
-            "error: no terminal for vi; set $EDITOR, or use -m / --body-file",
-            "{args:?}"
-        );
+        assert_eq!(stderr(&out).trim(), expected, "{args:?}");
     }
     assert!(!fx.has_task(&fx.a, "2"), "add -e must not create anything");
 
@@ -7726,6 +7731,29 @@ fn completions_cover_every_subcommand() {
         .output()
         .unwrap();
     assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+}
+
+/// Every flag that takes a file offers file names, `state set --body-file`
+/// included.
+#[test]
+fn file_flags_complete_as_files() {
+    let fx = Fx::new();
+    let nowhere = tempfile::tempdir().unwrap();
+    let out = fx
+        .yman(nowhere.path())
+        .args(["completions", "zsh"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let script = stdout(&out);
+    let lines: Vec<&str> = script
+        .lines()
+        .filter(|l| l.contains("--body-file=") || l.contains("--sections="))
+        .collect();
+    assert!(lines.len() >= 4, "{lines:?}");
+    for l in &lines {
+        assert!(l.contains(":PATH:_files"), "{l}");
+    }
 }
 
 /// `man` prints yman.1 anywhere; `--dir` writes it and the per-subcommand
@@ -10049,10 +10077,12 @@ fn attach_name_stores_one_file_under_another_name() {
         .output()
         .unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
-    assert!(
-        stdout(&out).starts_with("attached login-error.png -> "),
-        "{}",
-        stdout(&out)
+    assert_eq!(
+        stdout(&out),
+        format!(
+            "attached login-error.png -> {}/f/login-error.png\n",
+            fx.task_rel(&fx.a, "1")
+        )
     );
     let fdir = fx.task_dir(&fx.a, "1").join("f");
     assert_eq!(fx.read(&fdir.join("login-error.png")), "png\n");

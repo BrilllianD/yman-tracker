@@ -6,7 +6,10 @@ use super::editor::open_editor;
 
 pub fn run(ctx: &mut Context, id: &str) -> Result<()> {
     let before = task::find(&ctx.ydir, id)?;
-    open_editor(&before.dir().join(task::MD_FILE))?;
+    open_editor(
+        &before.dir().join(task::MD_FILE),
+        &format!("yman set {id} --body / --body-file"),
+    )?;
 
     // A refused title takes the same path as an unparsable file: the text
     // stays on disk for the user to fix, nothing is committed.

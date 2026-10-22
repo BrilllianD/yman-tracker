@@ -8,11 +8,18 @@ your repository — but in a namespace ordinary git use never walks into.
 
 ```console
 $ yman init
+initialized .yman
+  scheme:   seq
+  remote:   git@example.com:team/app.git  (refs/tasks/main)
+  refresh:  lazy
+  hooks:    not installed
+  tasks:    0
 $ yman add "Fix login" -p 2 -t auth
 added 1  2.1.fix-login
 $ yman start 1
 1: status todo -> doing
 $ yman comment 1 -m "reproduced on staging"
+commented on 1
 $ yman sync
 synced  pulled 0, pushed 3, renumbered 0   refs/yman/local @ 3f2a1c9
 ```
@@ -21,8 +28,15 @@ Your teammate, in their own clone:
 
 ```console
 $ yman init
+initialized .yman
+  scheme:   seq
+  remote:   git@example.com:team/app.git  (refs/tasks/main)
+  refresh:  lazy
+  hooks:    not installed
+  tasks:    1
 $ yman ls
-2  1  doing  Fix login  auth    1
+P  ID  STATUS  TITLE      TAGS  F  C
+2  1   doing   Fix login  auth     1
 ```
 
 ---
@@ -357,6 +371,8 @@ yman init [--remote <url>] [--offline] [--id-scheme random|seq|author]
           [--author <prefix>] [--hooks] [--refresh lazy|manual]
           [--autosync off|push]
 yman status [--json]     # where everything stands; never changes anything
+yman state               # the project state summary; empty, with a note, until written
+yman state set -m <text> | --body-file <path|->   # replace it, one commit
 yman refresh [--quiet]   # fast-forward onto already-fetched task commits
 yman sync [--continue] [--abort] [--no-push]
 yman hooks install|remove|status
@@ -371,7 +387,7 @@ $ yman status
 .yman  refs/yman/local @ 3f2a1c9   (refresh: lazy, hooks: installed)
 remote: refs/tasks/main @ 9b8c7d6   ahead 2, behind 1   → run: yman sync
 worktree: clean
-tasks:   todo 4, doing 1, done 7
+tasks:   todo 2, doing 1, done 0, cancelled 0
 ```
 
 `yman init` sets the tracker up, or joins one another clone already published;
@@ -565,7 +581,7 @@ uncommitted edits in `.yman`, fetches, merges, and pushes:
 ```console
 $ yman sync
 snapshotted 1 local change(s)
-synced  pulled 3, pushed 2, renumbered 0   refs/yman/local @ 3f2a1c9
+synced  pulled 0, pushed 1, renumbered 0   refs/yman/local @ 3f2a1c9
 ```
 
 Publishing your own changes can happen without a sync too. With
@@ -609,9 +625,9 @@ id is already published:
 
 ```console
 $ yman sync
-renumbered 2 -> 3  (id taken on origin)
 note: rewrote 1 reference(s) to renumbered ids
-synced  pulled 1, pushed 3, renumbered 1   refs/yman/local @ 1f7d06f
+renumbered 2 -> 4  (id taken on origin)
+synced  pulled 1, pushed 4, renumbered 1   refs/yman/local @ 1f7d06f
 ```
 
 References to the old id in other tasks' `related` lists follow the move, in the
@@ -619,11 +635,12 @@ same commit as the rename.
 
 ### Same field, two edits
 
-Two people changing the status of the same task conflict like any other git
-conflict. Sync stops with exit code 3 and tells you which files:
+Two people setting the same field of the same task (the assignee, say) to
+different values conflict like any other git conflict. Sync stops with exit code 3 and tells you which files:
 
 ```console
 $ yman sync
+note: unmerged files:
   5.1.fix-login/m.yml
 error: conflicts in 1 file(s); edit them, remove markers, then: yman sync --continue  (or: yman sync --abort)
 ```
@@ -656,15 +673,25 @@ so:
 
 ```console
 $ yman sync
+note: unmerged files:
+  5.1.fix-login/m.yml
+  5.1.fix-login/t.md
+  cancelled/5.1.fix-login/m.yml
+  cancelled/5.1.fix-login/t.md
+  done/5.1.fix-login/m.yml
+  done/5.1.fix-login/t.md
 note: task 1 was closed to two different statuses; keep one of cancelled/5.1.fix-login, done/5.1.fix-login
-error: conflicts in 3 file(s); edit them, remove markers, then: yman sync --continue
+error: conflicts in 6 file(s); edit them, remove markers, then: yman sync --continue
 
 $ rm -rf .yman/cancelled/5.1.fix-login
+$ $EDITOR .yman/done/5.1.fix-login/m.yml   # keep one status line, drop the markers
 $ yman sync --continue
+synced  pulled 1, pushed 2, renumbered 0   refs/yman/local @ 3f2a1c9
 ```
 
 `--continue` refuses while both folders are there, so the tracker cannot end up
-with two folders for one id.
+with two folders for one id. The folder you keep still has a conflict in its
+`m.yml`, on `status`, which is yours to settle like any other.
 
 ---
 

@@ -39,7 +39,7 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
     super::warn_unknown_related(ctx, &related, &[])?;
     if a.edit {
         // Refuse before the folder exists; see `editor::resolve_editor`.
-        super::editor::resolve_editor()?;
+        super::editor::resolve_editor("-m / --body-file")?;
     }
     // `--sections` is read and parsed whole before the first id is minted:
     // a bad file costs nothing.
@@ -149,7 +149,12 @@ fn create(ctx: &mut Context, spec: &Spec, id: String, title: String, body: Strin
     }
 
     if spec.edit {
-        let edited = run_editor(&t.dir().join(task::MD_FILE), "task not added").and_then(|()| {
+        let edited = run_editor(
+            &t.dir().join(task::MD_FILE),
+            "task not added",
+            "-m / --body-file",
+        )
+        .and_then(|()| {
             task::load(&ctx.ydir, &t.dir())
                 .and_then(|edited| task::clean_title(&edited.title).map(|_| edited))
                 .map_err(|e| anyhow!("t.md invalid after edit: {e:#}; task not added"))

@@ -7,7 +7,17 @@ under [Releasing](README.md#releasing) in the README.
 
 ## [Unreleased]
 
+### Changed
+
+- `show`'s `folder:` line and `attach`'s `attached <name> -> <path>` lines print the
+  path relative to `.yman`, like every other task path yman prints (`yman path` stays
+  absolute).
+- With no terminal and no `$EDITOR`, `edit` and `comment -e` name an alternative they
+  have (`yman set <id> --body / --body-file`, `-m`) instead of `-m / --body-file`.
+
 ### Fixed
+
+- `yman completions` offers file names after `state set --body-file`.
 
 - `ls --json` gives a broken folder its `id`.
 - `yman log <id>` shows the history of a removed task instead of exiting 4.

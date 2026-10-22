@@ -150,7 +150,7 @@ commit.
 | editor failed during `add -e` | `editor exited with status N; task not added` (or `editor was killed by a signal; …`) — the new folder is removed |
 | editor failed during `comment -e` | `editor exited with status N; comment not added` (or `editor was killed by a signal; …`) — the temp file is removed, nothing is committed |
 | `comment -e` cannot read what the editor saved | `cannot read the comment from <path>: <why>; the file is kept` (`<why>` is the OS error, for example `stream did not contain valid UTF-8`) — the temp file is kept, nothing is committed |
-| neither `$VISUAL` nor `$EDITOR` set, stdin not a terminal | `no terminal for vi; set $EDITOR, or use -m / --body-file` |
+| neither `$VISUAL` nor `$EDITOR` set, stdin not a terminal | `no terminal for vi; set $EDITOR, or use <alternative>`: `-m / --body-file` for `add -e`, `-m` for `comment -e`, `yman set <id> --body / --body-file` for `edit` |
 | `rm` or `tags rm` prompt declined | `aborted` |
 | `t.md` unparsable | `t.md must start with "# Title"` |
 | `t.md` unparsable after an edit | `t.md invalid after edit: <why>; fix the file then run: yman edit <id>` |

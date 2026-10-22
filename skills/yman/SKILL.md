@@ -229,8 +229,8 @@ markers in `.yman/state.md`, `yman sync --continue`.
 Off a terminal, a removal without `-f` fails fast with
 `refusing to remove without -f`, and an editor path with neither `$VISUAL` nor
 `$EDITOR` set fails with
-`no terminal for vi; set $EDITOR, or use -m / --body-file`. Both mean "use the
-non-interactive form", not "retry". With `$VISUAL` or `$EDITOR` set, the editor
+`no terminal for vi; set $EDITOR, or use <the non-interactive form>`. Both
+mean "use the non-interactive form", not "retry". With `$VISUAL` or `$EDITOR` set, the editor
 path does **not** fail: that editor is started even without a terminal, and
 the command may hang waiting on it.
 

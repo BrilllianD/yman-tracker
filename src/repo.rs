@@ -45,11 +45,9 @@ pub enum MergeConfig {
 }
 
 pub struct Context {
-    /// Main repo toplevel.
-    pub root: PathBuf,
     /// Main repo common git dir (absolute).
     pub common: PathBuf,
-    /// `root/.yman`.
+    /// `.yman` under the main repo toplevel.
     pub ydir: PathBuf,
     /// Private git dir of the `.yman` worktree; `None` when `.yman` is not
     /// our worktree. Read it through [`Context::wt_gitdir`].
@@ -148,7 +146,6 @@ pub fn discover() -> Result<Context> {
         // The user's hooks never run for yman's own commits, merges and
         // fast-forwards in `.yman`; see `Git::without_hooks`.
         wt: Git::new(&ydir).without_hooks(),
-        root,
         common,
         ydir,
         wt_gitdir,
@@ -452,9 +449,10 @@ impl Context {
         Ok(())
     }
 
-    /// Path of a task folder relative to the repo root, for display.
+    /// Path of a task folder or file relative to `.yman`, the one base every
+    /// printed task path uses (`yman path` aside), for display.
     pub fn display_path(&self, dir: &Path) -> String {
-        match dir.strip_prefix(&self.root) {
+        match dir.strip_prefix(&self.ydir) {
             Ok(rel) => rel.to_string_lossy().into_owned(),
             Err(_) => dir.to_string_lossy().into_owned(),
         }

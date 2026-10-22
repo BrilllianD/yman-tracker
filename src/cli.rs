@@ -468,7 +468,7 @@ pub struct StateSetArgs {
     #[arg(short = 'm', long, value_name = "TEXT", group = "text")]
     pub message: Option<String>,
     /// Read the new summary from a file, or `-` for stdin
-    #[arg(long, value_name = "PATH", group = "text")]
+    #[arg(long, value_name = "PATH", value_hint = ValueHint::FilePath, group = "text")]
     pub body_file: Option<String>,
 }
 

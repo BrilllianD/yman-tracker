@@ -82,7 +82,9 @@ a reason beyond convenience.
 - Work on a feature branch and merge it — do not commit straight to `main`.
 - The backlog lives in this repository's own tracker: `yman ls` lists open
   work, `yman show <id>` gives each entry's "Where" and "Done when". Run
-  `yman sync`, then claim a task with `yman start <id>` before working on it.
+  `yman sync`, then claim a task before working on it with the guide's claim
+  line, `yman set <id> --status doing -a <you> -m "on it"` (`yman start <id>`
+  sets the status alone).
 - Commit each task as soon as it is finished, before starting the next one:
   run the gate (`.claude/skills/verify`), commit the code, the tests and the
   docs together, then `yman done <id> -m "<commit>: <summary>"` and
@@ -115,5 +117,7 @@ The agent-facing surface is written down three times: `docs/agents.md`, which
 `src/commands/guide.rs` compiles into the binary with `include_str!` and
 `yman guide` prints; `skills/yman/SKILL.md`, the copy a harness loads (and what
 `.claude/skills/yman` symlinks to); and the `### Scripts and agents` section of
-`README.md`. A changed flag, exit code or interactive-command rule has to move
-in all three.
+`README.md`. `after_help` in `src/cli.rs`, the end of `yman --help`, repeats
+the streams rule, the exit codes, the multi-id verbs and the body flags in six
+lines. A changed flag, exit code or interactive-command rule has to move in all
+of them.

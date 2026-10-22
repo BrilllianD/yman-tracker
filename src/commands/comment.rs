@@ -78,9 +78,9 @@ pub fn run(ctx: &mut Context, a: CommentArgs) -> Result<()> {
         m
     } else if a.edit {
         // Resolve first: a refused editor must not leave a file behind.
-        resolve_editor()?;
+        resolve_editor("-m")?;
         let tmp = TempFile::create(t.id())?;
-        run_editor(tmp.path(), "comment not added")?;
+        run_editor(tmp.path(), "comment not added", "-m")?;
         match std::fs::read_to_string(tmp.path()) {
             Ok(text) => text,
             // The editor removed the file: nothing was written.
