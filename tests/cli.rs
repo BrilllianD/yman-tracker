@@ -1119,6 +1119,51 @@ fn detach_removes_only_the_named_file_when_its_name_is_a_glob() {
 
 // --------------------------------------------------------------------- sync
 
+#[cfg(unix)]
+#[test]
+fn a_merge_that_fails_without_conflicts_exits_1_and_leaves_no_merge() {
+    let fx = Fx::new();
+    fx.shared_titles(&["One"]);
+    fx.yman(&fx.a).args(["add", "Two"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b)
+        .args(["comment", "1", "-m", "from b"])
+        .assert()
+        .success();
+
+    let out = fx
+        .yman_shimmed(
+            &fx.b,
+            r#"[ "$sub" = merge ] && case " $* " in
+  *" --no-commit "*) echo "fatal: shim refuses the merge" >&2; exit 1;; esac"#,
+        )
+        .arg("sync")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("fatal: shim refuses the merge"),
+        "{}",
+        stderr(&out)
+    );
+    assert!(
+        stderr(&out).ends_with("error: merge failed\n"),
+        "{}",
+        stderr(&out)
+    );
+    let merging = fx.git_try(
+        &fx.b.join(".yman"),
+        &["rev-parse", "-q", "--verify", "MERGE_HEAD"],
+    );
+    assert!(!merging.0, "MERGE_HEAD survived");
+    fx.yman(&fx.b).arg("status").assert().success();
+
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let out = fx.yman(&fx.b).arg("ls").output().unwrap();
+    assert!(stdout(&out).contains("Two"), "{}", stdout(&out));
+}
+
 #[test]
 fn round_trip() {
     let fx = Fx::new();
@@ -2184,6 +2229,67 @@ fn a_v2_opt_in_arriving_by_fetch_applies_at_once() {
     fx.yman(&fx.b).args(["done", "1"]).assert().success();
     let rel = fx.task_rel(&fx.b, "1");
     assert!(rel.starts_with("done/"), "{rel}");
+}
+
+#[test]
+fn a_v2_opt_in_moving_a_closed_task_merges_with_an_edit_from_a_v1_clone() {
+    let fx = Fx::new();
+    fx.shared(|| {
+        fx.v1_config(&fx.a);
+        fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+        fx.yman(&fx.a).args(["done", "1"]).assert().success();
+    });
+    assert!(!fx.task_rel(&fx.a, "1").contains('/'));
+
+    fx.v2_config(&fx.a);
+    fx.yman(&fx.a)
+        .args(["set", "1", "--priority", "2"])
+        .assert()
+        .success();
+    assert_eq!(fx.task_rel(&fx.a, "1"), "done/2.1.fix-login");
+    fx.yman(&fx.a).arg("sync").assert().success();
+
+    fx.yman(&fx.b)
+        .args(["comment", "1", "-m", "from b"])
+        .assert()
+        .success();
+    fx.yman(&fx.b)
+        .args(["set", "1", "--tag", "late"])
+        .assert()
+        .success();
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    fx.yman(&fx.a).arg("sync").assert().success();
+
+    for clone in [&fx.b, &fx.a] {
+        assert_eq!(fx.task_rel(clone, "1"), "done/2.1.fix-login");
+        let dirs = fx.task_dirs(clone);
+        let names: Vec<String> = dirs
+            .iter()
+            .map(|d| d.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            names.iter().filter(|n| n.ends_with(".1.fix-login")).count(),
+            1,
+            "{names:?}"
+        );
+        let out = fx
+            .yman(clone)
+            .args(["ls", "-a", "--json"])
+            .output()
+            .unwrap();
+        assert_eq!(
+            stdout(&out).matches("\"id\":\"1\"").count(),
+            1,
+            "{}",
+            stdout(&out)
+        );
+        let out = fx.yman(clone).args(["show", "1"]).output().unwrap();
+        let text = stdout(&out);
+        assert!(text.contains("from b"), "{text}");
+        assert!(text.contains("late"), "{text}");
+        assert!(text.contains("priority: 2 "), "{text}");
+    }
 }
 
 const CONFIG_AT_HEAD: &str =
@@ -4304,6 +4410,28 @@ fn comment_e_survives_sigint_and_removes_its_temp_file() {
         "error: editor was killed by a signal; comment not added"
     );
     assert_eq!(std::fs::read_dir(&tmpdir).unwrap().count(), 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn edit_with_an_editor_killed_by_a_signal_leaves_the_file() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    let editor = fx.script("ed-kill", "kill -KILL $$\n");
+    let out = fx
+        .yman(&fx.a)
+        .env("EDITOR", &editor)
+        .args(["edit", "1"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert_eq!(
+        stderr(&out).trim(),
+        "error: editor was killed by a signal; file left as is"
+    );
+    assert_eq!(fx.title(&fx.a, "1"), "Fix login");
+    assert_eq!(fx.git(&fx.a.join(".yman"), &["status", "--porcelain"]), "");
 }
 
 #[test]
@@ -7468,7 +7596,7 @@ fn completes(shell: &str, script: &str, path: &[&str]) -> bool {
 }
 
 /// `completions` needs no repository, offers every subcommand `--help` lists
-/// and the nested ones under `tags` and `hooks`, each as an exact token of
+/// and the nested ones under `tags`, `hooks` and `state`, each as an exact token of
 /// the shell's own syntax, and keeps the hidden `merge-driver` out.
 #[test]
 fn completions_cover_every_subcommand() {
@@ -7484,6 +7612,7 @@ fn completions_cover_every_subcommand() {
     for (parent, expected) in [
         ("tags", &["rename", "rm"][..]),
         ("hooks", &["install", "remove", "status"][..]),
+        ("state", &["set"][..]),
     ] {
         let nested = help(&[parent, "--help"]);
         assert_eq!(nested, expected, "{parent}");
@@ -10910,6 +11039,38 @@ fn man_dir_reports_what_it_cannot_write() {
 }
 
 // -------------------------------------------------------------------- state
+
+#[test]
+fn state_reports_a_state_file_it_cannot_read_or_write() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    std::fs::create_dir(fx.a.join(".yman/state.md")).unwrap();
+    let before = fx.git(&fx.a, &["rev-parse", "refs/yman/local"]);
+
+    let out = fx.yman(&fx.a).arg("state").output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(
+        stderr(&out).starts_with("error: cannot read "),
+        "{}",
+        stderr(&out)
+    );
+    assert!(stderr(&out).contains("state.md: "), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "");
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["state", "set", "-m", "x"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(
+        stderr(&out).starts_with("error: cannot write "),
+        "{}",
+        stderr(&out)
+    );
+    assert!(stderr(&out).contains("state.md: "), "{}", stderr(&out));
+    assert_eq!(fx.git(&fx.a, &["rev-parse", "refs/yman/local"]), before);
+}
 
 #[test]
 fn state_absent_prints_note() {
