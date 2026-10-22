@@ -989,7 +989,8 @@ changed the status through yman, the kept `m.yml` also carries conflict markers
 around `status`, and through `updated` when the two `updated` times differ, so
 each key between them appears twice; `--continue` refuses with
 `still unmerged: <folder>/m.yml` until they are gone, then goes on to the
-duplicate-id check. Only a hand `git mv` leaves no marker.) The duplicate-id check reports
+duplicate-id check. Only a hand `git mv` leaves no marker.) The duplicate-id
+check reports
 
 ```
 duplicate task id 1: cancelled/5.1.fix-login, done/5.1.fix-login; delete one folder, then: yman sync --continue

@@ -65,7 +65,7 @@ stdout carries data only. Errors (`error: ...`), warnings and notes go to stderr
 On 3: read stderr, the cause comes first. `yman status` names unmerged files: remove the markers.
 A no-marker file needs a side: `yman git checkout --ours|--theirs -- <file> && yman git add <file>`.
 With none, delete the folder the message names (`duplicate task id`, `task <id> is split`,
-`holds file(s)`), clear markers a kept `m.yml` still has, then `yman sync --continue` or `--abort`.
+`holds file(s)`), then `yman sync --continue` or `--abort`.
 
 ## Cost and attribution
 

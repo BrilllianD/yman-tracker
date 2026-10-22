@@ -452,11 +452,17 @@ impl Context {
     /// Path of a task folder or file relative to `.yman`, the one base every
     /// printed task path uses (`yman path` aside), for display.
     pub fn display_path(&self, dir: &Path) -> String {
-        match dir.strip_prefix(&self.ydir) {
-            Ok(rel) => rel.to_string_lossy().into_owned(),
-            Err(_) => dir.to_string_lossy().into_owned(),
-        }
+        display_under(&self.ydir, dir)
     }
+}
+
+/// `path` relative to `base` when it lies under it, else `path` as is, for
+/// display. [`Context::display_path`] is this with `.yman` as the base.
+pub fn display_under(base: &Path, path: &Path) -> String {
+    path.strip_prefix(base)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// A per-clone `yman.*` policy, as this clone's git config holds it.

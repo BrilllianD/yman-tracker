@@ -146,8 +146,8 @@ under [Releasing](README.md#releasing) in the README.
 - `yman ls --related X` no longer lists task X itself when its own `related`
   names it (a hand edit), so it agrees with `yman plan X` and `yman show X`'s
   `related by`.
-- `yman --help` and usage errors are no longer coloured on a terminal, as the docs always
-  said.
+- `yman --help` and usage errors are no longer coloured on a terminal, as the
+  docs always said.
 
 ### Changed
 

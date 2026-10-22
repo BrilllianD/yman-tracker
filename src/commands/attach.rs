@@ -1,5 +1,5 @@
 use crate::cli::{AttachArgs, DetachArgs};
-use crate::repo::Context;
+use crate::repo::{self, Context};
 use crate::task::{self, Attachment};
 use anyhow::{Result, bail};
 use std::path::{Path, PathBuf};
@@ -198,10 +198,7 @@ struct Placed {
 
 impl Placed {
     fn shown(&self, path: &Path) -> String {
-        path.strip_prefix(&self.base)
-            .unwrap_or(path)
-            .to_string_lossy()
-            .into_owned()
+        repo::display_under(&self.base, path)
     }
 
     /// The attach went through: the files moved aside go for good.
@@ -308,10 +305,7 @@ fn same_name_files(fdir: &Path, base: &Path, name: &str) -> Result<Vec<String>> 
     let entries = match std::fs::read_dir(fdir) {
         Ok(e) => e,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => bail!(
-            "cannot read {}: {e}",
-            fdir.strip_prefix(base).unwrap_or(fdir).display()
-        ),
+        Err(e) => bail!("cannot read {}: {e}", repo::display_under(base, fdir)),
     };
     let mut out = Vec::new();
     for entry in entries {

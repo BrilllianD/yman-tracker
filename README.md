@@ -415,23 +415,23 @@ Everything a script would want to read goes to stdout.
 `yman guide` prints [docs/agents.md](docs/agents.md), a one-page manual for a
 reader that pays per token: which calls to make, what `ls` columns mean, the
 exit codes, and how to recover from a stuck sync. It starts with a block to
-paste into a project's `CLAUDE.md`. The short version: filter with `ls -n`,
-skim bodies with `ls -l -n`, read with `show -n`, close with `done <id> -m`,
-run `yman sync` before a status change, then re-`show` the task and stop if
-somebody else has taken or closed it, and sync again after the change (the
-after is automatic under `yman.autosync = push`), never open an editor, always
-give `comment` its text with `-m` (without it the comment is read from stdin until end of file,
-which blocks on a pipe left open), read `yman state` at session start and
-rewrite it with `yman state set --body-file - <<'EOF'` when the situation
-changed (short: in progress, next, blockers; never edit `.yman/state.md` by
-hand), and set `YMAN_ACTOR` so the work is attributed to the agent. Parallel
-writing calls on one clone queue instead of colliding (a waiting one prints a
-note on stderr; reads never wait). Big work is a plan: an epic task plus steps
-that `--relate` it, read from the epic with `yman plan <id>` (progress and open
-steps in one call, enough to pick the next step without a `show` per step) and
-created in one go with `add --sections plan.md --relate <id>`, so the epic is
-never edited; a step that waits sits in `blocked` and relates to what it waits
-on.
+paste into a project's `CLAUDE.md`. The short version: filter with `ls -n`, skim
+bodies with `ls -l -n`, read with `show -n`, close with `done <id> -m`, run
+`yman sync` before a status change, then re-`show` the task and stop if somebody
+else has taken or closed it, and sync again after the change (the after is
+automatic under `yman.autosync = push`), never open an editor, always give
+`comment` its text with `-m` (without it the comment is read from stdin until
+end of file, which blocks on a pipe left open), read `yman state` at session
+start and rewrite it with `yman state set --body-file - <<'EOF'` when the
+situation changed (short: in progress, next, blockers; never edit
+`.yman/state.md` by hand), and set `YMAN_ACTOR` so the work is attributed to the
+agent. Parallel writing calls on one clone queue instead of colliding (a waiting
+one prints a note on stderr; reads never wait). Big work is a plan: an epic task
+plus steps that `--relate` it, read from the epic with `yman plan <id>`
+(progress and open steps in one call, enough to pick the next step without a
+`show` per step) and created in one go with
+`add --sections plan.md --relate <id>`, so the epic is never edited; a step that
+waits sits in `blocked` and relates to what it waits on.
 
 Three refusals to expect. `rm` and `tags rm` need `-f` off a terminal, and
 without it fail with `refusing to remove without -f`. Exit 3 means a sync merge
