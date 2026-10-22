@@ -58,7 +58,8 @@ Any other failure after a merge started, clean or resumed (a `git mv` that
 fails, a `git commit` that fails), ends
 `; the merge is still in progress; fix that, then: yman sync --continue  (or: yman sync --abort)`.
 
-Code 4 is only `task <id> not found`. A folder that exists but is broken or
+Code 4 is only `task <id> not found`; `log <id>` gives it only when git has no
+history for the id either, and a removed task's log exits 0. A folder that exists but is broken or
 duplicated is a repository problem, not a missing task, and stays at code 1.
 A verb given several ids exits 4 at the first missing one, with the tasks
 before it already committed (and, under `yman.autosync = push`, pushed).
@@ -112,7 +113,7 @@ commit.
 | tag with a separator or a control character (the Unicode line and paragraph separators U+2028 and U+2029, the bidi controls U+202A-U+202E and U+2066-U+2069 and the invisible marks U+061C, U+200B, U+200E, U+200F, U+2060-U+2064 and U+FEFF count as control characters here; ZWNJ and ZWJ do not) | `invalid tag "<t>"; tags must not contain whitespace, commas or control characters` — `<t>` is the trimmed value with control characters escaped |
 | assignee, link or related id (`add`, `set`) with a line break or another control character (same set as the title row; `--no-assignee`, `--unlink` and `--unrelate` still remove a stored one) | `invalid <kind> "<v>"; <kind>s must not contain line breaks or other control characters` — `<kind>` is `assignee`, `link` or `related id`; `<v>` is the value escaped like a title and trimmed, except a link, which is shown as given |
 | blank `--relate` or `--waits-on` value | `related id must not be empty` |
-| `set --relate` or `--waits-on` naming the task itself | `task <id> cannot relate to itself` |
+| `set --relate`, `--waits-on`, or `add --relate`/`--waits-on` naming the id the task has or is about to get | `task <id> cannot relate to itself` |
 | `ids.scheme = "random"` with every id of `random_len` taken | `random id space exhausted (random_len = <n>); raise ids.random_len` |
 | `seq` or `author` scheme past the largest id | `id space exhausted: <max> is the largest id there can be` |
 | unknown attachment | `no attachment "<name>" on task <id>` |
@@ -242,6 +243,7 @@ Never fatal, always stderr:
 ## Deliberate non-errors
 
 - Committing when nothing is staged — an identical re-application is a no-op.
+- `log <id>` for a task that was removed: its history is printed.
 - Removing a tag, link or relation that was never there.
 - A `status` value that is no longer in `config.statuses.list`: reported, so a
   config change cannot brick existing tasks.

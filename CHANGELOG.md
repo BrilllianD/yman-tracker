@@ -9,6 +9,13 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- `ls --json` gives a broken folder its `id`.
+- `yman log <id>` shows the history of a removed task instead of exiting 4.
+- `ls --assignee` trims its value and reads a blank one as `-`, like `add -a`.
+- `add --relate`/`--waits-on` naming the id the new task gets is refused
+  instead of making the task wait on itself.
+- `add` in a tracker with uncommitted changes no longer leaves its new folder
+  behind when writing it or renaming it after the editor fails.
 - `ls`, `show` and `plan` no longer sort random ids such as `t-0042` among
   author ids, and a sync renumber under the author scheme no longer reads
   `t-0042` as author `t`.
@@ -137,6 +144,7 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Changed
 
+- `comment -m <text> -e` is a usage error (exit 2); before, `-e` was ignored.
 - Building needs Rust 1.89 (`std::fs::File::lock`).
 
 ## [0.9.0] - 2026-10-20

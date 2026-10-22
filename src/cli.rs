@@ -410,7 +410,7 @@ pub struct CommentArgs {
     #[arg(short = 'm', long, value_name = "TEXT")]
     pub message: Option<String>,
     /// Write the comment in $VISUAL or $EDITOR
-    #[arg(short = 'e', long)]
+    #[arg(short = 'e', long, conflicts_with = "message")]
     pub edit: bool,
 }
 

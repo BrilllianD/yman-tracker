@@ -5597,6 +5597,50 @@ fn utf8_task_folder_name_is_listed_as_broken() {
     );
 }
 
+/// The id prefix resolves config before the environment; the comment author
+/// resolves `$YMAN_ACTOR` first, and the two never leak into each other.
+#[test]
+fn author_prefix_prefers_config_and_actor_prefers_env() {
+    let fx = Fx::new();
+    fx.yman(&fx.a)
+        .args(["init", "--id-scheme", "author", "--author", "iv"])
+        .assert()
+        .success();
+
+    fx.yman(&fx.a)
+        .args(["add", "A"])
+        .env("YMAN_AUTHOR", "ag")
+        .env("YMAN_ACTOR", "bot")
+        .assert()
+        .success();
+    assert!(fx.has_task(&fx.a, "iv-1"));
+
+    fx.yman(&fx.a)
+        .args(["comment", "iv-1", "-m", "hi"])
+        .env("YMAN_AUTHOR", "ag")
+        .assert()
+        .success();
+    let d = std::fs::read_to_string(fx.task_dir(&fx.a, "iv-1").join("d.md")).unwrap();
+    assert!(d.contains(" — Test A\n"), "{d}");
+    fx.yman(&fx.a)
+        .args(["comment", "iv-1", "-m", "again"])
+        .env("YMAN_ACTOR", "bot")
+        .assert()
+        .success();
+    let d = std::fs::read_to_string(fx.task_dir(&fx.a, "iv-1").join("d.md")).unwrap();
+    assert!(d.contains(" — bot\n"), "{d}");
+
+    fx.git(&fx.a, &["config", "--unset", "yman.author"]);
+    fx.yman(&fx.a)
+        .args(["add", "B"])
+        .env("YMAN_AUTHOR", "ag")
+        .assert()
+        .success();
+    assert!(fx.has_task(&fx.a, "ag-1"));
+    fx.yman(&fx.a).args(["add", "C"]).assert().success();
+    assert!(fx.has_task(&fx.a, "ta-1"));
+}
+
 // --------------------- set, show, ls, tags, plan, autosync and value checks
 
 #[test]
@@ -6223,7 +6267,10 @@ fn a_broken_folder_in_a_status_dir_is_listed_with_its_path() {
     assert!(text.contains("cannot read t.md"), "{text}");
 
     let text = stdout(&fx.yman(&fx.a).args(["ls", "--json"]).output().unwrap());
-    assert!(text.contains("\"dir\":\"done/5.9.hand-made\""), "{text}");
+    assert!(
+        text.contains("\"id\":\"9\",\"dir\":\"done/5.9.hand-made\""),
+        "{text}"
+    );
 
     // And it is findable by id, not invisible.
     let out = fx.yman(&fx.a).args(["show", "9"]).output().unwrap();
@@ -9580,6 +9627,119 @@ fn a_flow_sequence_comment_is_not_a_tag() {
     assert!(!text.contains("'[a, b]'"), "{text}");
 }
 
+/// `-n` counts task rows; a broken folder is listed after them whatever the
+/// limit, and `--json` gives it the id its folder name carries.
+#[test]
+fn ls_limit_counts_tasks_and_broken_folders_carry_their_id() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "Write docs"])
+        .assert()
+        .success();
+    fx.write(&fx.a.join(".yman/5.3.broken/m.yml"), "status: todo\n");
+    fx.write(&fx.a.join(".yman/5.3.broken/t.md"), "no heading here\n");
+
+    let out = fx.yman(&fx.a).args(["ls", "-n", "1"]).output().unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 2, "{text}");
+    assert!(lines[0].contains("Fix login"), "{text}");
+    assert!(
+        lines[1].starts_with('!') && lines[1].contains("5.3.broken"),
+        "{text}"
+    );
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["ls", "-n", "1", "--json"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let text = stdout(&out);
+    assert_eq!(text.matches("\"title\":").count(), 1, "{text}");
+    assert!(
+        text.contains("{\"id\":\"3\",\"dir\":\"5.3.broken\",\"error\":\""),
+        "{text}"
+    );
+}
+
+/// `ls --assignee` reads its value the way `add -a` does: trimmed, and blank
+/// or `-` means nobody.
+#[test]
+fn ls_assignee_is_normalised_like_add() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a)
+        .args(["add", "A", "-a", "ivan"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).args(["add", "B"]).assert().success();
+
+    let ls = |who: &str| -> Vec<String> {
+        stdout(
+            &fx.yman(&fx.a)
+                .args(["ls", "--assignee", who])
+                .output()
+                .unwrap(),
+        )
+        .lines()
+        .map(|l| l.split_whitespace().nth(1).unwrap().to_string())
+        .collect()
+    };
+    assert_eq!(ls("  ivan "), ["1"]);
+    assert_eq!(ls(""), ["2"]);
+    assert_eq!(ls(" - "), ["2"]);
+}
+
+/// `add` mints its ids before it writes anything, so a relation naming one of
+/// them is refused like `set --relate` refuses a task's own id.
+#[test]
+fn add_refuses_to_relate_a_task_to_its_own_new_id() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.v2_config(&fx.a);
+    fx.yman(&fx.a).args(["add", "One"]).assert().success();
+
+    for flag in ["--waits-on", "--relate"] {
+        let out = fx
+            .yman(&fx.a)
+            .args(["add", "Two", flag, "2"])
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(1), "{flag}: {}", stderr(&out));
+        assert!(
+            stderr(&out).ends_with("error: task 2 cannot relate to itself\n"),
+            "{flag}: {}",
+            stderr(&out)
+        );
+        assert!(!fx.has_task(&fx.a, "2"), "{flag}");
+    }
+
+    let sections = fx.tmp.path().join("sections.md");
+    fx.write(&sections, "# A\n# B\n");
+    let out = fx
+        .yman(&fx.a)
+        .args(["add", "--sections", sections.to_str().unwrap()])
+        .args(["--relate", "3"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("task 3 cannot relate to itself"),
+        "{}",
+        stderr(&out)
+    );
+    assert!(!fx.has_task(&fx.a, "2"));
+    assert!(!fx.has_task(&fx.a, "3"));
+
+    // Nothing was burned.
+    fx.yman(&fx.a).args(["add", "Two"]).assert().success();
+    assert!(fx.has_task(&fx.a, "2"));
+}
+
 // ------------------------------------- flags and pinned messages, by command
 
 /// `--version` and `-V` print the package version on stdout, anywhere.
@@ -11038,6 +11198,65 @@ fn man_dir_reports_what_it_cannot_write() {
     );
 }
 
+/// `-m` and `-e` are two ways to give the text; asking for both is a usage
+/// error, not a silently ignored `-e`.
+#[test]
+fn comment_message_and_edit_exclude_each_other() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "One"]).assert().success();
+    let before = fx.git(&fx.a.join(".yman"), &["rev-parse", "refs/yman/local"]);
+
+    let out = fx
+        .yman(&fx.a)
+        .args(["comment", "1", "-m", "x", "-e"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+    assert!(stderr(&out).contains("--message"), "{}", stderr(&out));
+    assert!(stderr(&out).contains("--edit"), "{}", stderr(&out));
+    assert!(!fx.task_dir(&fx.a, "1").join("d.md").exists());
+    assert_eq!(
+        fx.git(&fx.a.join(".yman"), &["rev-parse", "refs/yman/local"]),
+        before
+    );
+}
+
+/// A task removed with `rm` keeps its history in git, and `log <id>` shows
+/// it; exit 4 is for an id no commit ever touched.
+#[test]
+fn log_shows_a_removed_task_and_exits_4_only_without_history() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    fx.yman(&fx.a)
+        .args(["set", "1", "--priority", "2"])
+        .assert()
+        .success();
+    fx.yman(&fx.a).args(["rm", "1", "-f"]).assert().success();
+
+    let out = fx.yman(&fx.a).args(["log", "1"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let text = stdout(&out);
+    let lines: Vec<&str> = text.lines().collect();
+    assert!(lines[0].contains("task(1): remove \"Fix login\""), "{text}");
+    assert!(lines.iter().any(|l| l.contains("task(1): add")), "{text}");
+
+    let out = fx.yman(&fx.a).args(["log", "99"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(4));
+    assert_eq!(stderr(&out), "error: task 99 not found\n");
+
+    fx.write(&fx.a.join(".yman/5.7.broken/m.yml"), "status: [\n");
+    fx.write(&fx.a.join(".yman/5.7.broken/t.md"), "# Broken\n");
+    let out = fx.yman(&fx.a).args(["log", "7"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("task 7 is broken"),
+        "{}",
+        stderr(&out)
+    );
+}
+
 // -------------------------------------------------------------------- state
 
 #[test]
@@ -11590,6 +11809,39 @@ fn a_failed_add_in_a_dirty_tracker_leaves_no_folder() {
     let out = fx.yman(&fx.a).args(["add", "X"]).output().unwrap();
     assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
     assert!(!fx.has_task(&fx.a, "2"));
+    let porcelain = fx.git(&fx.a.join(".yman"), &["status", "--porcelain"]);
+    assert_eq!(porcelain.trim_end(), format!(" M {rel}/t.md"));
+}
+
+/// With `.yman` dirty, an `add -e` whose rename after the editor fails takes
+/// back its folder too; the user's own edit stays.
+#[cfg(unix)]
+#[test]
+fn a_failed_rename_after_add_e_in_a_dirty_tracker_leaves_no_folder() {
+    let fx = Fx::new();
+    fx.yman(&fx.a).arg("init").assert().success();
+    fx.yman(&fx.a).args(["add", "One"]).assert().success();
+    let rel = fx.task_rel(&fx.a, "1");
+    let md = fx.task_dir(&fx.a, "1").join("t.md");
+    let mut text = std::fs::read_to_string(&md).unwrap();
+    text.push_str("hand edit\n");
+    std::fs::write(&md, text).unwrap();
+    // Retitles the task and makes the rename target a non-empty directory.
+    let editor = fx.script(
+        "ed-block",
+        "printf '# Renamed\\n' > \"$1\"\nd=$(dirname \"$1\")\nn=$(basename \"$d\")\nmkdir -p \"$(dirname \"$d\")/${n%.*}.renamed/blocker\"\n",
+    );
+
+    let out = fx
+        .yman(&fx.a)
+        .env("EDITOR", &editor)
+        .args(["add", "-e", "X"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1), "{}", stderr(&out));
+    // `has_task` would find the blocker directory, which is not the new task.
+    assert!(!fx.a.join(".yman/5.2.x").exists());
+    assert!(!fx.a.join(".yman/5.2.renamed/t.md").exists());
     let porcelain = fx.git(&fx.a.join(".yman"), &["status", "--porcelain"]);
     assert_eq!(porcelain.trim_end(), format!(" M {rel}/t.md"));
 }

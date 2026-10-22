@@ -155,16 +155,18 @@ with `-s` includes it too. `-t` requires **all** the tags given, compared
 lowercase on both sides — the tag yman writes is lowercase anyway, and one
 written into `m.yml` by hand is still found. An invalid tag at `-t` is the same
 error `add` gives.
-`--assignee WHO` keeps one assignee (`-` keeps the unassigned, which includes
-an `m.yml` value that is blank or `-`), `-p N` one
+`--assignee WHO` keeps one assignee (the value is trimmed, and blank or `-`
+keeps the unassigned, the rule `add -a` uses, which includes an `m.yml` value
+that is blank or `-`), `-p N` one
 priority, `--related ID` the tasks whose own `related` list carries that id
 (exactly as `--relate` wrote it; never the task itself, the rule `show`'s
 `related by:` and `plan` use; an id nothing relates to is an empty listing,
 not a warning), and `-q TEXT` the tasks whose title or body contains the text,
 compared lowercase; all of these AND together with the status and tag
-filters. `-n N` keeps the first N rows **after** sorting. None of the filters
-touches git or reads anything `ls` did not already read. Broken folders are
-listed regardless of filters. Column headers are printed only when stdout is
+filters. `-n N` keeps the first N task rows **after** sorting. None of the
+filters touches git or reads anything `ls` did not already read. Broken folders
+are listed after the tasks regardless of filters and of `-n`, so a tracker with
+a broken folder can print more than N rows. Column headers are printed only when stdout is
 a terminal. Trailing empty
 columns are omitted, and zero counts render blank rather than `0`.
 
@@ -175,7 +177,7 @@ read for `-q`, so `-l` costs no git either.
 
 `--json` emits one object per task —
 `{id, priority, status, title, tags, assignee, links, related, created, updated, attachments, comments, dir}` —
-and `{dir, error}` for broken folders. With `-l` each task object also carries
+and `{id, dir, error}` for broken folders, `id` parsed from the folder name. With `-l` each task object also carries
 `body`, the same trimmed text `show --json` gives; without it the key is
 absent. `dir` is relative to `.yman` and names the status directory for a closed task (`done/5.1.fix-login`). `attachments` and
 `comments` are counts here, not lists, and the attachment count comes from
@@ -336,6 +338,9 @@ The lazy refresh still runs, silently.
 name through a priority change, a retitle and a move into or out of a status
 directory, so those keep the task's full history without consulting git's
 rename detection, and `-n` stops the walk once enough commits are found.
+A task removed with `rm` keeps its history: `log <id>` prints it from the same
+pathspecs and exits 0; only an id no commit ever touched is
+`task <id> not found` (exit 4).
 The wrapper matches every other path literally (`--noglob-pathspecs`), and a
 `GIT_LITERAL_PATHSPECS` in the environment is removed, so these two patterns
 glob whatever the user's setting.
@@ -412,7 +417,9 @@ that set is refused before anything is written, with
 `invalid <kind> "<v>"; <kind>s must not contain line breaks or other control
 characters`. `--relate` and
 `--waits-on` values are trimmed and a blank one is refused (`related id must
-not be empty`); `set` also refuses the task's own id. `--relate` to an id no
+not be empty`); `set` refuses the task's own id, and `add` the id it is about
+to mint (every id of a `--sections` run is minted before the first task is
+written, so a refusal creates none of them). `--relate` to an id no
 folder here carries warns exactly as `set --relate` does, before the id is
 minted. `--waits-on ID` (repeatable) is `--relate ID` plus `-s blocked`, and
 excludes `-s`; it refuses, before anything else is read, when `blocked` is not
@@ -686,7 +693,8 @@ failed commit puts back `m.yml` and the files and prints nothing on stdout.
 
 ### `comment`
 
-Text comes from `-m`, or from the editor (`$VISUAL`, else `$EDITOR`) with `-e`, or — when neither is given
+Text comes from `-m`, or from the editor (`$VISUAL`, else `$EDITOR`) with `-e`
+(`-m` and `-e` exclude each other, exit 2), or — when neither is given
 and stdin is not a terminal — from stdin, read until end of file. That last
 form waits for EOF: a caller whose stdin is an open pipe it never closes (a
 harness, a CI step) blocks, so a non-interactive caller passes `-m`, or gives
@@ -715,7 +723,8 @@ file at all. The author is `$YMAN_ACTOR` (non-empty after trimming), else
 `git config user.name`, else `unknown`; line breaks and other control
 characters in it become single spaces, so the author is always one line. This
 is the display name written into `d.md` only; the git committer is whatever git
-resolves.
+resolves. The id prefix of the `author` scheme resolves the other way round,
+config first; see [storage.md §8](storage.md).
 
 ## 5. Refresh
 
