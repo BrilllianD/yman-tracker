@@ -192,8 +192,10 @@ related:
 - '5'
 ```
 
-Timestamps are RFC 3339, UTC, second precision. Keys yman does not know are
-dropped when it rewrites the file.
+Timestamps are RFC 3339, UTC, second precision. Top-level keys yman does not
+know survive a rewrite: they are kept verbatim and written back after `related`
+([storage.md §6](docs/storage.md#myml)). Unknown keys inside an `attachments`
+entry are dropped.
 
 ### `d.md`
 
@@ -399,8 +401,9 @@ reader that pays per token: which calls to make, what `ls` columns mean, the
 exit codes, and how to recover from a stuck sync. It starts with a block to
 paste into a project's `CLAUDE.md`. The short version: filter with `ls -n`,
 skim bodies with `ls -l -n`, read with `show -n`, close with `done <id> -m`,
-run `yman sync` before a status change and after it (the after is automatic
-under `yman.autosync = push`), never open an editor, always give `comment` its
+run `yman sync` before a status change, then re-`show` the task and stop if
+somebody else has taken or closed it, and sync again after the change (the
+after is automatic under `yman.autosync = push`), never open an editor, always give `comment` its
 text with `-m` (without it the comment is read from stdin until end of file,
 which blocks on a pipe left open), read `yman state` at session start and
 rewrite it with `yman state set --body-file - <<'EOF'` when the situation
@@ -413,6 +416,14 @@ steps in one call, enough to pick the next step without a `show` per step) and
 created in one go with `add --sections plan.md --relate <id>`, so the epic is
 never edited; a step that waits sits in `blocked` and relates to what it waits
 on.
+
+Three refusals to expect. `rm` and `tags rm` need `-f` off a terminal, and
+without it fail with `refusing to remove without -f`. Exit 3 means a sync merge
+is unresolved, and every command that changes a task exits 3 until
+`yman sync --continue` or `--abort` settles it; the guide and the skill give
+the recovery for each case. `cancel` exits 1 where `statuses.cancel` is unset
+(every version 1 config): close with `yman done <id> -m "cancelled: <why>"`
+instead.
 
 For a harness that loads skills, [skills/yman/](skills/yman/) is the fuller
 version of the same rules as a Claude Code skill — the task-list procedure,

@@ -21,11 +21,10 @@
 
     P  ID  STATUS  TITLE  TAGS  F  C
 
-`P` is priority 0 (highest) to 9, `F` attachments, `C` comments; zero is
-blank and trailing empty columns are dropped. Filters AND together, `-t` and
-`-q` comparing lowercase: `-s <status>` `-t <tag>` `--assignee <who|->`
-`-p <0-9>` `--related <id>` `-q <text>`; `-n <N>` caps rows after sorting;
-closed tasks need `-a` or `-s <closed status>`.
+`P` is priority 0 (highest) to 9, `F` attachments, `C` comments; zero is blank and trailing
+empty columns are dropped. Filters AND together, `-t` and `-q` comparing lowercase: `-s <status>`
+`-t <tag>` `--assignee <who|->` `-p <0-9>` `--related <id>` `-q <text>`; `-n <N>` caps rows after
+sorting; closed tasks need `-a` or `-s <closed status>`.
 
 `show <id>` prints a header (`related by:` = tasks relating to it), the body,
 then `attachments:` and `discussion:`; empty sections omitted, `-n <N>` keeps the last N.
@@ -35,7 +34,8 @@ then `attachments:` and `discussion:`; empty sections omitted, `-n <N>` keeps th
 ## Writing
 
 `start`, `done`, `cancel`, `reopen`, `move <id>... <status>` and `prio <id>... <0-9>`
-take several ids, one commit each, and `-m <text>` to comment in the same commit.
+take several ids, one commit each, and `-m <text>` to comment in the same commit. Without
+`statuses.cancel` (every version 1 tracker) `cancel` exits 1: `done <id> -m "cancelled: <why>"`.
 `set <id>` changes any field: `--status` `--priority` `--title` `-a/--assignee` `--no-assignee`
 `--tag/--untag` `--link/--unlink` `--relate/--unrelate` `--body <text>` `--body-file <path|->`
 `-m <text>`. Every mutation is its own commit; nothing to save; parallel calls on one clone are
@@ -43,15 +43,14 @@ safe. `comment <id> -m <text>` adds a note; without `-m` it reads stdin to EOF, 
 
 ## Plans
 
-An epic is an ordinary task (tag `epic`); its steps are `add ... --relate <epic>`,
-or all at once `add --sections <file|-> --relate <epic>`: one per `# Title`, body below.
-`plan <epic>` prints it, a count per status and the open steps sorted like `ls`
-(`-a` all, `-n 3` what is next, `-l`, `--json`); that picks the next step, no `show` needed.
-Order with priority. A step that waits gets `--waits-on <blocker>` on `add` or `set`:
-relate plus status `blocked` (needs it in `statuses.list`); `plan` shows `waits on <ids>`.
-Closing the last blocker prints `note: <id> no longer waits on anything open: yman
-move <id> todo` on stderr; run it. Close the epic last, when `plan` lists none
-(closing it earlier warns with the open ids).
+An epic is an ordinary task (tag `epic`); its steps are `add ... --relate <epic>`, or all at
+once `add --sections <file|-> --relate <epic>`: one per `# Title`, body below. `plan <epic>`
+prints it, a count per status and the open steps sorted like `ls` (`-a` all, `-n 3` what is
+next, `-l`, `--json`); that picks the next step, no `show` needed. Order with priority. A step
+that waits gets `--waits-on <blocker>` on `add` or `set`: relate plus status `blocked` (needs it
+in `statuses.list`); `plan` shows `waits on <ids>`. Closing the last blocker prints `note: <id>
+no longer waits on anything open: yman move <id> todo` on stderr; run it. Close the epic last,
+when `plan` lists none (closing it earlier warns with the open ids).
 
 ## Streams and exit codes
 
@@ -63,9 +62,10 @@ stdout carries data only. Errors (`error: ...`), warnings and notes go to stderr
     3  a sync merge is unresolved; mutating commands exit 3 till then
     4  no task has that id
 
-On 3: read stderr, the cause comes first. `yman status` names unmerged files: remove the markers, or
-`yman git add` the side to keep of a no-marker file. With none, delete the folder the message names
-(`duplicate task id`, `task <id> is split`, `holds file(s)`), then `yman sync --continue` or `--abort`.
+On 3: read stderr, the cause comes first. `yman status` names unmerged files: remove the markers.
+A no-marker file needs a side: `yman git checkout --ours|--theirs -- <file> && yman git add <file>`.
+With none, delete the folder the message names (`duplicate task id`, `task <id> is split`,
+`holds file(s)`), then `yman sync --continue` or `--abort`.
 
 ## Cost and attribution
 

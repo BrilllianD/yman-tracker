@@ -132,7 +132,9 @@ success, not failure.
 
 `start`, `done`, `cancel`, `reopen`, `move <id>... <status>` and
 `prio <id>... <0-9>` all take **several ids** and all take `-m <text>`. Each id
-is its own commit, processed in order.
+is its own commit, processed in order. `cancel` needs `statuses.cancel`. Where it is unset
+(every version 1 config) it exits 1 with `no cancel status configured; …`; close the task with
+`yman done <id> -m "cancelled: <why>"` instead, and never edit `.yman/config.toml` to add one.
 
 `comment <id> -m "<text>"` appends to the discussion. Always pass `-m`: with no
 `-m` and stdin not a terminal it reads the comment from stdin **until end of
