@@ -59,8 +59,9 @@ fails, a `git commit` that fails), ends
 `; the merge is still in progress; fix that, then: yman sync --continue  (or: yman sync --abort)`.
 
 Code 4 is only `task <id> not found`; `log <id>` gives it only when git has no
-history for the id either, and a removed task's log exits 0. A folder that exists but is broken or
-duplicated is a repository problem, not a missing task, and stays at code 1.
+history for the id either, and a removed task's log exits 0. A folder that
+exists but is broken or duplicated is a repository problem, not a missing task,
+and stays at code 1.
 A verb given several ids exits 4 at the first missing one, with the tasks
 before it already committed (and, under `yman.autosync = push`, pushed).
 

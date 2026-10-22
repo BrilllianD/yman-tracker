@@ -250,10 +250,11 @@ yman tags rm <tag> [-f]
 ```
 Lists tasks sorted by priority, then status order, then id. Tasks in a closed
 status are hidden unless you pass `-a` or name that status with `-s`. `-t`
-requires *all* the tags given and matches case-insensitively. `--assignee -` means unassigned,
-`--related <id>` keeps the tasks that relate to that id, `-q` is a
-case-insensitive search over title and body, `-n` caps the task rows after sorting (broken folders are still listed),
-and `-l` prints each task's body indented under its row.
+requires *all* the tags given and matches case-insensitively. `--assignee -`
+means unassigned, `--related <id>` keeps the tasks that relate to that id, `-q`
+is a case-insensitive search over title and body, `-n` caps the task rows after
+sorting (broken folders are still listed), and `-l` prints each task's body
+indented under its row.
 Column headers appear only when stdout is a terminal, so `yman ls | grep` stays
 predictable. `yman tags` is the inventory of the tags in use, one row per tag
 with the number of tasks carrying it — closed tasks included, since the

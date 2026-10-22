@@ -9660,10 +9660,10 @@ fn ls_limit_counts_tasks_and_broken_folders_carry_their_id() {
     assert!(out.status.success(), "{}", stderr(&out));
     let text = stdout(&out);
     assert_eq!(text.matches("\"title\":").count(), 1, "{text}");
-    assert!(
-        text.contains("{\"id\":\"3\",\"dir\":\"5.3.broken\",\"error\":\""),
-        "{text}"
-    );
+    let broken = text
+        .find("{\"id\":\"3\",\"dir\":\"5.3.broken\",\"error\":\"")
+        .unwrap_or_else(|| panic!("{text}"));
+    assert!(text.find("\"title\":").unwrap() < broken, "{text}");
 }
 
 /// `ls --assignee` reads its value the way `add -a` does: trimmed, and blank
@@ -11239,6 +11239,7 @@ fn log_shows_a_removed_task_and_exits_4_only_without_history() {
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
     let text = stdout(&out);
     let lines: Vec<&str> = text.lines().collect();
+    assert!(!lines.is_empty(), "{text}");
     assert!(lines[0].contains("task(1): remove \"Fix login\""), "{text}");
     assert!(lines.iter().any(|l| l.contains("task(1): add")), "{text}");
 
