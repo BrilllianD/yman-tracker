@@ -340,6 +340,8 @@ pub enum Entry {
     Broken {
         dir: PathBuf,
         status_dir: Option<String>,
+        /// The id parsed from the folder name.
+        id: String,
         error: String,
     },
 }
@@ -454,13 +456,14 @@ pub fn task_path_of(path: &str) -> Option<(String, FolderName)> {
 pub fn list(ydir: &Path) -> Result<Vec<Entry>> {
     Ok(task_dirs(ydir)?
         .into_iter()
-        .map(|(status_dir, name, _)| {
+        .map(|(status_dir, name, folder)| {
             let dir = dir_of(ydir, status_dir.as_deref(), &name);
             match load(ydir, &dir) {
                 Ok(t) => Entry::Task(t),
                 Err(e) => Entry::Broken {
                     dir,
                     status_dir,
+                    id: folder.id,
                     error: format!("{e:#}"),
                 },
             }

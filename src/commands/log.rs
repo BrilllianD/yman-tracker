@@ -4,15 +4,28 @@ use crate::repo::{Context, LOCAL};
 use crate::task;
 use anyhow::Result;
 
+/// A task removed with `rm` keeps its history in git, and `log <id>` shows it;
+/// only an id no commit ever touched is not found.
 pub fn run(ctx: &mut Context, a: LogArgs) -> Result<()> {
     let out = match &a.id {
         None => ctx
             .wt
             .out(&["log", "--oneline", "-n", &a.number.to_string(), LOCAL])?,
         Some(id) => {
-            let t = task::find(&ctx.ydir, id)?;
+            let mut gone = None;
+            let id = match task::find(&ctx.ydir, id) {
+                Ok(t) => t.folder.id,
+                Err(e) if e.downcast_ref::<crate::errors::NotFound>().is_some() => {
+                    gone = Some(e);
+                    id.clone()
+                }
+                Err(e) => return Err(e),
+            };
             let mut lines: Vec<String> = Vec::new();
-            task_log(ctx, &t.folder.id, LOCAL, a.number, &mut lines)?;
+            task_log(ctx, &id, LOCAL, a.number, &mut lines)?;
+            if let (true, Some(e)) = (lines.is_empty(), gone) {
+                return Err(e);
+            }
             lines.join("\n")
         }
     };

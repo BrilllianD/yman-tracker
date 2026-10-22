@@ -250,17 +250,18 @@ yman tags rm <tag> [-f]
 ```
 Lists tasks sorted by priority, then status order, then id. Tasks in a closed
 status are hidden unless you pass `-a` or name that status with `-s`. `-t`
-requires *all* the tags given and matches case-insensitively. `--assignee -` means unassigned,
-`--related <id>` keeps the tasks that relate to that id, `-q` is a
-case-insensitive search over title and body, `-n` caps the rows after sorting,
-and `-l` prints each task's body indented under its row.
+requires *all* the tags given and matches case-insensitively. `--assignee -`
+means unassigned, `--related <id>` keeps the tasks that relate to that id, `-q`
+is a case-insensitive search over title and body, `-n` caps the task rows after
+sorting (broken folders are still listed), and `-l` prints each task's body
+indented under its row.
 Column headers appear only when stdout is a terminal, so `yman ls | grep` stays
 predictable. `yman tags` is the inventory of the tags in use, one row per tag
 with the number of tasks carrying it — closed tasks included, since the
 question is what exists rather than what is open. `yman tags rename` and
 `yman tags rm` edit that vocabulary across every task carrying the tag, in one
 commit; `rm` confirms first, like `yman rm`. `--json` prints one object per
-task — including its `links` and `related` ids — plus `{dir, error}` for
+task — including its `links` and `related` ids — plus `{id, dir, error}` for
 anything broken; `-l` adds each task's `body`.
 
 ```
@@ -336,7 +337,7 @@ is prose, and is never checked or rewritten.
 ```sh
 yman attach <id> <file>... [--name <n>] [--force]
 yman detach <id> <name>
-yman comment <id> [-m <text>] [-e]
+yman comment <id> [-m <text> | -e]
 ```
 
 `--name` renames a single file on the way in. `--force` replaces an attachment

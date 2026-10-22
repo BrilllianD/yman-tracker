@@ -6,7 +6,6 @@ use crate::sections;
 use crate::tags;
 use crate::task::{self, FolderName, Meta, Task};
 use anyhow::{Result, anyhow, bail};
-use std::collections::HashSet;
 use std::path::Path;
 
 use super::editor::run_editor;
@@ -85,26 +84,29 @@ pub fn run(ctx: &mut Context, a: AddArgs) -> Result<()> {
         related,
         edit: a.edit,
     };
-    // One history walk for the whole run: each minted id joins the set, so
-    // `--sections` with k headings does not cost k walks.
+    // Every id is minted before the first task is written, so a relation
+    // naming one of them refuses the whole run. One history walk for it all:
+    // each minted id joins the set, so `--sections` with k headings does not
+    // cost k walks.
     let mut taken = ids::taken_ids(ctx)?;
+    let mut minted = Vec::with_capacity(items.len());
+    for _ in &items {
+        let id = ids::new_id(ctx, &taken)?;
+        taken.insert(id.clone());
+        minted.push(id);
+    }
+    for id in &minted {
+        super::related_args(spec.related.clone(), Some(id))?;
+    }
     // One commit per task, as the multi-id verbs do; the first failure stops
     // the run with the tasks before it already committed.
-    for (title, body) in items {
-        create(ctx, &spec, title, body, &mut taken)?;
+    for ((title, body), id) in items.into_iter().zip(minted) {
+        create(ctx, &spec, id, title, body)?;
     }
     Ok(())
 }
 
-fn create(
-    ctx: &mut Context,
-    spec: &Spec,
-    title: String,
-    body: String,
-    taken: &mut HashSet<String>,
-) -> Result<()> {
-    let id = ids::new_id(ctx, taken)?;
-    taken.insert(id.clone());
+fn create(ctx: &mut Context, spec: &Spec, id: String, title: String, body: String) -> Result<()> {
     let folder = FolderName::for_title(spec.priority, &id, &title, ctx.config().slug.max_bytes)?;
     // A task added straight into a closed status is born in its archive
     // directory rather than being created and immediately moved.
@@ -137,9 +139,14 @@ fn create(
         created = up;
     }
     let created = created.to_path_buf();
-    std::fs::create_dir_all(&dir)?;
-    t.write_md()?;
-    t.write_meta()?;
+    let written = std::fs::create_dir_all(&dir)
+        .map_err(anyhow::Error::from)
+        .and_then(|()| t.write_md())
+        .and_then(|()| t.write_meta());
+    if let Err(e) = written {
+        discard(&t, &created);
+        return Err(e);
+    }
 
     if spec.edit {
         let edited = run_editor(&t.dir().join(task::MD_FILE), "task not added").and_then(|()| {
@@ -165,8 +172,13 @@ fn create(
         let slug = task::slugify(&t.title, ctx.config().slug.max_bytes);
         if slug != t.folder.slug {
             let old_rel = t.rel();
-            t.folder.slug = slug;
-            t.relocate(None, &old_rel)?;
+            let old_slug = std::mem::replace(&mut t.folder.slug, slug);
+            if let Err(e) = t.relocate(None, &old_rel) {
+                // The folder is still where it was, so `dir()` must name it.
+                t.folder.slug = old_slug;
+                discard(&t, &created);
+                return Err(e);
+            }
         }
     }
 
@@ -188,7 +200,10 @@ fn create(
 /// directories made for it.
 fn discard(t: &Task, created: &Path) {
     let dir = t.dir();
-    if let Err(rm) = std::fs::remove_dir_all(&dir) {
+    // A failed `create_dir_all` may have made nothing.
+    if let Err(rm) = std::fs::remove_dir_all(&dir)
+        && rm.kind() != std::io::ErrorKind::NotFound
+    {
         eprintln!("warning: cannot remove {}: {rm}", t.rel());
     }
     // An archive directory made for this task goes too. Git ignores an empty

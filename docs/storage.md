@@ -671,6 +671,10 @@ unquoted whatever characters they hold.
 The `author` prefix resolves in order: `git config yman.author`, `$YMAN_AUTHOR`,
 then the initials of `user.name` (first letter of each word, lowercased, ASCII
 letters only). With none of those available, `add` fails rather than guess.
+Configuration beats the environment here, the reverse of the comment author
+(`$YMAN_ACTOR` before `user.name`, see commands.md `comment`): the prefix is
+part of every id this clone mints, so the value `init --author` stored stays in
+force, while the author is only a display name a session may override.
 
 The prefix must match `[A-Za-z0-9_-]+`, and whichever source supplies it is
 checked every time it is read. A setting that is empty or all whitespace counts

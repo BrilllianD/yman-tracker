@@ -19,12 +19,19 @@ pub fn run(ctx: &mut Context, a: LsArgs) -> Result<()> {
     let want_tags = tags::normalize_all(&a.tags)?;
     let needle = a.grep.as_deref().map(str::to_lowercase);
     let mut tasks: Vec<Task> = Vec::new();
-    let mut broken: Vec<(String, String)> = Vec::new();
+    let mut broken: Vec<(String, String, String)> = Vec::new();
+
+    // Same rule as `assignee_arg`, without its refusal, because reads never
+    // refuse: a value it would reject just matches nothing.
+    let want_assignee: Option<Option<&str>> = a.assignee.as_deref().map(|v| {
+        let v = v.trim();
+        (!task::is_unassigned(v)).then_some(v)
+    });
 
     for entry in task::list(&ctx.ydir)? {
         let rel = entry.rel();
         match entry {
-            Entry::Broken { error, .. } => broken.push((rel, error)),
+            Entry::Broken { id, error, .. } => broken.push((id, rel, error)),
             Entry::Task(t) => {
                 let keep_status = if a.statuses.is_empty() {
                     a.all || !ctx.config().is_terminal(&t.meta.status)
@@ -34,10 +41,10 @@ pub fn run(ctx: &mut Context, a: LsArgs) -> Result<()> {
                 let keep_tags = want_tags
                     .iter()
                     .all(|want| t.meta.tags.iter().any(|have| tags::fold(have) == *want));
-                let keep_assignee = match a.assignee.as_deref() {
+                let keep_assignee = match want_assignee {
                     None => true,
-                    Some("-") => t.meta.assignee.is_none(),
-                    Some(who) => t.meta.assignee.as_deref() == Some(who),
+                    Some(None) => t.meta.assignee.is_none(),
+                    Some(Some(who)) => t.meta.assignee.as_deref().map(str::trim) == Some(who),
                 };
                 let keep_priority = a.priority.is_none_or(|p| p == t.priority());
                 // Exact match, like `--relate` writes it: an unknown id is an
@@ -66,6 +73,8 @@ pub fn run(ctx: &mut Context, a: LsArgs) -> Result<()> {
     }
 
     tasks.sort_by(|x, y| cmp_tasks(ctx.config(), x, y));
+    // `-n` counts tasks; broken folders are always listed after them, because
+    // a problem must not be hidden by a limit.
     if let Some(n) = a.limit {
         tasks.truncate(n);
     }
@@ -78,7 +87,7 @@ pub fn run(ctx: &mut Context, a: LsArgs) -> Result<()> {
     Ok(())
 }
 
-fn print_table(tasks: &[Task], broken: &[(String, String)], long: bool) {
+fn print_table(tasks: &[Task], broken: &[(String, String, String)], long: bool) {
     let mut rows: Vec<[String; 7]> = Vec::new();
     for t in tasks {
         rows.push([
@@ -91,7 +100,7 @@ fn print_table(tasks: &[Task], broken: &[(String, String)], long: bool) {
             count(t.comment_count()),
         ]);
     }
-    for (name, error) in broken {
+    for (_, name, error) in broken {
         rows.push([
             "!".into(),
             name.clone(),
@@ -134,7 +143,7 @@ fn count(n: usize) -> String {
     if n == 0 { String::new() } else { n.to_string() }
 }
 
-fn print_json(tasks: &[Task], broken: &[(String, String)], long: bool) {
+fn print_json(tasks: &[Task], broken: &[(String, String, String)], long: bool) {
     let mut items: Vec<String> = Vec::new();
     for t in tasks {
         let mut obj = super::task_json(t)
@@ -150,9 +159,10 @@ fn print_json(tasks: &[Task], broken: &[(String, String)], long: bool) {
         }
         items.push(obj.finish());
     }
-    for (name, error) in broken {
+    for (id, name, error) in broken {
         items.push(
             json::Object::new()
+                .str("id", id)
                 .str("dir", name)
                 .str("error", error)
                 .finish(),
