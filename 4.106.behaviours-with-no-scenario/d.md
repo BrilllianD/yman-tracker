@@ -6,3 +6,7 @@ repro: REPRODUCED: Ry6 bare repo: yman ls rc 1 'error: not inside a git reposito
 
 621ea94: discover keeps git's reason (S6); rest in S10
 
+## 2026-10-22T14:14:31Z — Bronnikov Aleksandr
+
+2f9514c: scenarios for the rest of #106
+
