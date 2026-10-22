@@ -5,12 +5,11 @@ Audit backlog, epic #86. Outline with per-slice loop, global constraints and les
 `~/.claude/plans/any-tasks-remains-distributed-bear.md` (Handoff section is current). Slice
 index with every plan, report and review: `~/mem/projects/yman/notes/2026-10-21-audit-fix-run.md`.
 
-- S1-S10 merged into `main` (155424a), pushed to origin 2026-10-22.
-- S11 docs (#98, #107, #108) next: branch off `main`, designer writes the S11 plan.
+- S1-S10 pushed to origin (155424a). S11 merged into local `main` (698f988), NOT pushed; ask before pushing.
+- S12 CLI/JSON contract (#99) next: ask the owner item by item before any design.
 
 ## Next
-1. S11 docs (#98, #107, #108), plus CLAUDE.md serde_yaml qualifier and test counts.
-2. S12 CLI/JSON contract (#99): ask the owner item by item first. Then `yman done 86`.
+1. S12 CLI/JSON contract (#99): ask the owner item by item first. Then `yman done 86`.
 
 ## Decisions already taken
 - yman honours the user's `commit.gpgSign`.
@@ -24,5 +23,9 @@ index with every plan, report and review: `~/mem/projects/yman/notes/2026-10-21-
   folders in `ls --json` carry `id` (keys `id, dir, error`); `ls --assignee ""`/`" - "` lists
   unassigned; self-relation in `add` refused before any write; `add` discards on failure.
 
+- S11: clap colour off; printed task paths `.yman`-relative except `yman path`; no `cancel`
+  status means `done -m "cancelled: <why>"`; split-close recipe: delete one folder, settle the
+  kept m.yml, `sync --continue` (docs fixed, code unchanged).
+
 ## Blockers
-None. Open: epic #86 and #98 #99 #107 #108.
+None. Open: epic #86 and #98 #99.
