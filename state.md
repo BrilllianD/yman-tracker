@@ -22,10 +22,9 @@ index with every plan, report and review: `~/mem/projects/yman/notes/2026-10-21-
 - S10: `comment -m x -e` exits 2; `log <id>` of a removed task prints history, exit 0; broken
   folders in `ls --json` carry `id` (keys `id, dir, error`); `ls --assignee ""`/`" - "` lists
   unassigned; self-relation in `add` refused before any write; `add` discards on failure.
-
 - S11: clap colour off; printed task paths `.yman`-relative except `yman path`; no `cancel`
   status means `done -m "cancelled: <why>"`; split-close recipe: delete one folder, settle the
   kept m.yml, `sync --continue` (docs fixed, code unchanged).
 
 ## Blockers
-None. Open: epic #86 and #98 #99.
+None. Open: epic #86 and #99.
