@@ -12,7 +12,7 @@ Knowledge base: ~/mem/projects/yman/README.md (search: qmd search "<terms>" -c m
 ## Commands
 
 ```sh
-cargo test                                  # 141 unit + 222 integration
+cargo test                                  # unit tests in src/, scenarios in tests/cli.rs
 cargo clippy --all-targets -- -D warnings   # must be clean; CI runs it too
 cargo fmt                                   # run before committing
 sh scripts/spike-symref.sh                  # re-proves the git invariant below
@@ -68,7 +68,8 @@ pages generated from `src/cli.rs` cannot drift from it. There is no `regex`
 `serde_json` (every `--json` output is written by `src/json.rs`, which escapes
 and assembles it by hand) and no YAML crate (`m.yml` goes through
 `src/yml.rs`, whose writer is byte-compatible with the `serde_yaml` output it
-replaced). Adding a crate needs a reason beyond convenience.
+replaced, except the differences listed in `src/yml.rs`). Adding a crate needs
+a reason beyond convenience.
 
 ## Git conventions
 
@@ -113,6 +114,6 @@ you think it is instead of silently picking a side.
 The agent-facing surface is written down three times: `docs/agents.md`, which
 `src/commands/guide.rs` compiles into the binary with `include_str!` and
 `yman guide` prints; `skills/yman/SKILL.md`, the copy a harness loads (and what
-`.claude/skills/yman` symlinks to); and the `## Scripts and agents` section of
+`.claude/skills/yman` symlinks to); and the `### Scripts and agents` section of
 `README.md`. A changed flag, exit code or interactive-command rule has to move
 in all three.

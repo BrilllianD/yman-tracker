@@ -12,7 +12,11 @@ Normative, as-built. Companion documents: [storage.md](storage.md),
 
 This split is a contract, not a style choice: `cd $(yman path 14)` and
 `yman ls --json \| jq` must stay usable. Nothing decorative goes to stdout, and
-there is no colour anywhere.
+there is no colour anywhere: the `git` calls yman makes have colour pinned off
+([storage.md §3](storage.md#3-repository-configuration)) and the argument
+parser's colour is switched off, so `--help` and usage errors are plain on a
+terminal too. `yman git` is the exception: it is the user's own git, colours
+included.
 
 The `rm` and `tags rm` confirmation prompts are on stderr too, since they
 are not data. Every stderr line yman writes starts with `error: `,
@@ -21,8 +25,11 @@ command to add under `note: hook <name> exists; add this line to it:`, each
 file under the `note: unmerged files:` that `sync` prints when a merge stops,
 git's stderr quoted inside a message (`git <sub> failed: …`,
 `warning: refresh failed: …`) and the `  ! [remote rejected] …` line `sync`
-prints for a refused push. Git's own output, printed verbatim above a failure,
-is the one exception.
+prints for a refused push. Two blocks yman does not write itself are
+exceptions. Git's own output is printed verbatim above a failure. The argument
+parser's message for a usage error (exit 2) starts with `error: `, then
+continues, separated by empty lines, with indented `tip:` lines when it has a
+suggestion, a `Usage: …` line and `For more information, try '--help'.`
 
 ## Exit codes
 

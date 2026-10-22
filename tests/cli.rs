@@ -7505,6 +7505,34 @@ fn help_documents_flags_and_points_at_guide() {
     assert!(ls.contains("Print JSON instead of the table"), "{ls}");
 }
 
+/// No colour anywhere: clap's help and usage errors stay plain even when the
+/// terminal or `CLICOLOR_FORCE` asks for colour.
+#[test]
+fn help_and_usage_errors_have_no_colour() {
+    let fx = Fx::new();
+    let help = fx
+        .yman(&fx.a)
+        .env("CLICOLOR_FORCE", "1")
+        .arg("--help")
+        .output()
+        .unwrap();
+    assert!(help.status.success());
+    assert!(!stdout(&help).contains('\u{1b}'), "{}", stdout(&help));
+    let bad = fx
+        .yman(&fx.a)
+        .env("CLICOLOR_FORCE", "1")
+        .args(["ls", "--stat"])
+        .output()
+        .unwrap();
+    assert_eq!(bad.status.code(), Some(2));
+    assert!(
+        stderr(&bad).starts_with("error: unexpected argument '--stat' found"),
+        "{}",
+        stderr(&bad)
+    );
+    assert!(!stderr(&bad).contains('\u{1b}'), "{}", stderr(&bad));
+}
+
 /// `guide` prints docs/agents.md byte for byte, from a directory that is
 /// not a git repository at all.
 #[test]

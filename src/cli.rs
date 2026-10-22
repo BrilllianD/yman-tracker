@@ -10,6 +10,7 @@ use clap::{ArgAction, ArgGroup, Args, Parser, Subcommand, ValueEnum, ValueHint};
     version,
     about = "Task tracker that lives next to the code and syncs through the project's own git remote",
     disable_help_subcommand = true,
+    color = clap::ColorChoice::Never,
     after_help = "\
 stdout is data; errors, warnings and notes go to stderr.
 Exit codes: 0 ok, 1 error, 2 usage, 3 sync merge unresolved, 4 no such task.
