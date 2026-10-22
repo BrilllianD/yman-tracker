@@ -176,10 +176,12 @@ fn check_resolved_tasks(ctx: &Context) -> Result<()> {
 }
 
 /// Closing one task to two different statuses on two clones is a rename/rename
-/// conflict, and git resolves it by keeping *both* folders. Both load, neither
-/// carries a conflict marker, so every other check here passes and the merge
-/// would be committed and pushed with two folders for one id — after which no
-/// command can touch that task again. This is the only thing that catches it.
+/// conflict, and git resolves it by keeping *both* folders. Both load, so the
+/// load check passes, and the merge would be committed and pushed with two
+/// folders for one id — after which no command can touch that task again.
+/// This is the only thing that catches it. (A split made through yman also
+/// leaves markers in the kept `m.yml`, which the marker scan stops on first;
+/// a hand `git mv` leaves none.)
 fn duplicate_ids_gate(ctx: &Context) -> Result<()> {
     let mut seen: HashMap<String, String> = HashMap::new();
     for (parent, name, f) in task::task_dirs(&ctx.ydir)? {

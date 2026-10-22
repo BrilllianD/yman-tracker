@@ -33,13 +33,13 @@ then `attachments:` and `discussion:`; empty sections omitted, `-n <N>` keeps th
 
 ## Writing
 
-`start`, `done`, `cancel`, `reopen`, `move <id>... <status>` and `prio <id>... <0-9>`
-take several ids, one commit each, and `-m <text>` to comment in the same commit. Without
-`statuses.cancel` (every version 1 tracker) `cancel` exits 1: `done <id> -m "cancelled: <why>"`.
+`start`, `done`, `cancel`, `reopen`, `move <id>... <status>` and `prio <id>... <0-9>` take several ids,
+one commit each, and `-m <text>` to comment in the same commit. Without `statuses.cancel` (version 1)
+`cancel` exits 1: use `done <id> -m "cancelled: <why>"`, and never edit `config.toml` to add one.
 `set <id>` changes any field: `--status` `--priority` `--title` `-a/--assignee` `--no-assignee`
 `--tag/--untag` `--link/--unlink` `--relate/--unrelate` `--body <text>` `--body-file <path|->`
-`-m <text>`. Every mutation is its own commit; nothing to save; parallel calls on one clone are
-safe. `comment <id> -m <text>` adds a note; without `-m` it reads stdin to EOF, so pass `-m`.
+`-m <text>`. Every mutation is its own commit; nothing to save; parallel calls on one clone are safe.
+`comment <id> -m <text>` adds a note; without `-m` it reads stdin to EOF, so pass `-m`.
 
 ## Plans
 
@@ -65,7 +65,7 @@ stdout carries data only. Errors (`error: ...`), warnings and notes go to stderr
 On 3: read stderr, the cause comes first. `yman status` names unmerged files: remove the markers.
 A no-marker file needs a side: `yman git checkout --ours|--theirs -- <file> && yman git add <file>`.
 With none, delete the folder the message names (`duplicate task id`, `task <id> is split`,
-`holds file(s)`), then `yman sync --continue` or `--abort`.
+`holds file(s)`), clear markers a kept `m.yml` still has, then `yman sync --continue` or `--abort`.
 
 ## Cost and attribution
 

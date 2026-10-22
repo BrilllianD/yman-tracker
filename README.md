@@ -419,8 +419,8 @@ paste into a project's `CLAUDE.md`. The short version: filter with `ls -n`,
 skim bodies with `ls -l -n`, read with `show -n`, close with `done <id> -m`,
 run `yman sync` before a status change, then re-`show` the task and stop if
 somebody else has taken or closed it, and sync again after the change (the
-after is automatic under `yman.autosync = push`), never open an editor, always give `comment` its
-text with `-m` (without it the comment is read from stdin until end of file,
+after is automatic under `yman.autosync = push`), never open an editor, always
+give `comment` its text with `-m` (without it the comment is read from stdin until end of file,
 which blocks on a pipe left open), read `yman state` at session start and
 rewrite it with `yman state set --body-file - <<'EOF'` when the situation
 changed (short: in progress, next, blockers; never edit `.yman/state.md` by
@@ -439,7 +439,7 @@ is unresolved, and every command that changes a task exits 3 until
 `yman sync --continue` or `--abort` settles it; the guide and the skill give
 the recovery for each case. `cancel` exits 1 where `statuses.cancel` is unset
 (every version 1 config): close with `yman done <id> -m "cancelled: <why>"`
-instead.
+instead, and never edit `config.toml` to add a cancel status.
 
 For a harness that loads skills, [skills/yman/](skills/yman/) is the fuller
 version of the same rules as a Claude Code skill — the task-list procedure,
@@ -530,8 +530,9 @@ has no status to use; raising the version is a hand edit. Existing closed tasks 
 one does it, and reports `folder <old> -> <new>`.
 
 Two people closing the *same* task to *different* statuses is the one case that
-gets harder: git keeps both folders, and `yman sync` names the pair and asks you
-to delete one. `yman sync --continue` refuses until you do.
+gets harder: git keeps both folders, and `yman sync` names the pair, lists
+the kept `m.yml` among the unmerged files, and asks you to delete one folder
+and settle that file. `yman sync --continue` refuses until you have.
 
 ### Choosing an id scheme
 
@@ -636,7 +637,8 @@ same commit as the rename.
 ### Same field, two edits
 
 Two people setting the same field of the same task (the assignee, say) to
-different values conflict like any other git conflict. Sync stops with exit code 3 and tells you which files:
+different values conflict like any other git conflict. Sync stops with exit
+code 3 and tells you which files:
 
 ```console
 $ yman sync
@@ -681,17 +683,19 @@ note: unmerged files:
   done/5.1.fix-login/m.yml
   done/5.1.fix-login/t.md
 note: task 1 was closed to two different statuses; keep one of cancelled/5.1.fix-login, done/5.1.fix-login
-error: conflicts in 6 file(s); edit them, remove markers, then: yman sync --continue
+error: conflicts in 6 file(s); edit them, remove markers, then: yman sync --continue  (or: yman sync --abort)
 
 $ rm -rf .yman/cancelled/5.1.fix-login
-$ $EDITOR .yman/done/5.1.fix-login/m.yml   # keep one status line, drop the markers
+$ $EDITOR .yman/done/5.1.fix-login/m.yml   # keep one of each key, drop the markers
 $ yman sync --continue
 synced  pulled 1, pushed 2, renumbered 0   refs/yman/local @ 3f2a1c9
 ```
 
 `--continue` refuses while both folders are there, so the tracker cannot end up
 with two folders for one id. The folder you keep still has a conflict in its
-`m.yml`, on `status`, which is yours to settle like any other.
+`m.yml`, around `status` (through `updated` when the two `updated` times
+differ, so those keys appear twice), which is yours to settle like any other:
+keep one of each key.
 
 ---
 

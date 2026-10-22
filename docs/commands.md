@@ -139,7 +139,8 @@ asked for.
 ## 3. Reading
 
 Every task path yman prints (`added`, `edited`, `show`'s `folder:`,
-`attached … -> …`, `note: task folder is now …` and every `--json` `dir`) is
+`attached … -> …`, `note: task folder is now …`, the task paths in `attach`'s
+`warning: cannot restore|remove …` lines and every `--json` `dir`) is
 relative to `.yman`, the directory `yman git` runs in. The one exception is
 [`yman path`](#path), which prints the absolute path so `cd $(yman path 14)`
 works anywhere.
@@ -981,10 +982,14 @@ because a rename conflict names paths that survive in neither tree.
 ### A task closed to two different statuses
 
 Closing one task to `done` on one clone and `cancelled` on another renames it
-two ways, and git resolves that by keeping **both** folders. Both load, and
-neither holds a conflict marker, so every other check here passes — the
-duplicate-id check is the only thing between that state and a pushed task no
-command can touch afterwards. It reports
+two ways, and git resolves that by keeping **both** folders. Both load, so
+the load check passes, and the duplicate-id check is the only thing between
+that state and a pushed task no command can touch afterwards. (When both sides
+changed the status through yman, the kept `m.yml` also carries conflict markers
+around `status`, and through `updated` when the two `updated` times differ, so
+each key between them appears twice; `--continue` refuses with
+`still unmerged: <folder>/m.yml` until they are gone, then goes on to the
+duplicate-id check. Only a hand `git mv` leaves no marker.) The duplicate-id check reports
 
 ```
 duplicate task id 1: cancelled/5.1.fix-login, done/5.1.fix-login; delete one folder, then: yman sync --continue
@@ -1003,7 +1008,9 @@ side retitled or closed can be left behind under the old name while a merge is
 stopped; that remnant is not a split close, and `--continue` moves it into the
 folder that carries the task.
 
-Delete the folder you do not want, then rerun `yman sync --continue`.
+Delete the folder you do not want, settle the kept `m.yml` if it carries
+markers (one value per key, no marker lines), then rerun
+`yman sync --continue`.
 
 `--abort` runs `git merge --abort` and reports `merge aborted`. It pushes
 nothing, so `--no-push` beside it is a usage error, exit 2, as is `--continue`.

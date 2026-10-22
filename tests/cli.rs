@@ -6347,6 +6347,61 @@ fn a_split_close_cannot_be_continued_into_a_duplicate_id() {
     assert_eq!(fx.git(&fx.b, &["-C", ".yman", "status", "--porcelain"]), "");
 }
 
+/// The same split close, made with real `done` and `cancel`, rewrites `status`
+/// and `updated` in `m.yml` on both sides, so the kept `m.yml` also carries
+/// conflict markers. Deleting one folder is not enough: the survivor's `m.yml`
+/// must be settled by hand before `--continue` goes through.
+#[test]
+fn a_split_close_through_yman_also_leaves_markers_in_m_yml() {
+    let fx = Fx::new();
+    fx.shared(|| {
+        fx.v2_config(&fx.a);
+        fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    });
+    fx.yman(&fx.a).args(["done", "1"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).args(["cancel", "1"]).assert().success();
+
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+
+    std::fs::remove_dir_all(fx.b.join(".yman/cancelled/5.1.fix-login")).unwrap();
+    let out = fx
+        .yman(&fx.b)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert!(stderr(&out).contains("still unmerged"), "{}", stderr(&out));
+
+    // Settle m.yml: keep the first value of every key, drop the markers.
+    let m = fx.b.join(".yman/done/5.1.fix-login/m.yml");
+    let text = std::fs::read_to_string(&m).unwrap();
+    assert!(text.contains("<<<<<<<"), "{text}");
+    let mut seen = std::collections::HashSet::new();
+    let mut settled = String::new();
+    for line in text.lines() {
+        if line.starts_with("<<<<<<<") || line.starts_with(">>>>>>>") {
+            continue;
+        }
+        if line.starts_with("=======") {
+            continue;
+        }
+        let key = line.split(':').next().unwrap().to_string();
+        if seen.insert(key) {
+            settled.push_str(line);
+            settled.push('\n');
+        }
+    }
+    std::fs::write(&m, settled).unwrap();
+    fx.yman(&fx.b)
+        .args(["sync", "--continue"])
+        .assert()
+        .success();
+    assert_eq!(fx.task_rel(&fx.b, "1"), "done/5.1.fix-login");
+    assert_eq!(fx.git(&fx.b, &["-C", ".yman", "status", "--porcelain"]), "");
+}
+
 /// Commenting on an existing task is not creating one. Both sides adding a
 /// `d.md` to the same folder used to look like two people minting the same id,
 /// so syncing second renumbered a task that had been published for weeks.

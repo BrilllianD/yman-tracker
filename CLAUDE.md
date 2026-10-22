@@ -113,7 +113,7 @@ getting from no `.yman` to a working tracker. They describe what the code
 does, so a disagreement between them is a bug in one or the other — say which
 you think it is instead of silently picking a side.
 
-The agent-facing surface is written down three times: `docs/agents.md`, which
+The agent-facing surface is written down in several places: `docs/agents.md`, which
 `src/commands/guide.rs` compiles into the binary with `include_str!` and
 `yman guide` prints; `skills/yman/SKILL.md`, the copy a harness loads (and what
 `.claude/skills/yman` symlinks to); and the `### Scripts and agents` section of
