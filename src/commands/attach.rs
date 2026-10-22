@@ -1,5 +1,5 @@
 use crate::cli::{AttachArgs, DetachArgs};
-use crate::repo::Context;
+use crate::repo::{self, Context};
 use crate::task::{self, Attachment};
 use anyhow::{Result, bail};
 use std::path::{Path, PathBuf};
@@ -63,7 +63,7 @@ pub fn run(ctx: &mut Context, a: AttachArgs) -> Result<()> {
             .attachments
             .iter()
             .any(|x| task::fold_name(&x.name) == task::fold_name(&name))
-            || !same_name_files(&fdir, &name)?.is_empty();
+            || !same_name_files(&fdir, &ctx.ydir, &name)?.is_empty();
         if taken && !a.force {
             bail!(
                 "attachment \"{name}\" already exists on task {}; use --force",
@@ -87,7 +87,9 @@ pub fn run(ctx: &mut Context, a: AttachArgs) -> Result<()> {
     // The copies land first and `m.yml` is written only once all of them
     // have, so a copy that fails half way (disk full) is undone by `place`
     // and the task reads exactly as it did before.
-    let placed = place(&fdir, &plan, |src, dest| std::fs::copy(src, dest).map(drop))?;
+    let placed = place(&fdir, &ctx.ydir, &plan, |src, dest| {
+        std::fs::copy(src, dest).map(drop)
+    })?;
 
     let mut names: Vec<String> = Vec::new();
     for (_, name, _, _) in &plan {
@@ -113,7 +115,10 @@ pub fn run(ctx: &mut Context, a: AttachArgs) -> Result<()> {
     if let Err(e) = t.write_meta() {
         // A short write leaves `m.yml` truncated; put back what was there.
         if let Err(w) = std::fs::write(&meta_path, &before) {
-            eprintln!("warning: cannot restore {}: {w}", meta_path.display());
+            eprintln!(
+                "warning: cannot restore {}: {w}",
+                ctx.display_path(&meta_path)
+            );
         }
         placed.undo();
         return Err(e);
@@ -161,7 +166,10 @@ pub fn run(ctx: &mut Context, a: AttachArgs) -> Result<()> {
         // Nothing was committed: put back `m.yml` and the files, so a failed
         // attach is not reported as done nor left for the next commit.
         if let Err(w) = std::fs::write(&meta_path, &before) {
-            eprintln!("warning: cannot restore {}: {w}", meta_path.display());
+            eprintln!(
+                "warning: cannot restore {}: {w}",
+                ctx.display_path(&meta_path)
+            );
         }
         placed.undo();
         return Err(e);
@@ -177,6 +185,8 @@ pub fn run(ctx: &mut Context, a: AttachArgs) -> Result<()> {
 /// attach as a whole went through.
 struct Placed {
     fdir: PathBuf,
+    /// The directory printed paths are relative to (`.yman`).
+    base: PathBuf,
     /// `f/` did not exist before this attach.
     made_fdir: bool,
     /// Files this attach wrote, in order.
@@ -187,11 +197,15 @@ struct Placed {
 }
 
 impl Placed {
+    fn shown(&self, path: &Path) -> String {
+        repo::display_under(&self.base, path)
+    }
+
     /// The attach went through: the files moved aside go for good.
     fn keep(self) {
         for (aside, _) in &self.aside {
             if let Err(e) = std::fs::remove_file(aside) {
-                eprintln!("warning: cannot remove {}: {e}", aside.display());
+                eprintln!("warning: cannot remove {}: {e}", self.shown(aside));
             }
         }
     }
@@ -202,15 +216,15 @@ impl Placed {
             match std::fs::remove_file(path) {
                 Ok(()) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => eprintln!("warning: cannot remove {}: {e}", path.display()),
+                Err(e) => eprintln!("warning: cannot remove {}: {e}", self.shown(path)),
             }
         }
         for (aside, original) in self.aside.iter().rev() {
             if let Err(e) = std::fs::rename(aside, original) {
                 eprintln!(
                     "warning: cannot restore {} from {}: {e}",
-                    original.display(),
-                    aside.display()
+                    self.shown(original),
+                    self.shown(aside)
                 );
             }
         }
@@ -224,12 +238,18 @@ impl Placed {
 /// Copies every planned file into `f/`, all or nothing. A file in the way is
 /// renamed aside first, not deleted, so a failed copy can restore it; on
 /// failure everything is undone before the error is returned.
-fn place<F>(fdir: &Path, plan: &[(&Path, String, PathBuf, u64)], mut copy: F) -> Result<Placed>
+fn place<F>(
+    fdir: &Path,
+    base: &Path,
+    plan: &[(&Path, String, PathBuf, u64)],
+    mut copy: F,
+) -> Result<Placed>
 where
     F: FnMut(&Path, &Path) -> std::io::Result<()>,
 {
     let mut placed = Placed {
         fdir: fdir.to_path_buf(),
+        base: base.to_path_buf(),
         made_fdir: !fdir.exists(),
         new: Vec::new(),
         aside: Vec::new(),
@@ -255,7 +275,7 @@ where
     for (src, name, dest, _) in plan {
         // `--force A.png` over `a.png`: the old spelling goes as well, so a
         // case-sensitive clone does not end up holding both.
-        for old in same_name_files(&placed.fdir, name)? {
+        for old in same_name_files(&placed.fdir, &placed.base, name)? {
             let original = placed.fdir.join(&old);
             let aside = aside_name(&placed.fdir, &old);
             std::fs::rename(&original, &aside)?;
@@ -281,11 +301,11 @@ fn aside_name(fdir: &Path, name: &str) -> PathBuf {
 }
 
 /// Files under `f/` whose name equals `name` ignoring case.
-fn same_name_files(fdir: &Path, name: &str) -> Result<Vec<String>> {
+fn same_name_files(fdir: &Path, base: &Path, name: &str) -> Result<Vec<String>> {
     let entries = match std::fs::read_dir(fdir) {
         Ok(e) => e,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => bail!("cannot read {}: {e}", fdir.display()),
+        Err(e) => bail!("cannot read {}: {e}", repo::display_under(base, fdir)),
     };
     let mut out = Vec::new();
     for entry in entries {
@@ -454,7 +474,9 @@ mod tests {
             (&s2, "new.txt".into(), fdir.join("new.txt"), 0),
             (&s3, "b.txt".into(), fdir.join("b.txt"), 0),
         ];
-        let err = place(&fdir, &plan, failing_at(2)).err().unwrap();
+        let err = place(&fdir, tmp.path(), &plan, failing_at(2))
+            .err()
+            .unwrap();
         assert_eq!(err.to_string(), "no space left on device");
         assert_eq!(snapshot(&fdir), before);
     }
@@ -469,7 +491,7 @@ mod tests {
             (&src, "x.txt".into(), fdir.join("x.txt"), 0),
             (&src, "y.txt".into(), fdir.join("y.txt"), 0),
         ];
-        assert!(place(&fdir, &plan, failing_at(1)).is_err());
+        assert!(place(&fdir, tmp.path(), &plan, failing_at(1)).is_err());
         assert!(!fdir.exists());
     }
 
@@ -483,9 +505,11 @@ mod tests {
         std::fs::write(&src, b"new").unwrap();
         let plan: Vec<(&Path, String, PathBuf, u64)> =
             vec![(&src, "A.png".into(), fdir.join("A.png"), 0)];
-        place(&fdir, &plan, |s, d| std::fs::copy(s, d).map(drop))
-            .unwrap()
-            .keep();
+        place(&fdir, tmp.path(), &plan, |s, d| {
+            std::fs::copy(s, d).map(drop)
+        })
+        .unwrap()
+        .keep();
         let after = snapshot(&fdir);
         assert_eq!(after.len(), 1, "{:?}", after.keys());
         assert_eq!(after["A.png"], b"new");

@@ -77,4 +77,8 @@ An agent that takes a `needs-agent` task re-checks it first: reproduce or
 confirm the claim in the code, then rewrite the body with what it found
 (`yman set <id> --body-file -`, keeping the quote), drop the marker with
 `yman set <id> --untag needs-agent -m "checked: <one line>"`, and only then
-claim it. A claim that does not hold is closed with `yman cancel <id> -m "<why>"`.
+claim it. A claim that does not hold is closed with
+`yman cancel <id> -m "<why>"`; where that exits 1 because the tracker has no
+`statuses.cancel` (every version 1 config), use
+`yman done <id> -m "cancelled: <why>"`, and never edit `config.toml` to add a
+cancel status.

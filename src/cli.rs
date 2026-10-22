@@ -10,6 +10,7 @@ use clap::{ArgAction, ArgGroup, Args, Parser, Subcommand, ValueEnum, ValueHint};
     version,
     about = "Task tracker that lives next to the code and syncs through the project's own git remote",
     disable_help_subcommand = true,
+    color = clap::ColorChoice::Never,
     after_help = "\
 stdout is data; errors, warnings and notes go to stderr.
 Exit codes: 0 ok, 1 error, 2 usage, 3 sync merge unresolved, 4 no such task.
@@ -467,7 +468,7 @@ pub struct StateSetArgs {
     #[arg(short = 'm', long, value_name = "TEXT", group = "text")]
     pub message: Option<String>,
     /// Read the new summary from a file, or `-` for stdin
-    #[arg(long, value_name = "PATH", group = "text")]
+    #[arg(long, value_name = "PATH", value_hint = ValueHint::FilePath, group = "text")]
     pub body_file: Option<String>,
 }
 

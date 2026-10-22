@@ -138,6 +138,13 @@ asked for.
 
 ## 3. Reading
 
+Every task path yman prints (`added`, `edited`, `show`'s `folder:`,
+`attached … -> …`, `note: task folder is now …`, the task paths in `attach`'s
+`warning: cannot restore|remove …` lines and every `--json` `dir`) is
+relative to `.yman`, the directory `yman git` runs in. The one exception is
+[`yman path`](#path), which prints the absolute path so `cd $(yman path 14)`
+works anywhere.
+
 ### `ls`
 
 Touches no git itself; only the lazy refresh of §1 may. Filters, then sorts by
@@ -233,9 +240,8 @@ text form marks, always present as `true` or `false`; `discussion` is
 unparsable chunk appearing as `{raw}`; `discussion_total` is the count before
 `-n` trimmed anything. Unlike the text form nothing is omitted: an empty
 section is an empty array and an absent assignee is `null`, so a script never
-has to branch on a missing key. `dir` is relative to `.yman`, as in `ls --json`,
-where the text form's `folder:` line is relative to the repository root
-(`.yman/2.1.fix-login`).
+has to branch on a missing key. `dir` is relative to `.yman`, as in `ls --json`
+and as the text form's `folder:` line (`2.1.fix-login`).
 
 ### `plan`
 
@@ -474,8 +480,9 @@ under the other schemes, order steps with `prio` afterwards.
 Opens `$VISUAL`, else `$EDITOR`, else `vi`, split on whitespace so
 `EDITOR="code --wait"` works. The `vi` fallback is taken only when stdin is a
 terminal; otherwise the command fails at once with
-`no terminal for vi; set $EDITOR, or use -m / --body-file` rather than leaving
-a `vi` waiting on a pipe. The same rule covers `add -e` and `comment -e`. A
+`no terminal for vi; set $EDITOR, or use yman set <id> --body / --body-file`
+rather than leaving a `vi` waiting on a pipe. The same rule covers `add -e`
+and `comment -e`, whose messages name `-m / --body-file` and `-m` instead. A
 non-zero editor exit aborts and leaves the file alone (under `add -e` it
 removes the new folder instead, under `comment -e` its temp file; see `add`
 and `comment`). While the editor runs, yman ignores SIGINT and SIGQUIT on Unix, so
@@ -569,8 +576,8 @@ Every verb, and `prio <id>... <0-9>`, takes several ids and `-m <text>` like
 `set`. Ids are processed in the order given, one commit each, printing the
 same lines `set` would. The first failure stops the run with that error; the
 tasks before it are already committed, and what their closes freed is reported
-(below) before the error. `set`, `edit`, `show`, `path` and `rm`
-take exactly one id.
+(below) before the error. `set`, `edit`, `show`, `plan`, `path`, `rm`,
+`attach`, `detach` and `comment` take exactly one id, and `log` at most one.
 
 `cancel` has no fallback on purpose: picking one of several closed statuses by
 position is the guesswork the named roles exist to remove.
@@ -816,7 +823,8 @@ exit 1.
 
 1. A merge already in progress → exit 3.
 2. A dirty worktree is committed as `yman: snapshot local changes`, reporting
-   `snapshotted N local change(s)`.
+   `snapshotted N local change(s)` on stdout, a summary line like
+   `renumbered …` and the final `synced …`, not progress.
 3. Fetch `+refs/tasks/main:refs/yman/remote`, with `--no-write-fetch-head`
    so the main repository's `FETCH_HEAD` stays the user's. A stderr mentioning
    `couldn't find remote ref` means origin simply has no tasks yet; if we had a
@@ -974,10 +982,15 @@ because a rename conflict names paths that survive in neither tree.
 ### A task closed to two different statuses
 
 Closing one task to `done` on one clone and `cancelled` on another renames it
-two ways, and git resolves that by keeping **both** folders. Both load, and
-neither holds a conflict marker, so every other check here passes — the
-duplicate-id check is the only thing between that state and a pushed task no
-command can touch afterwards. It reports
+two ways, and git resolves that by keeping **both** folders. Both load, so
+the load check passes, and the duplicate-id check is the only thing between
+that state and a pushed task no command can touch afterwards. (When both sides
+changed the status through yman, the kept `m.yml` also carries conflict markers
+around `status`, and through `updated` when the two `updated` times differ, so
+each key between them appears twice; `--continue` refuses with
+`still unmerged: <folder>/m.yml` until they are gone, then goes on to the
+duplicate-id check. Only a hand `git mv` leaves no marker.) The duplicate-id
+check reports
 
 ```
 duplicate task id 1: cancelled/5.1.fix-login, done/5.1.fix-login; delete one folder, then: yman sync --continue
@@ -996,7 +1009,9 @@ side retitled or closed can be left behind under the old name while a merge is
 stopped; that remnant is not a split close, and `--continue` moves it into the
 folder that carries the task.
 
-Delete the folder you do not want, then rerun `yman sync --continue`.
+Delete the folder you do not want, settle the kept `m.yml` if it carries
+markers (one value per key, no marker lines), then rerun
+`yman sync --continue`.
 
 `--abort` runs `git merge --abort` and reports `merge aborted`. It pushes
 nothing, so `--no-push` beside it is a usage error, exit 2, as is `--continue`.

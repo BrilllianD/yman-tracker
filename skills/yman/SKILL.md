@@ -132,7 +132,11 @@ success, not failure.
 
 `start`, `done`, `cancel`, `reopen`, `move <id>... <status>` and
 `prio <id>... <0-9>` all take **several ids** and all take `-m <text>`. Each id
-is its own commit, processed in order.
+is its own commit, processed in order. `cancel` needs `statuses.cancel`. Where
+it is unset (every version 1 config) it exits 1 with
+`no cancel status configured; …`; close the task with
+`yman done <id> -m "cancelled: <why>"` instead, and never edit
+`.yman/config.toml` to add one.
 
 `comment <id> -m "<text>"` appends to the discussion. Always pass `-m`: with no
 `-m` and stdin not a terminal it reads the comment from stdin **until end of
@@ -227,10 +231,10 @@ markers in `.yman/state.md`, `yman sync --continue`.
 Off a terminal, a removal without `-f` fails fast with
 `refusing to remove without -f`, and an editor path with neither `$VISUAL` nor
 `$EDITOR` set fails with
-`no terminal for vi; set $EDITOR, or use -m / --body-file`. Both mean "use the
-non-interactive form", not "retry". With `$VISUAL` or `$EDITOR` set, the editor
-path does **not** fail: that editor is started even without a terminal, and
-the command may hang waiting on it.
+`no terminal for vi; set $EDITOR, or use <the non-interactive form>`. Both
+mean "use the non-interactive form", not "retry". With `$VISUAL` or `$EDITOR`
+set, the editor path does **not** fail: that editor is started even without a
+terminal, and the command may hang waiting on it.
 
 ## Streams and exit codes
 
@@ -267,8 +271,10 @@ yman sync --continue         # or: yman sync --abort
 `sync` or `--continue` can also stop with
 `duplicate task id <id>: <a>, <b>; delete one folder, then: yman sync --continue`
 (still exit 3): two folders ended up with one id, for example both sides closed
-the same task to two different statuses. There are no markers to remove; delete
-the folder you do not want and continue.
+the same task to two different statuses. Delete the folder you do not want and
+continue. When both sides closed it through yman, `--continue` first refuses
+with `still unmerged` on the two `m.yml` copies: delete the unwanted folder,
+settle the kept `m.yml` (one value per key, no markers), then continue.
 
 Any other failure once the merge has started ends
 `<cause>; the merge is still in progress; fix that, then: yman sync --continue

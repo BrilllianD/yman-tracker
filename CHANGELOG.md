@@ -9,9 +9,14 @@ under [Releasing](README.md#releasing) in the README.
 
 ### Fixed
 
+- `yman completions` offers file names after `state set --body-file`.
 - `ls --json` gives a broken folder its `id`.
 - `yman log <id>` shows the history of a removed task instead of exiting 4.
 - `ls --assignee` trims its value and reads a blank one as `-`, like `add -a`.
+- `yman guide` tells agents to pick a side of a file with no conflict markers
+  with `yman git checkout --ours|--theirs` before `yman git add`, and the guide,
+  the skills and the README say what to do when `cancel` exits 1 on a tracker
+  without `statuses.cancel`.
 - `add --relate`/`--waits-on` naming the id the new task gets is refused
   instead of making the task wait on itself.
 - `add` in a tracker with uncommitted changes no longer leaves its new folder
@@ -141,9 +146,17 @@ under [Releasing](README.md#releasing) in the README.
 - `yman ls --related X` no longer lists task X itself when its own `related`
   names it (a hand edit), so it agrees with `yman plan X` and `yman show X`'s
   `related by`.
+- `yman --help` and usage errors are no longer coloured on a terminal, as the
+  docs always said.
 
 ### Changed
 
+- `show`'s `folder:` line, `attach`'s `attached <name> -> <path>` lines and
+  `attach`'s `warning: cannot restore|remove` lines print the path relative to
+  `.yman`, like every other task path yman prints (`yman path` stays absolute).
+- With no terminal and no `$EDITOR`, `edit` and `comment -e` name an
+  alternative they have (`yman set <id> --body / --body-file`, `-m`) instead of
+  `-m / --body-file`.
 - `comment -m <text> -e` is a usage error (exit 2); before, `-e` was ignored.
 - Building needs Rust 1.89 (`std::fs::File::lock`).
 

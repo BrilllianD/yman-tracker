@@ -203,7 +203,7 @@ fn add_ls_show() {
         text.contains("priority: 2   status: todo   assignee: -   tags: auth, bug"),
         "{text}"
     );
-    assert!(text.contains("folder:   .yman/2.1.fix-login"), "{text}");
+    assert!(text.contains("folder:   2.1.fix-login"), "{text}");
     assert!(text.contains("\nbody text\n"), "{text}");
     assert!(!text.contains("attachments:"), "{text}");
     assert!(!text.contains("discussion:"), "{text}");
@@ -4747,7 +4747,7 @@ fn comment_editor_temp_file_is_private_and_always_removed() {
         .unwrap();
     assert_eq!(
         stderr(&out).trim(),
-        "error: no terminal for vi; set $EDITOR, or use -m / --body-file"
+        "error: no terminal for vi; set $EDITOR, or use -m"
     );
     assert_eq!(leftovers(), Vec::<String>::new());
 
@@ -6347,6 +6347,61 @@ fn a_split_close_cannot_be_continued_into_a_duplicate_id() {
     assert_eq!(fx.git(&fx.b, &["-C", ".yman", "status", "--porcelain"]), "");
 }
 
+/// The same split close, made with real `done` and `cancel`, rewrites `status`
+/// and `updated` in `m.yml` on both sides, so the kept `m.yml` also carries
+/// conflict markers. Deleting one folder is not enough: the survivor's `m.yml`
+/// must be settled by hand before `--continue` goes through.
+#[test]
+fn a_split_close_through_yman_also_leaves_markers_in_m_yml() {
+    let fx = Fx::new();
+    fx.shared(|| {
+        fx.v2_config(&fx.a);
+        fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
+    });
+    fx.yman(&fx.a).args(["done", "1"]).assert().success();
+    fx.yman(&fx.a).arg("sync").assert().success();
+    fx.yman(&fx.b).args(["cancel", "1"]).assert().success();
+
+    let out = fx.yman(&fx.b).arg("sync").output().unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+
+    std::fs::remove_dir_all(fx.b.join(".yman/cancelled/5.1.fix-login")).unwrap();
+    let out = fx
+        .yman(&fx.b)
+        .args(["sync", "--continue"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert!(stderr(&out).contains("still unmerged"), "{}", stderr(&out));
+
+    // Settle m.yml: keep the first value of every key, drop the markers.
+    let m = fx.b.join(".yman/done/5.1.fix-login/m.yml");
+    let text = std::fs::read_to_string(&m).unwrap();
+    assert!(text.contains("<<<<<<<"), "{text}");
+    let mut seen = std::collections::HashSet::new();
+    let mut settled = String::new();
+    for line in text.lines() {
+        if line.starts_with("<<<<<<<") || line.starts_with(">>>>>>>") {
+            continue;
+        }
+        if line.starts_with("=======") {
+            continue;
+        }
+        let key = line.split(':').next().unwrap().to_string();
+        if seen.insert(key) {
+            settled.push_str(line);
+            settled.push('\n');
+        }
+    }
+    std::fs::write(&m, settled).unwrap();
+    fx.yman(&fx.b)
+        .args(["sync", "--continue"])
+        .assert()
+        .success();
+    assert_eq!(fx.task_rel(&fx.b, "1"), "done/5.1.fix-login");
+    assert_eq!(fx.git(&fx.b, &["-C", ".yman", "status", "--porcelain"]), "");
+}
+
 /// Commenting on an existing task is not creating one. Both sides adding a
 /// `d.md` to the same folder used to look like two people minting the same id,
 /// so syncing second renumbered a task that had been published for weeks.
@@ -7424,10 +7479,19 @@ fn edit_without_editor_or_tty_fails_fast() {
     fx.yman(&fx.a).arg("init").assert().success();
     fx.yman(&fx.a).args(["add", "Fix login"]).assert().success();
 
-    for args in [
-        vec!["edit", "1"],
-        vec!["comment", "1", "-e"],
-        vec!["add", "Another", "-e"],
+    for (args, expected) in [
+        (
+            vec!["edit", "1"],
+            "error: no terminal for vi; set $EDITOR, or use yman set 1 --body / --body-file",
+        ),
+        (
+            vec!["comment", "1", "-e"],
+            "error: no terminal for vi; set $EDITOR, or use -m",
+        ),
+        (
+            vec!["add", "Another", "-e"],
+            "error: no terminal for vi; set $EDITOR, or use -m / --body-file",
+        ),
     ] {
         let out = fx
             .yman(&fx.a)
@@ -7437,11 +7501,7 @@ fn edit_without_editor_or_tty_fails_fast() {
             .output()
             .unwrap();
         assert_eq!(out.status.code(), Some(1), "{args:?}");
-        assert_eq!(
-            stderr(&out).trim(),
-            "error: no terminal for vi; set $EDITOR, or use -m / --body-file",
-            "{args:?}"
-        );
+        assert_eq!(stderr(&out).trim(), expected, "{args:?}");
     }
     assert!(!fx.has_task(&fx.a, "2"), "add -e must not create anything");
 
@@ -7503,6 +7563,34 @@ fn help_documents_flags_and_points_at_guide() {
     }
     let ls = stdout(&fx.yman(&fx.a).args(["ls", "--help"]).output().unwrap());
     assert!(ls.contains("Print JSON instead of the table"), "{ls}");
+}
+
+/// No colour anywhere: clap's help and usage errors stay plain even when the
+/// terminal or `CLICOLOR_FORCE` asks for colour.
+#[test]
+fn help_and_usage_errors_have_no_colour() {
+    let fx = Fx::new();
+    let help = fx
+        .yman(&fx.a)
+        .env("CLICOLOR_FORCE", "1")
+        .arg("--help")
+        .output()
+        .unwrap();
+    assert!(help.status.success());
+    assert!(!stdout(&help).contains('\u{1b}'), "{}", stdout(&help));
+    let bad = fx
+        .yman(&fx.a)
+        .env("CLICOLOR_FORCE", "1")
+        .args(["ls", "--stat"])
+        .output()
+        .unwrap();
+    assert_eq!(bad.status.code(), Some(2));
+    assert!(
+        stderr(&bad).starts_with("error: unexpected argument '--stat' found"),
+        "{}",
+        stderr(&bad)
+    );
+    assert!(!stderr(&bad).contains('\u{1b}'), "{}", stderr(&bad));
 }
 
 /// `guide` prints docs/agents.md byte for byte, from a directory that is
@@ -7698,6 +7786,29 @@ fn completions_cover_every_subcommand() {
         .output()
         .unwrap();
     assert_eq!(out.status.code(), Some(2), "{}", stderr(&out));
+}
+
+/// Every flag that takes a file offers file names, `state set --body-file`
+/// included.
+#[test]
+fn file_flags_complete_as_files() {
+    let fx = Fx::new();
+    let nowhere = tempfile::tempdir().unwrap();
+    let out = fx
+        .yman(nowhere.path())
+        .args(["completions", "zsh"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr(&out));
+    let script = stdout(&out);
+    let lines: Vec<&str> = script
+        .lines()
+        .filter(|l| l.contains("--body-file=") || l.contains("--sections="))
+        .collect();
+    assert!(lines.len() >= 4, "{lines:?}");
+    for l in &lines {
+        assert!(l.contains(":PATH:_files"), "{l}");
+    }
 }
 
 /// `man` prints yman.1 anywhere; `--dir` writes it and the per-subcommand
@@ -10021,10 +10132,12 @@ fn attach_name_stores_one_file_under_another_name() {
         .output()
         .unwrap();
     assert!(out.status.success(), "{}", stderr(&out));
-    assert!(
-        stdout(&out).starts_with("attached login-error.png -> "),
-        "{}",
-        stdout(&out)
+    assert_eq!(
+        stdout(&out),
+        format!(
+            "attached login-error.png -> {}/f/login-error.png\n",
+            fx.task_rel(&fx.a, "1")
+        )
     );
     let fdir = fx.task_dir(&fx.a, "1").join("f");
     assert_eq!(fx.read(&fdir.join("login-error.png")), "png\n");

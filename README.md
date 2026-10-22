@@ -8,11 +8,18 @@ your repository — but in a namespace ordinary git use never walks into.
 
 ```console
 $ yman init
+initialized .yman
+  scheme:   seq
+  remote:   git@example.com:team/app.git  (refs/tasks/main)
+  refresh:  lazy
+  hooks:    not installed
+  tasks:    0
 $ yman add "Fix login" -p 2 -t auth
 added 1  2.1.fix-login
 $ yman start 1
 1: status todo -> doing
 $ yman comment 1 -m "reproduced on staging"
+commented on 1
 $ yman sync
 synced  pulled 0, pushed 3, renumbered 0   refs/yman/local @ 3f2a1c9
 ```
@@ -21,8 +28,15 @@ Your teammate, in their own clone:
 
 ```console
 $ yman init
+initialized .yman
+  scheme:   seq
+  remote:   git@example.com:team/app.git  (refs/tasks/main)
+  refresh:  lazy
+  hooks:    not installed
+  tasks:    1
 $ yman ls
-2  1  doing  Fix login  auth    1
+P  ID  STATUS  TITLE      TAGS  F  C
+2  1   doing   Fix login  auth     1
 ```
 
 ---
@@ -192,8 +206,10 @@ related:
 - '5'
 ```
 
-Timestamps are RFC 3339, UTC, second precision. Keys yman does not know are
-dropped when it rewrites the file.
+Timestamps are RFC 3339, UTC, second precision. Top-level keys yman does not
+know survive a rewrite: they are kept verbatim and written back after `related`
+([storage.md §6](docs/storage.md#myml)). Unknown keys inside an `attachments`
+entry are dropped.
 
 ### `d.md`
 
@@ -355,6 +371,8 @@ yman init [--remote <url>] [--offline] [--id-scheme random|seq|author]
           [--author <prefix>] [--hooks] [--refresh lazy|manual]
           [--autosync off|push]
 yman status [--json]     # where everything stands; never changes anything
+yman state               # the project state summary; empty, with a note, until written
+yman state set -m <text> | --body-file <path|->   # replace it, one commit
 yman refresh [--quiet]   # fast-forward onto already-fetched task commits
 yman sync [--continue] [--abort] [--no-push]
 yman hooks install|remove|status
@@ -369,7 +387,7 @@ $ yman status
 .yman  refs/yman/local @ 3f2a1c9   (refresh: lazy, hooks: installed)
 remote: refs/tasks/main @ 9b8c7d6   ahead 2, behind 1   → run: yman sync
 worktree: clean
-tasks:   todo 4, doing 1, done 7
+tasks:   todo 2, doing 1, done 0, cancelled 0
 ```
 
 `yman init` sets the tracker up, or joins one another clone already published;
@@ -397,22 +415,31 @@ Everything a script would want to read goes to stdout.
 `yman guide` prints [docs/agents.md](docs/agents.md), a one-page manual for a
 reader that pays per token: which calls to make, what `ls` columns mean, the
 exit codes, and how to recover from a stuck sync. It starts with a block to
-paste into a project's `CLAUDE.md`. The short version: filter with `ls -n`,
-skim bodies with `ls -l -n`, read with `show -n`, close with `done <id> -m`,
-run `yman sync` before a status change and after it (the after is automatic
-under `yman.autosync = push`), never open an editor, always give `comment` its
-text with `-m` (without it the comment is read from stdin until end of file,
-which blocks on a pipe left open), read `yman state` at session start and
-rewrite it with `yman state set --body-file - <<'EOF'` when the situation
-changed (short: in progress, next, blockers; never edit `.yman/state.md` by
-hand), and set `YMAN_ACTOR` so the work is attributed to the agent. Parallel
-writing calls on one clone queue instead of colliding (a waiting one prints a
-note on stderr; reads never wait). Big work is a plan: an epic task plus steps
-that `--relate` it, read from the epic with `yman plan <id>` (progress and open
-steps in one call, enough to pick the next step without a `show` per step) and
-created in one go with `add --sections plan.md --relate <id>`, so the epic is
-never edited; a step that waits sits in `blocked` and relates to what it waits
-on.
+paste into a project's `CLAUDE.md`. The short version: filter with `ls -n`, skim
+bodies with `ls -l -n`, read with `show -n`, close with `done <id> -m`, run
+`yman sync` before a status change, then re-`show` the task and stop if somebody
+else has taken or closed it, and sync again after the change (the after is
+automatic under `yman.autosync = push`), never open an editor, always give
+`comment` its text with `-m` (without it the comment is read from stdin until
+end of file, which blocks on a pipe left open), read `yman state` at session
+start and rewrite it with `yman state set --body-file - <<'EOF'` when the
+situation changed (short: in progress, next, blockers; never edit
+`.yman/state.md` by hand), and set `YMAN_ACTOR` so the work is attributed to the
+agent. Parallel writing calls on one clone queue instead of colliding (a waiting
+one prints a note on stderr; reads never wait). Big work is a plan: an epic task
+plus steps that `--relate` it, read from the epic with `yman plan <id>`
+(progress and open steps in one call, enough to pick the next step without a
+`show` per step) and created in one go with
+`add --sections plan.md --relate <id>`, so the epic is never edited; a step that
+waits sits in `blocked` and relates to what it waits on.
+
+Three refusals to expect. `rm` and `tags rm` need `-f` off a terminal, and
+without it fail with `refusing to remove without -f`. Exit 3 means a sync merge
+is unresolved, and every command that changes a task exits 3 until
+`yman sync --continue` or `--abort` settles it; the guide and the skill give
+the recovery for each case. `cancel` exits 1 where `statuses.cancel` is unset
+(every version 1 config): close with `yman done <id> -m "cancelled: <why>"`
+instead, and never edit `config.toml` to add a cancel status.
 
 For a harness that loads skills, [skills/yman/](skills/yman/) is the fuller
 version of the same rules as a Claude Code skill — the task-list procedure,
@@ -503,8 +530,9 @@ has no status to use; raising the version is a hand edit. Existing closed tasks 
 one does it, and reports `folder <old> -> <new>`.
 
 Two people closing the *same* task to *different* statuses is the one case that
-gets harder: git keeps both folders, and `yman sync` names the pair and asks you
-to delete one. `yman sync --continue` refuses until you do.
+gets harder: git keeps both folders, and `yman sync` names the pair, lists
+the kept `m.yml` among the unmerged files, and asks you to delete one folder
+and settle that file. `yman sync --continue` refuses until you have.
 
 ### Choosing an id scheme
 
@@ -554,7 +582,7 @@ uncommitted edits in `.yman`, fetches, merges, and pushes:
 ```console
 $ yman sync
 snapshotted 1 local change(s)
-synced  pulled 3, pushed 2, renumbered 0   refs/yman/local @ 3f2a1c9
+synced  pulled 0, pushed 1, renumbered 0   refs/yman/local @ 3f2a1c9
 ```
 
 Publishing your own changes can happen without a sync too. With
@@ -598,9 +626,9 @@ id is already published:
 
 ```console
 $ yman sync
-renumbered 2 -> 3  (id taken on origin)
 note: rewrote 1 reference(s) to renumbered ids
-synced  pulled 1, pushed 3, renumbered 1   refs/yman/local @ 1f7d06f
+renumbered 2 -> 4  (id taken on origin)
+synced  pulled 1, pushed 4, renumbered 1   refs/yman/local @ 1f7d06f
 ```
 
 References to the old id in other tasks' `related` lists follow the move, in the
@@ -608,11 +636,13 @@ same commit as the rename.
 
 ### Same field, two edits
 
-Two people changing the status of the same task conflict like any other git
-conflict. Sync stops with exit code 3 and tells you which files:
+Two people setting the same field of the same task (the assignee, say) to
+different values conflict like any other git conflict. Sync stops with exit
+code 3 and tells you which files:
 
 ```console
 $ yman sync
+note: unmerged files:
   5.1.fix-login/m.yml
 error: conflicts in 1 file(s); edit them, remove markers, then: yman sync --continue  (or: yman sync --abort)
 ```
@@ -645,15 +675,27 @@ so:
 
 ```console
 $ yman sync
+note: unmerged files:
+  5.1.fix-login/m.yml
+  5.1.fix-login/t.md
+  cancelled/5.1.fix-login/m.yml
+  cancelled/5.1.fix-login/t.md
+  done/5.1.fix-login/m.yml
+  done/5.1.fix-login/t.md
 note: task 1 was closed to two different statuses; keep one of cancelled/5.1.fix-login, done/5.1.fix-login
-error: conflicts in 3 file(s); edit them, remove markers, then: yman sync --continue
+error: conflicts in 6 file(s); edit them, remove markers, then: yman sync --continue  (or: yman sync --abort)
 
 $ rm -rf .yman/cancelled/5.1.fix-login
+$ $EDITOR .yman/done/5.1.fix-login/m.yml   # keep one of each key, drop the markers
 $ yman sync --continue
+synced  pulled 1, pushed 2, renumbered 0   refs/yman/local @ 3f2a1c9
 ```
 
 `--continue` refuses while both folders are there, so the tracker cannot end up
-with two folders for one id.
+with two folders for one id. The folder you keep still has a conflict in its
+`m.yml`, around `status` (through `updated` when the two `updated` times
+differ, so those keys appear twice), which is yours to settle like any other:
+keep one of each key.
 
 ---
 

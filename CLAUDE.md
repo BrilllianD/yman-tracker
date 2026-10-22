@@ -12,7 +12,7 @@ Knowledge base: ~/mem/projects/yman/README.md (search: qmd search "<terms>" -c m
 ## Commands
 
 ```sh
-cargo test                                  # 141 unit + 222 integration
+cargo test                                  # unit tests in src/, scenarios in tests/cli.rs
 cargo clippy --all-targets -- -D warnings   # must be clean; CI runs it too
 cargo fmt                                   # run before committing
 sh scripts/spike-symref.sh                  # re-proves the git invariant below
@@ -68,7 +68,8 @@ pages generated from `src/cli.rs` cannot drift from it. There is no `regex`
 `serde_json` (every `--json` output is written by `src/json.rs`, which escapes
 and assembles it by hand) and no YAML crate (`m.yml` goes through
 `src/yml.rs`, whose writer is byte-compatible with the `serde_yaml` output it
-replaced). Adding a crate needs a reason beyond convenience.
+replaced, except the differences listed in `src/yml.rs`). Adding a crate needs
+a reason beyond convenience.
 
 ## Git conventions
 
@@ -81,7 +82,9 @@ replaced). Adding a crate needs a reason beyond convenience.
 - Work on a feature branch and merge it — do not commit straight to `main`.
 - The backlog lives in this repository's own tracker: `yman ls` lists open
   work, `yman show <id>` gives each entry's "Where" and "Done when". Run
-  `yman sync`, then claim a task with `yman start <id>` before working on it.
+  `yman sync`, then claim a task before working on it with the guide's claim
+  line, `yman set <id> --status doing -a <you> -m "on it"` (`yman start <id>`
+  sets the status alone).
 - Commit each task as soon as it is finished, before starting the next one:
   run the gate (`.claude/skills/verify`), commit the code, the tests and the
   docs together, then `yman done <id> -m "<commit>: <summary>"` and
@@ -110,9 +113,11 @@ getting from no `.yman` to a working tracker. They describe what the code
 does, so a disagreement between them is a bug in one or the other — say which
 you think it is instead of silently picking a side.
 
-The agent-facing surface is written down three times: `docs/agents.md`, which
-`src/commands/guide.rs` compiles into the binary with `include_str!` and
+The agent-facing surface is written down in several places: `docs/agents.md`,
+which `src/commands/guide.rs` compiles into the binary with `include_str!` and
 `yman guide` prints; `skills/yman/SKILL.md`, the copy a harness loads (and what
-`.claude/skills/yman` symlinks to); and the `## Scripts and agents` section of
-`README.md`. A changed flag, exit code or interactive-command rule has to move
-in all three.
+`.claude/skills/yman` symlinks to); and the `### Scripts and agents` section of
+`README.md`. `after_help` in `src/cli.rs`, the end of `yman --help`, repeats
+the streams rule, the exit codes, the multi-id verbs and the body flags in six
+lines. A changed flag, exit code or interactive-command rule has to move in all
+of them.

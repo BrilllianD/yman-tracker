@@ -111,7 +111,17 @@ In the **main repo**, all local and none of it committed:
   binary by absolute path. This pairs with the `**/m.yml merge=ymanmeta` line
   in `.gitattributes`, which travels in the history while the config does not —
   which is why every clone must run `init` even when the history already
-  exists.
+  exists;
+- `refs/yman/local`: kept when it exists, set to `refs/yman/remote` when `init`
+  adopts origin's tracker, otherwise an empty root commit `yman: init` (§4);
+  `refs/yman/remote` is written by the fetch when origin has `refs/tasks/main`;
+- the remote `origin`, when `--remote <url>` is given and the repository has
+  none (`note: added remote "origin" -> <url>`);
+- the linked worktree: `git worktree add --detach .yman refs/yman/local`, run
+  without the user's hooks, registers it under `COMMON/worktrees/` (git names
+  the entry `-yman`; yman reads the name from `.yman/.git` and never builds
+  it), and `.yman`'s HEAD is then made the symbolic ref `refs/yman/local`, so
+  commits there move the ref.
 
 In **`.yman`** — only when the history is being created — `config.toml`
 (`version = 2`, with a `cancelled` status, so `yman cancel` works at once and

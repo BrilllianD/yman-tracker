@@ -6,8 +6,9 @@ use std::process::Command;
 
 /// `$VISUAL`, else `$EDITOR`, else `vi`. Callers that create files before
 /// opening the editor (`add -e`) resolve first so a refusal leaves nothing
-/// behind.
-pub fn resolve_editor() -> Result<String> {
+/// behind. `instead` names the non-interactive form of the calling command,
+/// for the refusal.
+pub fn resolve_editor(instead: &str) -> Result<String> {
     let configured = std::env::var("VISUAL")
         .ok()
         .filter(|s| !s.trim().is_empty())
@@ -20,21 +21,21 @@ pub fn resolve_editor() -> Result<String> {
     // a timeout followed by a retry, the single most expensive way to lose.
     // Someone who set $EDITOR explicitly asked for whatever it does.
     if configured.is_none() && !std::io::stdin().is_terminal() {
-        bail!("no terminal for vi; set $EDITOR, or use -m / --body-file");
+        bail!("no terminal for vi; set $EDITOR, or use {instead}");
     }
     Ok(configured.unwrap_or_else(|| "vi".to_string()))
 }
 
 /// Split on whitespace so `EDITOR="code --wait"` works.
-pub fn open_editor(path: &Path) -> Result<()> {
-    run_editor(path, "file left as is")
+pub fn open_editor(path: &Path, instead: &str) -> Result<()> {
+    run_editor(path, "file left as is", instead)
 }
 
 /// `open_editor`, with `aftermath` telling the user what a failed editor run
 /// did to their work: `add -e` removes the folder it created, so it says
 /// "task not added" rather than "file left as is".
-pub fn run_editor(path: &Path, aftermath: &str) -> Result<()> {
-    let spec = resolve_editor()?;
+pub fn run_editor(path: &Path, aftermath: &str, instead: &str) -> Result<()> {
+    let spec = resolve_editor(instead)?;
     let mut parts = spec.split_whitespace();
     // `resolve_editor` never returns a blank spec, so there is a first word.
     let program = parts.next().unwrap_or("vi");

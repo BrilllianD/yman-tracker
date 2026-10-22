@@ -98,8 +98,15 @@ Anything the reader does not recognise — the `reftable` backend (git 2.45+,
 detected as `COMMON/reftable/`), an unreadable file, a value that is not a full
 hex object id — is not a failure: the caller falls back to `git rev-parse` or
 `git symbolic-ref`, which is always authoritative. An unfamiliar repository is
-therefore slower, never wrong. The write paths (`sync`, `init`, `status`) keep
-asking git directly, because they read refs that git itself has just moved.
+therefore slower, never wrong. `init`, `status` and the merge and push
+bookkeeping of `sync` keep asking git directly (`Git::rev_parse`), because they
+read refs that git itself has just moved. Everything else reads through
+`Context::resolve_ref`: `push`, which resolves `LOCAL` once and pushes that
+commit by sha, the fetch's check for a stale `REMOTE`, autosync, `refresh`, the
+walk for ids already taken, and `main`'s before-and-after look at `LOCAL` that
+decides whether a failed command still committed. A rename-replaced file is
+read as old or new, never torn, so reading it straight after git moved it is
+safe.
 
 The visible consequence is the process count: `yman ls` and `yman show` in an
 up-to-date repository spawn one `git`, the `rev-parse` above. A repository
@@ -160,13 +167,21 @@ calls carry: literal pathspecs (`GIT_NOGLOB_PATHSPECS`) and the pins above
 `yman git`, a raw passthrough that keeps the user's locale, flags, config and
 environment.
 
-The runner in wt adds `-c core.hooksPath=/dev/null`, and so does the single
-`git worktree add` that creates `YDIR`: no hook file exists below a device
-file, so the user's `post-commit`, `post-merge`, `post-checkout` and `post-rewrite`
-never run with `YDIR` as their working directory (`--no-verify` only covers
-the pre-hooks). `/dev/null` rather than an empty directory under `WT_GITDIR`
-because it needs no setup and works before `WT_GITDIR` exists. The runner in
-main keeps the user's hooks, including the ones `yman hooks install` writes.
+`Git::without_hooks` adds `-c core.hooksPath=/dev/null`, plus
+`-c hook.<name>.enabled=false` for every hook defined in configuration (git
+2.54+; those do not look in `core.hooksPath`). The runner in wt is built that
+way, so the user's `post-commit`, `post-merge`, `post-checkout` and
+`post-rewrite` never run with `YDIR` as their working directory (`--no-verify`
+only covers the pre-hooks). `/dev/null` rather than an empty directory under
+`WT_GITDIR` because no hook file exists below a device file, it needs no setup,
+and it works before `WT_GITDIR` exists. The runner in main keeps the user's
+hooks, but every main-repo call that moves a ref or creates the worktree goes
+through `without_hooks` as well: `fetch` and `push` and the `update-ref` that
+follows each (`src/transport.rs`), the `update-ref`s of `refs/yman/local` in
+`init`, and the single `git worktree add` that creates `YDIR`. Those refs and
+that checkout are yman's, so a `reference-transaction` or `post-checkout` hook
+of the user's is not for them. The hooks `yman hooks install` writes run from
+the user's own `git pull` and `git checkout`, never from a call yman makes.
 
 When the repository has no `origin` and `--remote <url>` is given, `init`
 creates the remote — `fetch` and `push` address `origin` by name, so reporting
@@ -181,7 +196,9 @@ ROOT/
                                 #   yman.author, merge.ymanmeta.*
     info/exclude                # + ".yman/"
     refs/yman/{local,remote}    # remote only once fetched; absent when local-only
-    worktrees/-yman/            # git-managed; HEAD, index, MERGE_HEAD
+    worktrees/-yman/            # git-managed: HEAD, index, MERGE_HEAD; plus yman.lock
+                                #   (the per-clone write lock, never removed) and, while a
+                                #   sync merge is stopped, YMAN_MARKED
     hooks/{post-merge,post-checkout}   # optional, `yman hooks install`;
                                 #   core.hooksPath instead when set
   .yman/
@@ -196,6 +213,9 @@ ROOT/
       d.md                      # only once commented
       f/                        # only once something is attached
         screenshot.png
+    done/                       # version 2: one directory per terminal status, made
+      5.9.old-thing/            #   when a task is first closed to it (§5)
+    cancelled/
 ```
 
 ## 5. Task folder names
@@ -328,6 +348,18 @@ related:
 ```
 
 - Every field but `status`, `created` and `updated` defaults to empty.
+- `related` holds task ids and is one-way: relating 14 to 15 says nothing about
+  15. An id this clone does not have is kept. `rm` drops the removed id from
+  every list, and a sync renumber rewrites it (commands.md). Two readers give
+  it more meaning. A task tagged `epic` (compared case-folded) is a container:
+  it never counts as something a step waits on, and closing it with open tasks
+  relating to it warns. A task in the status `blocked` waits on the open,
+  non-epic tasks it relates to (§7, "Status roles").
+- The format has no extension point below the top level. A new attachment
+  field, or a relation richer than "relates to" (typed or two-way), needs a new
+  top-level key: an older binary keeps an unknown top-level key (below) but
+  drops an unknown key inside an `attachments` item, and reads a `related`
+  entry as a plain id.
 - Timestamps are RFC 3339, UTC, **second precision** (`task::now()` zeroes the
   nanoseconds), serialized with a `Z` suffix.
 - `attachments[].path` is always `f/<name>`. The reader enforces it: `path`
